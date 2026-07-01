@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { href: '/revenue', label: 'Revenue', icon: TrendingUp },
   { href: '/growth', label: 'Growth', icon: Rocket },
   { href: '/data', label: 'Data Monetization', icon: Database },
+  { href: '/risk', label: 'Risk & Compliance', icon: Shield },
   { href: '/users', label: 'Users', icon: Users },
   { href: '/ai-usage', label: 'AI Usage', icon: Coins },
   { href: '/features', label: 'Feature Flags', icon: Flag },

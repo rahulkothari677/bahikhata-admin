@@ -158,7 +158,6 @@ export async function computeCreditScore(userId: string): Promise<CreditScore | 
   const gstDetail = hasGstData ? 'GST data detected (compliant)' : 'No GST data (non-compliant)'
 
   // ===== TOTAL =====
-  const totalScore = volScore + consistencyScore + collScore + ageScore + prodScore + partyScore + gstScore + 300 - 200
   // Base 300 + scored components (700 max) = 300-1000 range, cap at 900
   const finalScore = Math.min(900, Math.max(300, 300 + volScore + consistencyScore + collScore + ageScore + prodScore + partyScore + gstScore))
 
