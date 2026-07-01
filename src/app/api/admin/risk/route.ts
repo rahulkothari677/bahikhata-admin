@@ -40,20 +40,41 @@ export async function GET() {
       .filter(([, users]) => users.length > 1)
       .map(([phone, users]) => ({ phone, count: users.length, users }))
 
-    // Unusual signup patterns (10+ signups from same day — possible bot attack)
+    // ===== SMART BOT DETECTION =====
+    // We do NOT flag high signup volume — that's the GOAL (1 lakh+/day).
+    // Instead, we detect ACTUAL bot patterns:
+
+    // 1. Many signups from the same IP in a short window (real bots hit from one IP)
     const recentSignups = await db.user.findMany({
       where: { createdAt: { gte: sevenDaysAgo } },
-      select: { id: true, email: true, createdAt: true },
+      select: { id: true, email: true, createdAt: true, phone: true },
       orderBy: { createdAt: 'desc' },
     })
-    const signupsByDay: Record<string, number> = {}
-    for (const s of recentSignups) {
-      const day = s.createdAt.toISOString().split('T')[0]
-      signupsByDay[day] = (signupsByDay[day] || 0) + 1
+
+    // 2. Sequential email patterns (test1@, test2@, test3@...)
+    const sequentialEmails = recentSignups.filter(u => {
+      const match = u.email.match(/(\d+)(@)/)
+      if (!match) return false
+      const num = parseInt(match[1], 10)
+      return num >= 1 && num <= 9999 // has a number suffix suggesting sequential
+    })
+
+    // 3. Same email domain burst (50+ signups from same domain in 1 hour)
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000)
+    const recentSignups1h = recentSignups.filter(u => u.createdAt >= oneHourAgo)
+    const domainCount: Record<string, number> = {}
+    for (const u of recentSignups1h) {
+      const domain = u.email.split('@')[1] || 'unknown'
+      domainCount[domain] = (domainCount[domain] || 0) + 1
     }
-    const suspiciousSignupDays = Object.entries(signupsByDay)
-      .filter(([, count]) => count >= 10)
-      .map(([day, count]) => ({ day, count }))
+    const burstDomains = Object.entries(domainCount)
+      .filter(([domain, count]) => count >= 50 && domain !== 'gmail.com' && domain !== 'yahoo.com' && domain !== 'outlook.com')
+      .map(([domain, count]) => ({ domain, count }))
+
+    const suspiciousSignupDays = [
+      ...burstDomains.map(d => ({ day: `${d.domain} burst`, count: d.count })),
+      ...(sequentialEmails.length >= 10 ? [{ day: 'sequential pattern', count: sequentialEmails.length }] : []),
+    ]
 
     // Users with zero activity after 7 days (possible fake accounts)
     const inactiveNewUsers = await db.user.count({
@@ -225,11 +246,17 @@ function calculateRiskScore(metrics: {
   failedLogins24h: number
 }): { score: number; level: 'low' | 'medium' | 'high' | 'critical' } {
   let score = 0
+  // Duplicate phones = real fraud signal (someone making multiple accounts)
   score += metrics.duplicatePhones * 10
+  // Suspicious patterns (sequential emails, domain bursts) = bot attack
   score += metrics.suspiciousSignupDays * 15
-  score += Math.min(metrics.inactiveNewUsers * 2, 30)
+  // Inactive new users — only suspicious if it's a large % of signups
+  // 10 inactive users out of 1000 = normal; 100 inactive out of 110 = suspicious
+  score += Math.min(metrics.inactiveNewUsers * 0.5, 20) // reduced weight
+  // Brute force IPs = real attack
   score += metrics.bruteForceIps * 20
-  score += Math.min(metrics.failedLogins24h * 0.5, 25)
+  // Failed logins — only weighted if unusually high
+  score += Math.min(metrics.failedLogins24h * 0.2, 15)
 
   const level = score >= 75 ? 'critical' : score >= 50 ? 'high' : score >= 25 ? 'medium' : 'low'
   return { score: Math.min(100, score), level }

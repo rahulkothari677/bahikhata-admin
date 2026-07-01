@@ -77,9 +77,9 @@ export default function RiskPage() {
             <p className="text-[10px] text-muted-foreground">same phone, multiple accounts</p>
           </div>
           <div className="rounded-lg bg-muted/30 p-3">
-            <p className="text-[10px] text-muted-foreground uppercase">Suspicious Signup Days</p>
+            <p className="text-[10px] text-muted-foreground uppercase">Bot Patterns Detected</p>
             <p className="text-xl font-bold mt-1">{fraud.suspiciousSignupDays.length}</p>
-            <p className="text-[10px] text-muted-foreground">10+ signups in one day</p>
+            <p className="text-[10px] text-muted-foreground">sequential emails, domain bursts</p>
           </div>
           <div className="rounded-lg bg-muted/30 p-3">
             <p className="text-[10px] text-muted-foreground uppercase">Inactive New Users</p>
