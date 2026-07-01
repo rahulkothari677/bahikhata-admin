@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { signOut, useSession } from 'next-auth/react'
 import {
   LayoutDashboard, Users, Coins, Flag, CreditCard, ScrollText,
-  LogOut, Shield, Sparkles, TrendingUp, Rocket
+  LogOut, Shield, Sparkles, TrendingUp, Rocket, Database
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: '/', label: 'Overview', icon: LayoutDashboard },
   { href: '/revenue', label: 'Revenue', icon: TrendingUp },
   { href: '/growth', label: 'Growth', icon: Rocket },
+  { href: '/data', label: 'Data Monetization', icon: Database },
   { href: '/users', label: 'Users', icon: Users },
   { href: '/ai-usage', label: 'AI Usage', icon: Coins },
   { href: '/features', label: 'Feature Flags', icon: Flag },
