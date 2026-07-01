@@ -1,0 +1,433 @@
+// BahiKhata Pro — India's Best Ledger App
+// Database schema for shop owners: products, parties, transactions, GST, etc.
+// Multi-tenant: every model has userId for data isolation
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== USERS (Authentication) ====================
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  password      String    // hashed with bcrypt
+  phone         String?   // for future phone OTP
+  emailVerified DateTime? // for future email verification
+  image         String?   // profile picture URL
+  role          String    @default("owner") // owner | staff
+  ownerId       String?   // if staff, links to the owner's account
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Staff permissions — JSON object controlling which modules staff can access.
+  permissions   Json?
+
+  // Subscription / plan
+  cancelledAt   DateTime?
+  plan          String    @default("free") // free | pro | elite
+  renewsAt      DateTime?
+  trialEndsAt   DateTime?
+
+  // Relations
+  products      Product[]
+  parties       Party[]
+  transactions  Transaction[]
+  payments      Payment[]
+  settings      Setting[]
+  auditLogs     AuditLog[]
+  referralsMade Referral[] @relation("Referral_referrerIdToUser")
+  referralReceived Referral? @relation("Referral_referredIdToUser")
+  subscriptions Subscription[]
+  usageTracking  UsageTracking[]
+  shops         Shop[]
+  scanComparisons ScanComparison[]
+  aiUsageLogs    AiUsageLog[]
+}
+
+// ==================== SHOPS (Multi-shop support) ====================
+// Each owner can have multiple shops. Products, transactions, parties
+// can be tagged with a shopId. When null, shows in all shops (backward compatible).
+model Shop {
+  id          String   @id @default(cuid())
+  userId      String   // owner of this shop
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String   // e.g. "Sharma Kirana Store"
+  gstin       String?
+  address     String?
+  phone       String?
+  state       String?
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ==================== PRODUCTS / INVENTORY ====================
+model Product {
+  id                String   @id @default(cuid())
+  userId            String   // owner of this product
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shopId            String?  // multi-shop: null = all shops (backward compatible)
+  name              String
+  sku               String?
+  hsn               String?  // HSN/SAC code for GST
+  category          String?
+  unit              String   @default("pcs") // pcs, kg, ltr, m, box
+  purchasePrice     Float    @default(0)  // price at which shop owner buys
+  salePrice         Float    @default(0)  // price at which shop owner sells
+  mrp               Float?   // MRP printed on product
+  gstRate           Float    @default(0)  // 0, 5, 12, 18, 28
+  openingStock      Float    @default(0)
+  lowStockThreshold Float    @default(5)
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  transactionItems  TransactionItem[]
+
+  // Unique SKU per user (not globally)
+  @@unique([userId, sku])
+  // Performance: list products per user, search by name within user
+  @@index([userId, name])
+  @@index([userId, category])
+  @@index([userId, shopId])
+}
+
+// ==================== PARTIES (Customers & Suppliers) ====================
+model Party {
+  id              String   @id @default(cuid())
+  userId          String   // owner of this party
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shopId          String?  // multi-shop: null = all shops (backward compatible)
+  name            String
+  type            String   @default("customer") // customer | supplier | both
+  phone           String?
+  email           String?
+  gstin           String?  // GST Identification Number
+  address         String?
+  state           String?  // for intra/inter state GST
+  openingBalance  Float    @default(0) // positive = they owe us; negative = we owe them
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  transactions    Transaction[]
+  payments        Payment[]
+}
+
+// ==================== TRANSACTIONS (Sales, Purchases, Income, Expense) ====================
+model Transaction {
+  id             String   @id @default(cuid())
+  userId         String   // owner of this transaction
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shopId         String?  // multi-shop: null = all shops (backward compatible)
+  invoiceNo      String?  // bill/invoice number from bill
+  type           String   // sale | purchase | income | expense
+  partyId        String?  // customer for sale, supplier for purchase
+  party          Party?   @relation(fields: [partyId], references: [id])
+  date           DateTime @default(now())
+  subtotal       Float    @default(0)  // before tax & discount
+  discountAmount Float    @default(0)
+  cgst           Float    @default(0)
+  sgst           Float    @default(0)
+  igst           Float    @default(0)
+  totalAmount    Float    @default(0)  // final payable
+  paidAmount     Float    @default(0)  // amount actually paid
+  paymentMode    String   @default("cash") // cash | upi | card | bank | credit
+  isInterState   Boolean  @default(false)
+  notes          String?
+  // For income/expense (no items)
+  category       String?  // e.g. rent, salary, electricity for expenses; commission etc for income
+  // Payee info for income/expense (who you paid or received from)
+  payeeName      String?  // name of person you paid / received from
+  payeePhone     String?  // mobile number of payee
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  items          TransactionItem[]
+
+  // Auto-computed gross profit when type=sale
+  grossProfit    Float    @default(0)
+
+  // Performance: list transactions per user filtered by date and/or type
+  // Used by: dashboard, ledger (sales/purchases), reports
+  @@index([userId, date])
+  @@index([userId, type, date])
+  @@index([userId, partyId])
+}
+
+model TransactionItem {
+  id             String   @id @default(cuid())
+  transactionId  String
+  transaction    Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  productId      String?
+  product        Product?  @relation(fields: [productId], references: [id])
+  productName    String   // snapshot of name at time of transaction
+  quantity       Float    @default(1)
+  unitPrice      Float    @default(0)  // price per unit (sale or purchase)
+  gstRate        Float    @default(0)
+  discountAmount Float    @default(0)
+  total          Float    @default(0)  // qty * unitPrice - discount + gst
+
+  createdAt      DateTime @default(now())
+}
+
+// ==================== PAYMENTS (separate from transaction totals) ====================
+model Payment {
+  id          String   @id @default(cuid())
+  userId      String   // owner of this payment
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  partyId     String
+  party       Party    @relation(fields: [partyId], references: [id])
+  amount      Float
+  date        DateTime @default(now())
+  mode        String   @default("cash") // cash | upi | card | bank
+  type        String   @default("received") // received (from customer) | paid (to supplier)
+  notes       String?
+  createdAt   DateTime @default(now())
+}
+
+// ==================== APP SETTINGS (per user) ====================
+model Setting {
+  id        String   @id @default(cuid())
+  userId    String   @unique // one setting per user
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shopName  String   @default("My Shop")
+  ownerName String?
+  address   String?
+  phone     String?
+  gstin     String?
+  state     String?
+  email     String?
+  currency  String   @default("INR")
+  language  String   @default("en")
+  // Privacy: when true, profit figures are hidden from all UI (dashboard,
+  // ledger, transaction detail). Data is still calculated and stored —
+  // only the display is hidden. Owner controls this; staff inherits.
+  hideProfit Boolean @default(false)
+}
+
+// ==================== ANNOUNCEMENTS (broadcast messages) ====================
+model Announcement {
+  id        String    @id
+  title     String
+  message   String
+  type      String    @default("info") // info | warning | success | promo
+  link      String?
+  isActive  Boolean   @default(true)
+  startsAt  DateTime  @default(now())
+  endsAt    DateTime?
+  createdAt DateTime  @default(now())
+  createdBy String?
+
+  @@index([isActive, startsAt, endsAt])
+}
+
+// ==================== FEATURE FLAGS (remote kill switches) ====================
+model FeatureFlag {
+  id          String   @id
+  key         String   @unique
+  enabled     Boolean  @default(true)
+  label       String
+  description String?
+  updatedAt   DateTime
+  updatedBy   String?
+
+  @@index([enabled])
+}
+
+// ==================== REFERRALS (refer 3 = 1 year free Pro) ====================
+model Referral {
+  id          String    @id
+  referrerId  String
+  referredId  String?   @unique
+  code        String    @unique
+  status      String    @default("pending") // pending | completed | rewarded
+  rewardGiven Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+  referrer    User      @relation("Referral_referrerIdToUser", fields: [referrerId], references: [id], onDelete: Cascade)
+  referred    User?     @relation("Referral_referredIdToUser", fields: [referredId], references: [id])
+
+  @@index([referredId])
+  @@index([referrerId, status])
+}
+
+// ==================== SUBSCRIPTIONS (Razorpay payments) ====================
+model Subscription {
+  id             String   @id
+  userId         String
+  plan           String   // pro | elite
+  status         String   @default("active") // active | cancelled | expired
+  amount         Float
+  paymentMode    String   @default("razorpay")
+  paymentId      String?
+  subscriptionId String?
+  startDate      DateTime @default(now())
+  endDate        DateTime
+  createdAt      DateTime @default(now())
+  User           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([userId, status])
+}
+
+// ==================== USAGE TRACKING (plan limits) ====================
+model UsageTracking {
+  id           String   @id
+  userId       String
+  month        String   // YYYY-MM format
+  transactions Int      @default(0)
+  aiScans      Int      @default(0)
+  voiceParses  Int      @default(0)
+  products     Int      @default(0)
+  updatedAt    DateTime
+  User         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, month])
+  @@index([userId, month])
+}
+
+// ==================== AUDIT LOG (security & compliance) ====================
+// Track every important action: logins, data exports, deletes, role changes.
+// Used for: security forensics, compliance (DPDP Act), dispute resolution.
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?  // user who performed the action (null = unauthenticated attempt)
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String   // login_success | login_failure | logout | data_export | data_delete | role_change | settings_update | etc.
+  entityType String?  // product | party | transaction | setting | user | staff
+  entityId   String?  // ID of the affected entity
+  ip         String?  // IP address of the actor
+  userAgent  String?  // browser/device info
+  metadata   Json?    // any extra context (what changed, what was exported, etc.)
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+}
+
+// ==================== AI SCAN COMPARISONS ====================
+// Stores results of side-by-side AI provider tests. Each record is one
+// bill image scanned by 1-3 providers (Gemini, OpenAI, Groq). Admins use
+// the /settings/ai-comparison page to compare accuracy and pick the best.
+model ScanComparison {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // The bill image that was scanned
+  imageName     String?  // filename or label, if user provided one
+  imagePreview  String   // base64 thumbnail (max ~50KB) for display in history
+
+  // Bill type the user said it was
+  billType      String   @default("purchase") // sale | purchase
+
+  // Results from each provider (null if that provider wasn't tested)
+  geminiResult  Json?    // { success, parsed, error, durationMs, tokensUsed }
+  openaiResult  Json?
+  groqResult    Json?
+
+  // Ground truth (what the user manually entered as the correct answer)
+  groundTruth   Json?    // { sellerName, totalAmount, itemsCount, items: [...] }
+
+  // Computed scores per provider (0-100, null if not tested or no ground truth)
+  geminiScore   Float?
+  openaiScore   Float?
+  groqScore     Float?
+
+  createdAt     DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
+
+// ==================== AI USAGE LOG (cost tracking) ====================
+// Every AI call (scan-bill, voice-parse) gets logged here with exact token
+// counts and calculated cost. Used by the /settings/ai-usage dashboard to
+// show the founder exactly how much each feature costs to run.
+model AiUsageLog {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  feature       String   // 'scan-bill' | 'voice-parse' | 'scan-compare'
+  provider      String   // 'gemini' | 'openai' | 'groq' | 'vlm' | 'zai-sdk'
+  model         String   // e.g. 'gemini-2.5-flash', 'llama-4-scout-17b-16e-instruct'
+
+  // Token counts from the AI provider's response
+  inputTokens   Int      @default(0)
+  outputTokens  Int      @default(0)
+  totalTokens   Int      @default(0)
+
+  // Cost in INR (calculated at time of call using current pricing)
+  // Stored per-call so historical costs are preserved even if prices change
+  costInr       Float    @default(0)
+
+  // Performance + result
+  durationMs    Int      @default(0)
+  success       Boolean  @default(true)
+  errorMessage  String?  // null if success, error text if failed
+
+  createdAt     DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([feature, createdAt])
+  @@index([provider, createdAt])
+}
+
+
+// ==================== ADMIN USERS (admin panel auth) ====================
+// SEPARATE from main app users. Admin accounts have their own credentials,
+// 2FA secrets, and audit trail. This table is ONLY used by the admin app.
+//
+// Security: Admin accounts are created MANUALLY (no public signup).
+// Only founder emails are allowed. 2FA is mandatory.
+model AdminUser {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String
+  password      String    // hashed with bcrypt
+  role          String    @default("admin") // founder | admin | viewer
+  totpSecret    String?   // TOTP 2FA secret (encrypted at rest)
+  totpEnabled   Boolean   @default(false)
+  isActive      Boolean   @default(true)
+  lastLoginAt   DateTime?
+  lastLoginIp   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  adminActions  AdminAction[]
+
+  @@index([email])
+  @@index([isActive])
+}
+
+// ==================== ADMIN ACTIONS (audit trail) ====================
+// Every action performed in the admin panel is logged here.
+// Used for: security forensics, compliance, dispute resolution.
+// This is SEPARATE from the main app's AuditLog table — admin actions
+// are more sensitive and need their own audit trail.
+model AdminAction {
+  id            String   @id @default(cuid())
+  adminId       String
+  admin         AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  action        String   // user_plan_change | user_ban | feature_toggle | data_export | etc.
+  targetType    String?  // user | feature_flag | subscription | etc.
+  targetId      String?  // ID of the affected entity
+  description   String   // human-readable description
+  metadata      Json?    // before/after values, etc.
+  ip            String?
+  userAgent     String?
+  createdAt     DateTime @default(now())
+
+  @@index([adminId, createdAt])
+  @@index([action, createdAt])
+  @@index([targetType, targetId])
+}
