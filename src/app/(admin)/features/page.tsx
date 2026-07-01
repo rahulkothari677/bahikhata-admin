@@ -147,17 +147,25 @@ export default function FeaturesPage() {
                     {flag.updatedBy && ` by ${flag.updatedBy}`}
                   </p>
                 </div>
-                <button
-                  onClick={() => toggleMutation.mutate({ key: flag.key, enabled: !flag.enabled })}
-                  disabled={toggleMutation.isPending}
-                  className={`relative w-12 h-6 rounded-full transition flex-shrink-0 ml-4 ${
-                    flag.enabled ? 'bg-success' : 'bg-muted-foreground/30'
-                  }`}
-                >
-                  <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                    flag.enabled ? 'translate-x-6' : 'translate-x-0.5'
-                  }`} />
-                </button>
+                <div className="flex items-center gap-3 flex-shrink-0 ml-4">
+                  <span className={`text-xs font-medium ${flag.enabled ? 'text-success' : 'text-muted-foreground'}`}>
+                    {flag.enabled ? 'ON' : 'OFF'}
+                  </span>
+                  <button
+                    onClick={() => toggleMutation.mutate({ key: flag.key, enabled: !flag.enabled })}
+                    disabled={toggleMutation.isPending}
+                    className={`relative w-14 h-7 rounded-full transition border-2 ${
+                      flag.enabled
+                        ? 'bg-emerald-500 border-emerald-600'
+                        : 'bg-gray-300 border-gray-400 dark:bg-gray-700 dark:border-gray-600'
+                    } ${toggleMutation.isPending ? 'opacity-50 cursor-wait' : 'cursor-pointer hover:opacity-80'}`}
+                    title={flag.enabled ? 'Click to DISABLE' : 'Click to ENABLE'}
+                  >
+                    <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-transform ${
+                      flag.enabled ? 'translate-x-7' : 'translate-x-0.5'
+                    }`} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
