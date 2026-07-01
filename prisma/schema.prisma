@@ -48,6 +48,7 @@ model User {
   shops         Shop[]
   scanComparisons ScanComparison[]
   aiUsageLogs    AiUsageLog[]
+  supportTickets SupportTicket[]
 }
 
 // ==================== SHOPS (Multi-shop support) ====================
@@ -430,4 +431,56 @@ model AdminAction {
   @@index([adminId, createdAt])
   @@index([action, createdAt])
   @@index([targetType, targetId])
+}
+
+// ==================== SUPPORT TICKETS ====================
+// Users report issues from the main app → admin resolves them here.
+// Priority levels: low, medium, high, urgent.
+// Status flow: open → in_progress → resolved → closed.
+model SupportTicket {
+  id          String    @id @default(cuid())
+  userId      String    // user who submitted the ticket
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject     String
+  message     String
+  category    String    @default("general") // general | bug | billing | feature_request | account
+  priority    String    @default("medium") // low | medium | high | urgent
+  status      String    @default("open") // open | in_progress | resolved | closed
+  assignedTo  String?   // admin email who's handling it
+
+  // Admin response
+  response    String?
+  resolvedAt  DateTime?
+  resolvedBy  String?   // admin email who resolved it
+
+  // Metadata
+  userEmail   String?
+  userAgent   String?
+  appVersion  String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, priority, createdAt])
+  @@index([userId, createdAt])
+  @@index([assignedTo, status])
+}
+
+// ==================== FEATURE FLAG RULES ====================
+// Advanced feature flag targeting rules. Instead of just on/off,
+// you can target specific users, plans, or percentages.
+// Examples:
+//   - "Enable AI scanner for 50% of Pro users"
+//   - "Enable new dashboard for users in Maharashtra"
+//   - "Disable voice entry for users on Android < 10"
+model FeatureFlagRule {
+  id            String   @id @default(cuid())
+  flagKey       String   // references FeatureFlag.key
+  ruleType      String   // all | plan | percentage | user_list | location
+  ruleValue     String   // JSON: { plans: ["pro"], percentage: 50, userIds: [], states: [] }
+  enabled       Boolean  @default(true)
+  priority      Int      @default(0) // higher = evaluated first
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([flagKey, enabled, priority])
 }

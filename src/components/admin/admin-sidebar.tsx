@@ -5,7 +5,8 @@ import { usePathname } from 'next/navigation'
 import { signOut, useSession } from 'next-auth/react'
 import {
   LayoutDashboard, Users, Coins, Flag, CreditCard, ScrollText,
-  LogOut, Shield, Sparkles, TrendingUp, Rocket, Database
+  LogOut, Shield, Sparkles, TrendingUp, Rocket, Database,
+  Headphones, Settings
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -16,10 +17,12 @@ const NAV_ITEMS = [
   { href: '/data', label: 'Data Monetization', icon: Database },
   { href: '/risk', label: 'Risk & Compliance', icon: Shield },
   { href: '/users', label: 'Users', icon: Users },
+  { href: '/support', label: 'Support', icon: Headphones },
   { href: '/ai-usage', label: 'AI Usage', icon: Coins },
   { href: '/features', label: 'Feature Flags', icon: Flag },
   { href: '/subscriptions', label: 'Subscriptions', icon: CreditCard },
   { href: '/audit-log', label: 'Audit Log', icon: ScrollText },
+  { href: '/settings', label: 'Settings', icon: Settings },
 ]
 
 export function AdminSidebar() {
