@@ -27,14 +27,22 @@ export default function FeaturesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled }),
       })
-      if (!r.ok) throw new Error('Failed')
-      return r.json()
+      const data = await r.json().catch(() => ({}))
+      if (!r.ok) {
+        throw new Error(data.error || data.detail || `HTTP ${r.status}: ${r.statusText}`)
+      }
+      return data
     },
     onSuccess: (data) => {
-      sonnerToast.success(data.message)
+      sonnerToast.success(data.message || 'Feature toggled')
       queryClient.invalidateQueries({ queryKey: ['admin-features'] })
     },
-    onError: () => sonnerToast.error('Failed to toggle feature'),
+    onError: (err: Error) => {
+      sonnerToast.error('Failed to toggle feature', {
+        description: err.message,
+        duration: 8000,
+      })
+    },
   })
 
   const createMutation = useMutation({

@@ -83,19 +83,23 @@ export async function middleware(req: NextRequest) {
 
   // ===== CSRF PROTECTION ON MUTATIONS =====
   const isMutation = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method.toUpperCase())
-  if (isMutation && !pathname.startsWith('/api/auth')) {
+  if (isMutation && !pathname.startsWith('/api/auth') && !pathname.startsWith('/api/admin/setup')) {
     const origin = req.headers.get('origin')
     const host = req.headers.get('host')
+    // Only block if we have both origin AND host AND they DON'T match
+    // If either is missing, allow through (Vercel internal requests sometimes omit these)
     if (origin && host) {
       try {
         const originHost = new URL(origin).host
         if (originHost !== host) {
-          return NextResponse.json({ error: 'CSRF check failed' }, { status: 403 })
+          return NextResponse.json({ error: 'CSRF check failed', detail: `Origin ${originHost} != Host ${host}` }, { status: 403 })
         }
       } catch {
-        return NextResponse.json({ error: 'Invalid origin' }, { status: 403 })
+        // Invalid origin URL — block it
+        return NextResponse.json({ error: 'Invalid origin header' }, { status: 403 })
       }
     }
+    // If origin is null/missing, allow through (API calls from same origin may not send Origin header)
   }
 
   return res
