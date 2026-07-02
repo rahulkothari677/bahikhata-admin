@@ -6,7 +6,7 @@ import { signOut, useSession } from 'next-auth/react'
 import {
   LayoutDashboard, Users, Coins, Flag, CreditCard, ScrollText,
   LogOut, Shield, Sparkles, TrendingUp, Rocket, Database,
-  Headphones, Settings
+  Headphones, Settings, Users2, MessageSquare
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -14,6 +14,8 @@ const NAV_ITEMS = [
   { href: '/', label: 'Overview', icon: LayoutDashboard },
   { href: '/revenue', label: 'Revenue', icon: TrendingUp },
   { href: '/growth', label: 'Growth', icon: Rocket },
+  { href: '/segments', label: 'Segments', icon: Users2 },
+  { href: '/feedback', label: 'Feedback', icon: MessageSquare },
   { href: '/data', label: 'Data Monetization', icon: Database },
   { href: '/risk', label: 'Risk & Compliance', icon: Shield },
   { href: '/users', label: 'Users', icon: Users },

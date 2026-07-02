@@ -49,6 +49,7 @@ model User {
   scanComparisons ScanComparison[]
   aiUsageLogs    AiUsageLog[]
   supportTickets SupportTicket[]
+  npsFeedback   NpsFeedback[]
 }
 
 // ==================== SHOPS (Multi-shop support) ====================
@@ -483,4 +484,18 @@ model FeatureFlagRule {
   updatedAt     DateTime @updatedAt
 
   @@index([flagKey, enabled, priority])
+}
+
+// ==================== NPS FEEDBACK ====================
+model NpsFeedback {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  score       Int      // 0-10 (0=worst, 10=best)
+  feedback    String?  // optional text feedback
+  category    String?  // auto-categorized: promoter | passive | detractor
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([score])
 }
