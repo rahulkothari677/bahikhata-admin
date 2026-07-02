@@ -34,10 +34,45 @@ export function withTimeout<T>(promise: Promise<T>, ms: number = 5000): Promise<
   ])
 }
 
+// ===== NEON DB CONNECTION RETRY =====
+/**
+ * Neon (free tier) auto-suspends after inactivity. The first query after
+ * suspension may fail with "Error { kind: Close }" because the connection
+ * is stale. This wrapper retries the query once after a short delay.
+ *
+ * The retry gives Neon time to wake up and establish a fresh connection.
+ */
+export async function withNeonRetry<T>(
+  fn: () => Promise<T>,
+  ms: number = 5000
+): Promise<T> {
+  try {
+    return await withTimeout(fn(), ms)
+  } catch (error) {
+    // Check if this is a Neon connection error (stale connection)
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    const isConnectionError =
+      errorMsg.includes('kind: Close') ||
+      errorMsg.includes('Connection terminated') ||
+      errorMsg.includes('reach database server') ||
+      errorMsg.includes('Connection refused') ||
+      errorMsg.includes('Timed out fetching') ||
+      errorMsg.includes('Query timeout')
+
+    if (!isConnectionError) {
+      throw error // Re-throw non-connection errors immediately
+    }
+
+    // Wait 500ms for Neon to wake up, then retry once
+    await new Promise(resolve => setTimeout(resolve, 500))
+    return await withTimeout(fn(), ms)
+  }
+}
+
 // ===== SAFE COUNT =====
 /**
  * Wraps a count() query with:
- *   - 5 second timeout
+ *   - 5 second timeout + Neon connection retry
  *   - Error catching (returns 0 on failure)
  *   - Result validation (must be non-negative integer)
  *
@@ -48,7 +83,7 @@ export async function safeCount(
   label?: string
 ): Promise<{ value: number; verified: boolean; error?: string }> {
   try {
-    const result = await withTimeout(fn())
+    const result = await withNeonRetry(fn)
     // Validate: must be a non-negative integer
     if (typeof result !== 'number' || isNaN(result) || !isFinite(result) || result < 0) {
       console.warn(`[resilience] Invalid count for "${label}": ${result}`)
@@ -64,7 +99,7 @@ export async function safeCount(
 // ===== SAFE AGGREGATE =====
 /**
  * Wraps an aggregate() query with:
- *   - 5 second timeout
+ *   - 5 second timeout + Neon connection retry
  *   - Error catching (returns 0 on failure)
  *   - Result validation (must be non-negative number)
  *
@@ -76,7 +111,7 @@ export async function safeAggregate(
   label?: string
 ): Promise<{ value: number; verified: boolean; error?: string }> {
   try {
-    const result = await withTimeout(fn())
+    const result = await withNeonRetry(fn)
     const value = result?._sum?.[field] ?? 0
     // Validate: must be a non-negative finite number
     if (typeof value !== 'number' || isNaN(value) || !isFinite(value) || value < 0) {
@@ -93,7 +128,7 @@ export async function safeAggregate(
 // ===== SAFE FIND MANY =====
 /**
  * Wraps a findMany() query with:
- *   - 5 second timeout
+ *   - 5 second timeout + Neon connection retry
  *   - Error catching (returns empty array on failure)
  *   - Result validation (must be an array)
  *
@@ -104,7 +139,7 @@ export async function safeFindMany<T>(
   label?: string
 ): Promise<{ value: T[]; verified: boolean; error?: string }> {
   try {
-    const result = await withTimeout(fn())
+    const result = await withNeonRetry(fn)
     if (!Array.isArray(result)) {
       console.warn(`[resilience] Invalid findMany for "${label}": not an array`)
       return { value: [], verified: false, error: 'Result is not an array' }
@@ -122,12 +157,13 @@ export async function safeFindMany<T>(
  * Returns true if DB is healthy, false if not.
  *
  * Use this at the top of any API route to fail fast if DB is down.
+ * Includes Neon retry — if DB is asleep, waits 500ms and retries.
  */
 export async function checkDbHealth(): Promise<boolean> {
   try {
     // Import db lazily to avoid circular dependencies
     const { db } = await import('@/lib/db')
-    await withTimeout(db.$queryRaw`SELECT 1`, 3000)
+    await withNeonRetry(() => db.$queryRaw`SELECT 1`, 3000)
     return true
   } catch {
     return false
