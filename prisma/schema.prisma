@@ -499,3 +499,82 @@ model NpsFeedback {
   @@index([userId, createdAt])
   @@index([score])
 }
+
+// ==================== DAILY STATS (pre-computed KPIs) ====================
+// Instead of running count()/aggregate() on millions of rows on every
+// dashboard load, a background job computes these once per day and stores
+// them here. The dashboard reads 1 row per day = instant load.
+//
+// This is THE most important table for scalability. Without it, the
+// dashboard would timeout at 100K+ users.
+model DailyStats {
+  id              String   @id @default(cuid())
+  date            DateTime @unique  // the day this record represents (midnight UTC)
+
+  // User metrics
+  totalUsers      Int      @default(0)  // cumulative total users
+  newUsers        Int      @default(0)  // new signups this day
+  activeUsers     Int      @default(0)  // DAU (users active this day)
+  payingUsers     Int      @default(0)  // cumulative paying users
+
+  // Revenue metrics
+  mrr             Float    @default(0)  // monthly recurring revenue (end of day)
+  newMrr          Float    @default(0)  // new MRR added this day
+  churnedMrr      Float    @default(0)  // MRR lost this day
+  arr             Float    @default(0)  // annual run rate (mrr * 12)
+
+  // Transaction metrics
+  totalGmv        Float    @default(0)  // gross merchandise value (sum of all sales)
+  totalTxns       Int      @default(0)  // total transactions this day
+  salesCount      Int      @default(0)  // sales this day
+  purchasesCount  Int      @default(0)  // purchases this day
+
+  // AI metrics
+  aiCalls         Int      @default(0)  // total AI calls this day
+  aiCostInr       Float    @default(0)  // AI cost this day (INR)
+  aiScans         Int      @default(0)  // bill scans this day
+  voiceParses     Int      @default(0)  // voice entries this day
+
+  // Computed at
+  computedAt      DateTime @default(now())
+
+  @@index([date])
+}
+
+// ==================== USER SEGMENTS (pre-computed) ====================
+// Instead of calculating segments on-the-fly (N+1 queries), a background
+// job computes segment membership and stores it here. The segments page
+// reads from this table = instant load, scales to millions.
+model UserSegmentCache {
+  id          String   @id @default(cuid())
+  userId      String
+  segmentId   String   // power_users, whales, at_risk, etc.
+  computedAt  DateTime @default(now())
+
+  @@unique([userId, segmentId])
+  @@index([segmentId])
+  @@index([userId])
+}
+
+// ==================== CREDIT SCORE CACHE ====================
+// Instead of computing credit scores on-the-fly (N+1 queries), a
+// background job computes them daily and caches here.
+model CreditScoreCache {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  score           Int      // 300-900
+  band            String   // excellent | good | fair | poor
+  avgMonthlySales Float    @default(0)
+  totalSales6Mo   Float    @default(0)
+  activeMonths    Int      @default(0)
+  collectionRate  Float    @default(0)
+  businessAgeDays Int      @default(0)
+  productCount    Int      @default(0)
+  partyCount      Int      @default(0)
+  hasGstData      Boolean  @default(false)
+  recommendation  String?
+  computedAt      DateTime @default(now())
+
+  @@index([score])
+  @@index([band])
+}
