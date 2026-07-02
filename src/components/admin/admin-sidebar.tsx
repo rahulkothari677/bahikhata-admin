@@ -53,6 +53,7 @@ const NAV_STRUCTURE: NavGroup[] = [
     color: 'text-blue-500',
     items: [
       { label: 'Dashboard', href: '/', icon: Activity },
+      { label: 'Activity Log', href: '/activity', icon: ScrollText },
     ],
   },
   {
