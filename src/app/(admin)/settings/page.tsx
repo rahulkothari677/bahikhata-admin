@@ -191,6 +191,118 @@ export default function SettingsPage() {
           <li>Review the audit log regularly for suspicious activity</li>
         </ul>
       </div>
+
+      {/* Data Verification — investor trust layer */}
+      <DataVerificationSection />
+    </div>
+  )
+}
+
+/**
+ * Data Verification Section
+ *
+ * Allows the founder (or investor's due diligence team) to verify that
+ * all dashboard numbers match the actual database. This builds TRUST —
+ * if an investor sees "All 4 metrics match live database ✅", they know
+ * the data is accurate.
+ */
+function DataVerificationSection() {
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['admin-validate-data'],
+    queryFn: async () => {
+      const r = await fetch('/api/admin/validate-data')
+      return r.json()
+    },
+    enabled: false, // only runs when user clicks "Verify"
+  })
+
+  return (
+    <div className="bg-card rounded-xl border border-border p-4 space-y-4">
+      <h2 className="text-sm font-semibold flex items-center gap-2">
+        <Shield className="w-4 h-4 text-emerald-500" />
+        Data Verification
+      </h2>
+      <p className="text-xs text-muted-foreground">
+        Cross-checks all dashboard metrics against live database queries.
+        Investors and technical teams can verify data accuracy anytime.
+        Tolerance: 0.1% (allows for minor timing differences).
+      </p>
+
+      <button
+        onClick={() => refetch()}
+        disabled={isLoading}
+        className="px-4 py-2 bg-emerald-500 text-white rounded-lg text-sm font-medium hover:bg-emerald-600 disabled:opacity-50 flex items-center gap-2"
+      >
+        {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
+        Verify Data Accuracy
+      </button>
+
+      {data?.success && (
+        <div className="space-y-2">
+          {/* Overall status */}
+          <div className={`rounded-lg p-3 ${data.summary.allMatch ? 'bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900' : 'bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900'}`}>
+            <div className="flex items-center gap-2">
+              {data.summary.allMatch ? (
+                <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+              ) : (
+                <AlertCircle className="w-5 h-5 text-red-500" />
+              )}
+              <div>
+                <p className={`text-sm font-medium ${data.summary.allMatch ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-700 dark:text-red-300'}`}>
+                  {data.summary.allMatch ? 'All metrics verified ✅' : `${data.summary.failed} metric(s) mismatch detected`}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {data.summary.passed}/{data.summary.totalChecks} checks passed · Tolerance: {data.summary.tolerance}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Per-metric results */}
+          <div className="space-y-1">
+            {data.results.map((r: any, i: number) => (
+              <div key={i} className="flex items-center justify-between py-2 px-3 rounded-lg bg-muted/30">
+                <div className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${r.match ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                  <span className="text-sm font-medium">{r.label}</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs text-muted-foreground">
+                    Displayed: <span className="font-mono font-bold">{r.displayed}</span>
+                    {' → '}
+                    Actual: <span className="font-mono font-bold">{r.actual}</span>
+                  </span>
+                  {!r.match && (
+                    <span className="text-[10px] text-red-600 block">
+                      Discrepancy: {r.discrepancy > 0 ? '+' : ''}{r.discrepancy}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Investor note */}
+          <div className="bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-900 p-3">
+            <p className="text-xs text-blue-700 dark:text-blue-300">
+              📋 {data.investorNote}
+            </p>
+            {data.lastComputedAt && (
+              <p className="text-[10px] text-blue-600 dark:text-blue-400 mt-1">
+                Last computed: {new Date(data.lastComputedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {data && !data.success && (
+        <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 p-3">
+          <p className="text-xs text-amber-700 dark:text-amber-300">
+            ⚠️ {data.error || 'Database unreachable. Try again in a few seconds.'}
+          </p>
+        </div>
+      )}
     </div>
   )
 }
