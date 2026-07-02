@@ -36,6 +36,7 @@ Each guide tells you exactly what to click, what to expect, and how to verify th
 | 12 | A/B Testing | [phase-2.12-ab-testing.md](./phase-2.12-ab-testing.md) | `/experiments` |
 | 13 | Database Admin Tools | [phase-2.13-database-admin.md](./phase-2.13-database-admin.md) | `/database` |
 | 14 | Competitor Monitoring | [phase-2.14-competitor-monitoring.md](./phase-2.14-competitor-monitoring.md) | `/competitors` |
+| 15 | Audit Log Explorer | [phase-2.15-audit-log-explorer.md](./phase-2.15-audit-log-explorer.md) | `/audit-log` |
 
 ---
 
@@ -98,5 +99,5 @@ Every feature in this admin panel satisfies these 13 principles:
 
 ---
 
-**Last updated:** Phase 2 (14/22) — Competitor Monitoring
-**Total features documented:** 20 (19 feature guides + 4 foundational reference docs)
+**Last updated:** Phase 2 (15/22) — Audit Log Explorer
+**Total features documented:** 21 (20 feature guides + 4 foundational reference docs)
