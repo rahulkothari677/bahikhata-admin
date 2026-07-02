@@ -43,6 +43,7 @@ Each guide tells you exactly what to click, what to expect, and how to verify th
 | 19 | NPS Survey Builder | [phase-2.19-nps-survey-builder.md](./phase-2.19-nps-survey-builder.md) | `/nps-config` |
 | 20 | Data Export Center | [phase-2.20-data-export-center.md](./phase-2.20-data-export-center.md) | `/data-exports` |
 | 21 | Admin Team Management | [phase-2.21-admin-team-management.md](./phase-2.21-admin-team-management.md) | `/admin-users` |
+| 22 | Impersonation Audit | [phase-2.22-impersonation-audit.md](./phase-2.22-impersonation-audit.md) | `/impersonation-log` |
 
 ---
 
@@ -105,5 +106,5 @@ Every feature in this admin panel satisfies these 13 principles:
 
 ---
 
-**Last updated:** Phase 2 (21/22) — Admin Team Management
-**Total features documented:** 27 (26 feature guides + 4 foundational reference docs)
+**Last updated:** Phase 2 (22/22) — Impersonation Audit — PHASE 2 COMPLETE 🎉
+**Total features documented:** 28 (27 feature guides + 4 foundational reference docs)
