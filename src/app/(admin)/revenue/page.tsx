@@ -245,6 +245,40 @@ export default function RevenuePage() {
         </div>
       </div>
 
+      {/* MRR Movement Analysis */}
+      {data.mrrMovement && (
+        <div className="bg-card rounded-xl border border-border p-4">
+          <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-violet-500" />
+            MRR Movement Analysis (This Month)
+          </h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="rounded-lg border border-emerald-200 dark:border-emerald-900 p-3 bg-emerald-50 dark:bg-emerald-950/20">
+              <p className="text-xs text-emerald-700 dark:text-emerald-400 uppercase">New MRR</p>
+              <p className="text-xl font-bold text-emerald-600 mt-1">+{formatINR(data.mrrMovement.newMrr)}</p>
+              <p className="text-[10px] text-muted-foreground">New subscriptions</p>
+            </div>
+            <div className="rounded-lg border border-blue-200 dark:border-blue-900 p-3 bg-blue-50 dark:bg-blue-950/20">
+              <p className="text-xs text-blue-700 dark:text-blue-400 uppercase">Expansion</p>
+              <p className="text-xl font-bold text-blue-600 mt-1">+{formatINR(data.mrrMovement.expansionMrr)}</p>
+              <p className="text-[10px] text-muted-foreground">Upgrades (Pro→Elite)</p>
+            </div>
+            <div className="rounded-lg border border-red-200 dark:border-red-900 p-3 bg-red-50 dark:bg-red-950/20">
+              <p className="text-xs text-red-700 dark:text-red-400 uppercase">Churned MRR</p>
+              <p className="text-xl font-bold text-red-600 mt-1">-{formatINR(data.mrrMovement.churnedMrr)}</p>
+              <p className="text-[10px] text-muted-foreground">Cancellations</p>
+            </div>
+            <div className={`rounded-lg border p-3 ${data.mrrMovement.netMovement >= 0 ? 'border-violet-200 dark:border-violet-900 bg-violet-50 dark:bg-violet-950/20' : 'border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/20'}`}>
+              <p className="text-xs text-muted-foreground uppercase">Net Movement</p>
+              <p className={`text-xl font-bold mt-1 ${data.mrrMovement.netMovement >= 0 ? 'text-violet-600' : 'text-red-600'}`}>
+                {data.mrrMovement.netMovement >= 0 ? '+' : ''}{formatINR(data.mrrMovement.netMovement)}
+              </p>
+              <p className="text-[10px] text-muted-foreground">New + Expansion - Churn</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Actionable insights */}
       <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 rounded-xl border border-blue-200 dark:border-blue-900 p-4">
         <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
