@@ -1143,3 +1143,54 @@ model ExperimentAssignment {
   @@index([userId, experimentId])
   @@index([convertedAt])
 }
+
+// ==================== COMPETITOR MONITORING ====================
+// Track competing apps' pricing, features, and market positioning.
+// Admin manually adds competitors and updates their pricing/features periodically.
+// Each update is logged as a CompetitorUpdate (timeline of changes).
+model Competitor {
+  id              String   @id @default(cuid())
+  name            String
+  website         String?
+  description     String?  @db.Text
+
+  // Pricing snapshot (in INR)
+  freePrice       String?                          // e.g. "Free" or "₹0"
+  proPrice        String?                          // e.g. "₹499/mo"
+  elitePrice      String?                          // e.g. "₹999/mo"
+
+  // Feature comparison (JSON: { feature: true/false })
+  features        String   @default("{}") @db.Text
+
+  // Market position
+  targetMarket    String?                          // e.g. "Small kirana stores"
+  usp             String?  @db.Text                // unique selling proposition
+  weaknesses      String?  @db.Text                // their weaknesses (our opportunities)
+
+  // Metadata
+  status          String   @default("active")      // active | inactive
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  updates         CompetitorUpdate[]
+
+  @@index([status])
+}
+
+model CompetitorUpdate {
+  id              String   @id @default(cuid())
+  competitorId    String
+  competitor      Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+
+  // What changed
+  field           String                           // e.g. "proPrice", "features", "usp"
+  oldValue        String?  @db.Text
+  newValue        String?  @db.Text
+
+  note            String?  @db.Text                // admin's note on why this changed
+  updatedBy       String?
+  createdAt       DateTime @default(now())
+
+  @@index([competitorId, createdAt])
+}

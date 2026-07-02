@@ -6,7 +6,7 @@ import { signOut, useSession } from 'next-auth/react'
 import { useState, useEffect } from 'react'
 import {
   LayoutDashboard, TrendingUp, Rocket, Users as UsersIcon,
-  Brain, Shield, ShieldAlert, Handshake, Key, Webhook, FlaskConical, LogOut,
+  Brain, Shield, ShieldAlert, Handshake, Key, Webhook, FlaskConical, Swords, LogOut,
   Activity, BarChart3, AlertTriangle, CreditCard,
   Target, Users2, Gift, Megaphone,
   UserCog, Headphones, MessageSquare,
@@ -79,6 +79,7 @@ const NAV_STRUCTURE: NavGroup[] = [
       { label: 'User Segments', href: '/segments', icon: Users2 },
       { label: 'Feedback (NPS)', href: '/feedback', icon: MessageSquare },
       { label: 'A/B Testing', href: '/experiments', icon: FlaskConical },
+      { label: 'Competitors', href: '/competitors', icon: Swords },
     ],
   },
   {
