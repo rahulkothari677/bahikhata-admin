@@ -101,6 +101,7 @@ const NAV_STRUCTURE: NavGroup[] = [
     color: 'text-violet-500',
     items: [
       { label: 'All Users', href: '/users', icon: UserCog },
+      { label: 'Admin Team', href: '/admin-users', icon: UsersIcon },
       { label: 'Support Tickets', href: '/support', icon: Headphones },
       { label: 'Bulk Operations', href: '/bulk-jobs', icon: Layers },
     ],

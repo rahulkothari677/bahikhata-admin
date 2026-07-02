@@ -42,6 +42,7 @@ Each guide tells you exactly what to click, what to expect, and how to verify th
 | 18 | Segment-to-Campaign | [phase-2.18-segment-to-campaign.md](./phase-2.18-segment-to-campaign.md) | `/campaigns` + `/segments` |
 | 19 | NPS Survey Builder | [phase-2.19-nps-survey-builder.md](./phase-2.19-nps-survey-builder.md) | `/nps-config` |
 | 20 | Data Export Center | [phase-2.20-data-export-center.md](./phase-2.20-data-export-center.md) | `/data-exports` |
+| 21 | Admin Team Management | [phase-2.21-admin-team-management.md](./phase-2.21-admin-team-management.md) | `/admin-users` |
 
 ---
 
@@ -104,5 +105,5 @@ Every feature in this admin panel satisfies these 13 principles:
 
 ---
 
-**Last updated:** Phase 2 (20/22) — Data Export Center
-**Total features documented:** 26 (25 feature guides + 4 foundational reference docs)
+**Last updated:** Phase 2 (21/22) — Admin Team Management
+**Total features documented:** 27 (26 feature guides + 4 foundational reference docs)
