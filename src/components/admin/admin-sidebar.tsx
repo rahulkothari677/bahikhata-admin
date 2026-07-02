@@ -66,6 +66,7 @@ const NAV_STRUCTURE: NavGroup[] = [
       { label: 'MRR & Forecast', href: '/revenue', icon: BarChart3 },
       { label: 'Subscriptions', href: '/subscriptions', icon: CreditCard },
       { label: 'Revenue Recognition', href: '/revenue-recognition', icon: FileBarChart },
+      { label: 'Financial Reports', href: '/financial-reports', icon: TrendingUp },
     ],
   },
   {
