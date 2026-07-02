@@ -107,6 +107,7 @@ const NAV_STRUCTURE: NavGroup[] = [
     items: [
       { label: 'AI Usage & Cost', href: '/ai-usage', icon: Coins },
       { label: 'Data Monetization', href: '/data', icon: Database },
+      { label: 'Anomaly Detection', href: '/anomalies', icon: Activity },
     ],
   },
   {

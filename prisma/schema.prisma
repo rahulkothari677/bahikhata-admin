@@ -763,3 +763,45 @@ model IncidentUpdate {
 
   @@index([incidentId, createdAt])
 }
+
+// ==================== ANOMALY DETECTION ====================
+// Auto-detected anomalies from metric analysis (z-score based).
+// A background job (or manual trigger) compares recent metric values
+// to a 30-day baseline. If the z-score exceeds a threshold, an anomaly
+// is created here for admin review.
+//
+// Lifecycle: open → acknowledged → resolved (admin marks false-positive or fixed)
+model Anomaly {
+  id            String   @id @default(cuid())
+  metric        String                          // new_signups | revenue | ai_cost | failed_logins | etc.
+  metricLabel   String                          // human-readable label
+  direction     String                          // spike | drop
+  severity      String   @default("medium")     // low | medium | high | critical
+  status        String   @default("open")       // open | acknowledged | resolved
+
+  // Statistical data
+  currentValue  Float                            // the anomalous value
+  baselineValue Float                            // expected value (mean of baseline)
+  baselineStdDev Float                           // standard deviation of baseline
+  zScore        Float                            // (current - baseline) / stdDev
+  baselineDays  Int      @default(30)            // how many days used for baseline
+
+  // Time window
+  detectedAt    DateTime @default(now())
+  windowStart   DateTime                         // start of the anomalous period
+  windowEnd     DateTime                         // end of the anomalous period
+
+  // Admin response
+  acknowledgedBy String?
+  acknowledgedAt DateTime?
+  resolvedBy     String?
+  resolvedAt     DateTime?
+  adminNote      String?  @db.Text               // admin's note on resolution
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([status, detectedAt])
+  @@index([metric, detectedAt])
+  @@index([detectedAt])
+}
