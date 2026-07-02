@@ -1,6 +1,17 @@
 import { db } from '@/lib/db'
 import { safeCount, safeAggregate, withTimeout } from '@/lib/resilience'
 
+// =====================================================================
+// CREDIT SCORING — BULK + CACHE STRATEGY
+// =====================================================================
+// 1. Background job (`computeAndCacheAllScores`) runs daily (or on-demand).
+//    It uses ~5 bulk groupBy queries to compute ALL user scores at once
+//    and writes them to `CreditScoreCache`.
+// 2. UI reads ONLY from cache — instant, scales to millions.
+// 3. Detail page (`computeSingleUserScore`) computes 1 user on-demand (4 queries).
+// 4. If cache is empty, `getCreditScoreSummary` falls back to live bulk compute.
+// =====================================================================
+
 /**
  * Credit Scoring — designed for scale.
  *
@@ -330,5 +341,353 @@ export async function computeSingleUserScore(userId: string) {
       totalTransactions: allTxns,
       hasGstData,
     },
+  }
+}
+
+// =====================================================================
+// BACKGROUND JOB — computeAndCacheAllScores
+// =====================================================================
+// Runs as a background job (triggered via /api/admin/data-monetization/compute).
+// Uses 5 bulk groupBy queries (NOT 4*N), then writes results to CreditScoreCache.
+//
+// At 1M users:
+//   - 5 groupBy queries (each returns up to 1M rows)
+//   - JS compute in memory (1M iterations, ~200ms)
+//   - Batch upsert to cache (chunked at 500 rows to avoid memory spike)
+//   - Total runtime: ~30-60 seconds (acceptable for daily job)
+// =====================================================================
+
+export interface ComputeResult {
+  success: boolean
+  totalScored: number
+  byBand: { excellent: number; good: number; fair: number; poor: number }
+  avgScore: number
+  durationMs: number
+  error?: string
+}
+
+export async function computeAndCacheAllScores(): Promise<ComputeResult> {
+  const startTime = Date.now()
+  const now = new Date()
+  const sixMonthsAgo = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000)
+
+  try {
+    // ===== BULK QUERIES (5 total — NOT 4*N) =====
+    // Run in parallel for max throughput
+    const [
+      usersWithTxns,
+      salesByUser,
+      paidByUser,
+      productsByUser,
+      partiesByUser,
+    ] = await Promise.all([
+      // 1. Users with sales in last 6 months + their txn count
+      withTimeout(
+        db.transaction.groupBy({
+          by: ['userId'],
+          _count: true,
+          where: { type: 'sale', date: { gte: sixMonthsAgo } },
+        }),
+        10000
+      ).catch(() => []),
+
+      // 2. Total sales amount per user (6 months)
+      withTimeout(
+        db.transaction.groupBy({
+          by: ['userId'],
+          where: { type: 'sale', date: { gte: sixMonthsAgo } },
+          _sum: { totalAmount: true },
+        }),
+        10000
+      ).catch(() => []),
+
+      // 3. Total paid amount per user (6 months)
+      withTimeout(
+        db.transaction.groupBy({
+          by: ['userId'],
+          where: { type: 'sale', date: { gte: sixMonthsAgo } },
+          _sum: { paidAmount: true },
+        }),
+        10000
+      ).catch(() => []),
+
+      // 4. Product count per user (all-time — needed for diversity)
+      withTimeout(
+        db.product.groupBy({
+          by: ['userId'],
+          _count: true,
+        }),
+        10000
+      ).catch(() => []),
+
+      // 5. Party count per user (all-time)
+      withTimeout(
+        db.party.groupBy({
+          by: ['userId'],
+          _count: true,
+        }),
+        10000
+      ).catch(() => []),
+    ])
+
+    // ===== BUILD LOOKUP MAPS (O(1) access) =====
+    const salesMap = new Map<string, number>()
+    for (const s of salesByUser as any[]) {
+      salesMap.set(s.userId, s._sum.totalAmount || 0)
+    }
+    const paidMap = new Map<string, number>()
+    for (const p of paidByUser as any[]) {
+      paidMap.set(p.userId, p._sum.paidAmount || 0)
+    }
+    const productsMap = new Map<string, number>()
+    for (const p of productsByUser as any[]) {
+      productsMap.set(p.userId, p._count)
+    }
+    const partiesMap = new Map<string, number>()
+    for (const p of partiesByUser as any[]) {
+      partiesMap.set(p.userId, p._count)
+    }
+
+    // ===== FETCH USER METADATA (createdAt for business age) =====
+    // This is ONE findMany with select — only fetches users that have transactions
+    const userIds = (usersWithTxns as any[]).map((u: any) => u.userId)
+    if (userIds.length === 0) {
+      // No users with transactions — clear cache and return
+      await db.creditScoreCache.deleteMany({})
+      return {
+        success: true,
+        totalScored: 0,
+        byBand: { excellent: 0, good: 0, fair: 0, poor: 0 },
+        avgScore: 0,
+        durationMs: Date.now() - startTime,
+      }
+    }
+
+    // Fetch user createdAt in chunks (avoid 1M-row IN clause)
+    const userMeta = new Map<string, { createdAt: Date }>()
+    const CHUNK_SIZE = 5000
+    for (let i = 0; i < userIds.length; i += CHUNK_SIZE) {
+      const chunk = userIds.slice(i, i + CHUNK_SIZE)
+      const users = await withTimeout(
+        db.user.findMany({
+          where: { id: { in: chunk } },
+          select: { id: true, createdAt: true },
+        }),
+        10000
+      ).catch(() => [])
+      for (const u of users) {
+        userMeta.set(u.id, { createdAt: u.createdAt })
+      }
+    }
+
+    // ===== COMPUTE SCORES IN JS + BUILD CACHE ROWS =====
+    const cacheRows: Array<{
+      userId: string
+      score: number
+      band: string
+      avgMonthlySales: number
+      totalSales6Mo: number
+      activeMonths: number
+      collectionRate: number
+      businessAgeDays: number
+      productCount: number
+      partyCount: number
+      hasGstData: boolean
+      recommendation: string
+    }> = []
+
+    let excellent = 0, good = 0, fair = 0, poor = 0
+    let totalScore = 0
+
+    for (const u of usersWithTxns as any[]) {
+      const userId = u.userId
+      const txCount = u._count || 0
+      const totalSales = salesMap.get(userId) || 0
+      const avgMonthlySales = totalSales / 6
+      const paidAmount = paidMap.get(userId) || 0
+      const collectionRate = totalSales > 0 ? paidAmount / totalSales : 0
+      const productCount = productsMap.get(userId) || 0
+      const partyCount = partiesMap.get(userId) || 0
+      const userCreated = userMeta.get(userId)?.createdAt
+      const businessAgeDays = userCreated
+        ? Math.floor((now.getTime() - userCreated.getTime()) / (24 * 60 * 60 * 1000))
+        : 0
+
+      // Scoring (same logic as single-user function)
+      let score = 300
+      if (avgMonthlySales >= 200000) score += 200
+      else if (avgMonthlySales >= 100000) score += 150
+      else if (avgMonthlySales >= 50000) score += 100
+      else if (avgMonthlySales >= 10000) score += 50
+
+      if (collectionRate >= 0.95) score += 150
+      else if (collectionRate >= 0.85) score += 120
+      else if (collectionRate >= 0.70) score += 90
+      else if (collectionRate >= 0.50) score += 60
+
+      if (productCount >= 50) score += 100
+      else if (productCount >= 20) score += 75
+      else if (productCount >= 10) score += 50
+      else if (productCount >= 5) score += 30
+
+      if (partyCount >= 50) score += 75
+      else if (partyCount >= 20) score += 60
+      else if (partyCount >= 10) score += 40
+      else if (partyCount >= 5) score += 25
+
+      if (txCount >= 100) score += 175
+      else if (txCount >= 50) score += 140
+      else if (txCount >= 20) score += 100
+      else if (txCount >= 10) score += 60
+      else if (txCount >= 5) score += 30
+
+      score = Math.min(900, Math.max(300, score))
+      const band = score >= 750 ? 'excellent' : score >= 650 ? 'good' : score >= 550 ? 'fair' : 'poor'
+      const recommendation =
+        band === 'excellent' ? 'Prime lending candidate. Recommend for unsecured loans up to ₹5L.' :
+        band === 'good' ? 'Good candidate. Recommend for secured loans up to ₹3L.' :
+        band === 'fair' ? 'Subprime. Small ticket loans (₹50K-1L) with collateral.' :
+        'High risk. Do not recommend for lending.'
+
+      totalScore += score
+      if (band === 'excellent') excellent++
+      else if (band === 'good') good++
+      else if (band === 'fair') fair++
+      else poor++
+
+      cacheRows.push({
+        userId,
+        score,
+        band,
+        avgMonthlySales,
+        totalSales6Mo: totalSales,
+        activeMonths: 0, // not computed in bulk (would require another groupBy)
+        collectionRate,
+        businessAgeDays,
+        productCount,
+        partyCount,
+        hasGstData: false, // not computed in bulk
+        recommendation,
+      })
+    }
+
+    // ===== BATCH UPSERT TO CACHE (chunked to avoid memory spike) =====
+    // First clear stale cache, then write fresh rows in chunks
+    await db.creditScoreCache.deleteMany({})
+
+    const UPSERT_CHUNK = 500
+    for (let i = 0; i < cacheRows.length; i += UPSERT_CHUNK) {
+      const chunk = cacheRows.slice(i, i + UPSERT_CHUNK)
+      await db.creditScoreCache.createMany({
+        data: chunk,
+        skipDuplicates: true,
+      })
+    }
+
+    const durationMs = Date.now() - startTime
+
+    return {
+      success: true,
+      totalScored: cacheRows.length,
+      byBand: { excellent, good, fair, poor },
+      avgScore: cacheRows.length > 0 ? Math.round(totalScore / cacheRows.length) : 0,
+      durationMs,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      totalScored: 0,
+      byBand: { excellent: 0, good: 0, fair: 0, poor: 0 },
+      avgScore: 0,
+      durationMs: Date.now() - startTime,
+      error: String(error).slice(0, 500),
+    }
+  }
+}
+
+// =====================================================================
+// PAGINATED READER — getTopLendingCandidates
+// =====================================================================
+// Reads from CreditScoreCache (instant, scales to millions).
+// Returns paginated list of top candidates sorted by score DESC.
+// =====================================================================
+
+export interface LendingCandidate {
+  userId: string
+  score: number
+  band: string
+  avgMonthlySales: number
+  collectionRate: number
+  businessAgeDays: number
+  productCount: number
+  partyCount: number
+  recommendation: string
+  computedAt: Date
+}
+
+export interface LendingCandidatesResult {
+  candidates: LendingCandidate[]
+  total: number
+  page: number
+  pageSize: number
+  totalPages: number
+  cacheStaleAt: Date | null
+}
+
+export async function getTopLendingCandidates(opts: {
+  page?: number
+  pageSize?: number
+  band?: 'excellent' | 'good' | 'fair' | 'poor'
+  minScore?: number
+}): Promise<LendingCandidatesResult> {
+  const page = opts.page || 1
+  const pageSize = Math.min(opts.pageSize || 20, 100) // hard cap at 100
+  const skip = (page - 1) * pageSize
+
+  const where: any = {}
+  if (opts.band) where.band = opts.band
+  if (opts.minScore) where.score = { gte: opts.minScore }
+
+  // Parallel: total count + page rows + latest computedAt (for staleness)
+  const [total, rows, latest] = await Promise.all([
+    withTimeout(db.creditScoreCache.count({ where }), 5000).catch(() => 0),
+    withTimeout(
+      db.creditScoreCache.findMany({
+        where,
+        orderBy: { score: 'desc' },
+        skip,
+        take: pageSize,
+      }),
+      5000
+    ).catch(() => []),
+    withTimeout(
+      db.creditScoreCache.findFirst({
+        orderBy: { computedAt: 'desc' },
+        select: { computedAt: true },
+      }),
+      5000
+    ).catch(() => null),
+  ])
+
+  const candidates: LendingCandidate[] = (rows as any[]).map((r) => ({
+    userId: r.userId,
+    score: r.score,
+    band: r.band,
+    avgMonthlySales: r.avgMonthlySales,
+    collectionRate: r.collectionRate,
+    businessAgeDays: r.businessAgeDays,
+    productCount: r.productCount,
+    partyCount: r.partyCount,
+    recommendation: r.recommendation || '',
+    computedAt: r.computedAt,
+  }))
+
+  return {
+    candidates,
+    total,
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    cacheStaleAt: latest?.computedAt || null,
   }
 }
