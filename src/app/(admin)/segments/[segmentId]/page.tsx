@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useParams, useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, Megaphone } from 'lucide-react'
 import { PageHeader, ContentCard, EmptyState, LoadingSkeleton, SearchBar, Pagination, Badge } from '@/components/admin/ui'
 import { formatRelativeTime } from '@/lib/utils'
 import Link from 'next/link'
@@ -61,6 +61,15 @@ export default function SegmentDetailPage() {
       <PageHeader
         title={SEGMENT_NAMES[segmentId] || 'Segment'}
         description={`${total} users in this segment`}
+        actions={
+          <button
+            onClick={() => router.push(`/campaigns?segment=${segmentId}`)}
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition"
+          >
+            <Megaphone className="w-4 h-4" />
+            Create Campaign
+          </button>
+        }
       />
 
       {/* Search */}

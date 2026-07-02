@@ -1,7 +1,8 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import {
   Megaphone, Plus, Play, Pause, X, RefreshCw, Eye,
   TrendingUp, AlertCircle, Clock, CheckCircle2, Loader2,
@@ -37,12 +38,21 @@ const STEP_STATUS_BADGE: Record<string, 'neutral' | 'warning' | 'success' | 'dan
 
 export default function CampaignsPage() {
   const queryClient = useQueryClient()
+  const searchParams = useSearchParams()
   const [tab, setTab] = useState<Tab>('overview')
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | string>('all')
   const [showEditor, setShowEditor] = useState(false)
   const [expandedCampaign, setExpandedCampaign] = useState<string | null>(null)
+
+  // If navigated with ?segment=X, auto-open editor
+  useEffect(() => {
+    const segment = searchParams.get('segment')
+    if (segment) {
+      setShowEditor(true)
+    }
+  }, [searchParams])
 
   // ============ OVERVIEW DATA ============
   const { data: overview, isLoading: overviewLoading } = useQuery({
@@ -351,6 +361,7 @@ export default function CampaignsPage() {
       {/* ============ EDITOR MODAL ============ */}
       {showEditor && (
         <CampaignEditor
+          initialSegmentId={searchParams.get('segment') || undefined}
           onClose={() => setShowEditor(false)}
           onCreated={() => {
             setShowEditor(false)
@@ -512,10 +523,10 @@ function CampaignDetail({
 // =====================================================================
 // CAMPAIGN EDITOR MODAL
 // =====================================================================
-function CampaignEditor({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CampaignEditor({ initialSegmentId, onClose, onCreated }: { initialSegmentId?: string; onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [targetSegmentId, setTargetSegmentId] = useState('')
+  const [targetSegmentId, setTargetSegmentId] = useState(initialSegmentId || '')
   const [targetUserIds, setTargetUserIds] = useState('')
   const [startAt, setStartAt] = useState('')
   const [steps, setSteps] = useState<Array<{ templateId: string; delayMinutes: number }>>([
@@ -531,6 +542,18 @@ function CampaignEditor({ onClose, onCreated }: { onClose: () => void; onCreated
     },
   })
   const templates = templatesData?.templates || []
+
+  // Fetch available segments for dropdown
+  const { data: segmentsData } = useQuery({
+    queryKey: ['admin-campaign-segments'],
+    queryFn: async () => {
+      const r = await fetch('/api/admin/campaigns/segments')
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      return r.json()
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+  const segments = segmentsData?.segments || []
 
   const createMutation = useMutation({
     mutationFn: async (payload: any) => {
@@ -647,16 +670,26 @@ function CampaignEditor({ onClose, onCreated }: { onClose: () => void; onCreated
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">Target Audience *</label>
             <p className="text-[11px] text-muted-foreground mb-2">
-              Use a segment (pre-computed) OR enter user IDs manually (one per line).
+              Select a segment (pre-computed) OR enter user IDs manually (one per line).
             </p>
-            <input
-              type="text"
+            <select
               value={targetSegmentId}
               onChange={(e) => setTargetSegmentId(e.target.value)}
-              placeholder="Segment ID (e.g. power_users, at_risk) — leave empty to use user IDs"
               className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary mb-2"
-            />
-            {!targetSegmentId && (
+            >
+              <option value="">— Manual user IDs (enter below) —</option>
+              {segments.map((s: any) => (
+                <option key={s.segmentId} value={s.segmentId}>
+                  {s.name} ({s.userCount} users)
+                </option>
+              ))}
+            </select>
+            {targetSegmentId ? (
+              <div className="p-2 bg-blue-50 dark:bg-blue-950/20 rounded border border-blue-200 dark:border-blue-900 text-xs text-blue-700 dark:text-blue-300">
+                ✓ Targeting segment: <strong>{segments.find((s: any) => s.segmentId === targetSegmentId)?.name || targetSegmentId}</strong>
+                {' '}({segments.find((s: any) => s.segmentId === targetSegmentId)?.userCount || 0} users will receive campaign notifications)
+              </div>
+            ) : (
               <textarea
                 value={targetUserIds}
                 onChange={(e) => setTargetUserIds(e.target.value)}
