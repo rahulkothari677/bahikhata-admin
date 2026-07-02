@@ -924,6 +924,7 @@ model Partner {
   updatedAt           DateTime @updatedAt
 
   apiKeys             ApiKey[]
+  webhookEndpoints    WebhookEndpoint[]
 
   @@index([type, status])
   @@index([status])
@@ -966,4 +967,75 @@ model ApiKey {
   @@index([partnerId, status])
   @@index([status])
   @@index([keyHash])
+}
+
+// ==================== WEBHOOK ENDPOINTS ====================
+// Partner webhook endpoints where we POST event notifications.
+// Each endpoint is tied to a partner and subscribed to specific events.
+//
+// Event types:
+//   - lead.created: New credit-scored lead available for lending
+//   - lead.updated: Lead status changed (e.g. user's score improved)
+//   - payment.received: Subscription payment received from a user
+//   - user.churned: User cancelled subscription
+//   - campaign.completed: Campaign finished sending all steps
+//   - anomaly.detected: Anomaly detected (optional — high-priority partners only)
+model WebhookEndpoint {
+  id            String   @id @default(cuid())
+  partnerId     String
+  partner       Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  url           String                            // https://partner.com/webhooks/leads
+  secret        String?                           // HMAC signature secret (for verification)
+  events        String   @default("[]") @db.Text  // JSON array of event types
+
+  status        String   @default("active")       // active | disabled
+  description   String?
+
+  // Stats (updated by delivery job)
+  totalSent     Int      @default(0)
+  totalSuccess  Int      @default(0)
+  totalFailed   Int      @default(0)
+  lastSentAt    DateTime?
+
+  // Metadata
+  createdBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  deliveries    WebhookDelivery[]
+
+  @@index([partnerId, status])
+  @@index([status])
+}
+
+model WebhookDelivery {
+  id              String   @id @default(cuid())
+  endpointId      String
+  endpoint        WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  eventType       String                             // lead.created | lead.updated | etc.
+  payload         String   @db.Text                  // JSON body sent to webhook
+
+  // Delivery status
+  status          String   @default("pending")      // pending | success | failed | retrying
+  attemptCount    Int      @default(0)
+  maxAttempts     Int      @default(3)              // exponential backoff: 1m, 5m, 25m
+
+  // Response info
+  responseStatus  Int?                               // HTTP status code (200, 500, etc.)
+  responseBody    String?  @db.Text                  // First 1KB of response body (for debugging)
+  errorMessage    String?
+
+  // Timing
+  firstAttemptAt  DateTime?
+  lastAttemptAt   DateTime?
+  nextRetryAt     DateTime?                          // when to retry (if failed)
+  deliveredAt     DateTime?                          // when successfully delivered
+
+  createdAt       DateTime @default(now())
+
+  @@index([endpointId, status, createdAt])
+  @@index([status, nextRetryAt])
+  @@index([createdAt])
 }
