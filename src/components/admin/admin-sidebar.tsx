@@ -10,7 +10,7 @@ import {
   Activity, BarChart3, AlertTriangle, CreditCard, TrendingDown,
   Target, Users2, Gift, Megaphone, Star,
   UserCog, Headphones, MessageSquare, UserCheck,
-  Coins, Database, FileBarChart, Package, Banknote,
+  Coins, Database, FileBarChart, Package, Banknote, FileText,
   Flag, ScrollText, Settings,
   ChevronDown, ChevronRight,
   Bell, Mail, Smartphone, Send,
@@ -67,6 +67,7 @@ const NAV_STRUCTURE: NavGroup[] = [
       { label: 'Subscriptions', href: '/subscriptions', icon: CreditCard },
       { label: 'Revenue Recognition', href: '/revenue-recognition', icon: FileBarChart },
       { label: 'Financial Reports', href: '/financial-reports', icon: TrendingUp },
+      { label: 'GST Filing', href: '/gst-filing', icon: FileText },
     ],
   },
   {

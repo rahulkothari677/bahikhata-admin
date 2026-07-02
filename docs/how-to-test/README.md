@@ -51,6 +51,7 @@ Each guide tells you exactly what to click, what to expect, and how to verify th
 | 1 | Predictive Churn Model | [phase-3.1-predictive-churn.md](./phase-3.1-predictive-churn.md) | `/churn-predictions` |
 | 2 | Supplier Intelligence | [phase-3.2-supplier-intelligence.md](./phase-3.2-supplier-intelligence.md) | `/supplier-intelligence` |
 | 3 | Lending Pipeline | [phase-3.3-lending-pipeline.md](./phase-3.3-lending-pipeline.md) | `/lending-pipeline` |
+| 4 | GST Filing Service | [phase-3.4-gst-filing.md](./phase-3.4-gst-filing.md) | `/gst-filing` |
 
 These docs explain the architecture, setup, and principles behind the admin panel:
 
@@ -109,5 +110,5 @@ Every feature in this admin panel satisfies these 13 principles:
 
 ---
 
-**Last updated:** Phase 3 (3/5) — Lending Pipeline
-**Total features documented:** 31 (30 feature guides + 4 foundational reference docs)
+**Last updated:** Phase 3 (4/5) — GST Filing Service
+**Total features documented:** 32 (31 feature guides + 4 foundational reference docs)
