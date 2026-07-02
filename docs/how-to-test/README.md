@@ -28,6 +28,20 @@ Each guide tells you exactly what to click, what to expect, and how to verify th
 | 4 | Status Page | [phase-2.4-status-page.md](./phase-2.4-status-page.md) | `/incidents` + `/status` |
 | 5 | Anomaly Detection | [phase-2.5-anomaly-detection.md](./phase-2.5-anomaly-detection.md) | `/anomalies` |
 | 6 | Configurable Fraud Rules | [phase-2.6-configurable-fraud-rules.md](./phase-2.6-configurable-fraud-rules.md) | `/fraud-rules` |
+| 7 | Partner Management | [phase-2.7-partner-management.md](./phase-2.7-partner-management.md) | `/partners` |
+
+---
+
+## Foundational Reference Docs
+
+These docs explain the architecture, setup, and principles behind the admin panel:
+
+| Doc | Description |
+|-----|-------------|
+| [architecture-overview.md](./architecture-overview.md) | Two-repo structure, tech stack, design system, file structure |
+| [environment-variables.md](./environment-variables.md) | All env vars for admin + main app (with examples) |
+| [deployment-guide.md](./deployment-guide.md) | Step-by-step Vercel deployment + database setup + troubleshooting |
+| [scalability-principles.md](./scalability-principles.md) | The 13-point checklist every feature must satisfy |
 
 ---
 
@@ -77,5 +91,5 @@ Every feature in this admin panel satisfies these 13 principles:
 
 ---
 
-**Last updated:** Phase 2 (6/22) — Configurable Fraud Rules
-**Total features documented:** 12
+**Last updated:** Phase 2 (7/22) — Partner Management
+**Total features documented:** 13 (12 feature guides + 4 foundational reference docs)

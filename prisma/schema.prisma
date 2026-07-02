@@ -877,3 +877,52 @@ model FraudAlert {
   @@index([ruleId, detectedAt])
   @@index([userId, detectedAt])
 }
+
+// ==================== PARTNER MANAGEMENT ====================
+// Directory of business partners (NBFCs, FMCG companies, fintechs) for
+// the lending and data-monetization pipeline.
+//
+// Partner types:
+//   - nbfc: Non-Banking Financial Company (lending — receives credit-scored leads)
+//   - fmcg: Fast-Moving Consumer Goods (receives supplier intelligence data)
+//   - fintech: Other fintech integrations (payments, accounting, etc.)
+//   - other: Other partner types
+//
+// Revenue model:
+//   - NBFC: ₹200/₹150/₹100 per lead by credit band (excellent/good/fair)
+//   - FMCG: ₹50K-₹5L per intelligence report
+//   - Fintech: Revenue share % (revenueSharePct field)
+model Partner {
+  id                  String   @id @default(cuid())
+  name                String
+  type                String   @default("nbfc")     // nbfc | fmcg | fintech | other
+  status              String   @default("onboarding") // onboarding | active | inactive | terminated
+
+  // Contact info
+  contactName         String?
+  contactEmail        String?
+  contactPhone        String?
+  website             String?
+
+  // Integration
+  apiBaseUrl          String?                          // e.g. https://api.partner.com
+  webhookUrl          String?                          // where we send lead notifications
+  revenueSharePct     Float    @default(0)             // 0-100, for fintech revenue share
+
+  // Stats (updated when leads are sent)
+  totalLeadsSent      Int      @default(0)
+  totalRevenueShared  Float    @default(0)             // in INR
+
+  // Contract
+  contractStartAt     DateTime?
+  contractEndAt       DateTime?
+  notes               String?  @db.Text
+
+  // Metadata
+  createdBy           String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([type, status])
+  @@index([status])
+}
