@@ -70,7 +70,7 @@ export function KPICard({ label, value, delta, deltaType = 'neutral', icon: Icon
         </div>
         {Icon && (
           <div className="w-9 h-9 rounded-lg bg-muted/50 flex items-center justify-center flex-shrink-0">
-            <Icon className={cn('w-4.5 h-4.5', iconColor)} />
+            <Icon className={cn('w-5 h-5', iconColor)} />
           </div>
         )}
       </div>
