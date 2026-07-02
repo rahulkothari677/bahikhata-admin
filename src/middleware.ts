@@ -16,8 +16,8 @@ import { getToken } from 'next-auth/jwt'
  *   - Static files (_next/*, favicon, etc.)
  */
 
-const PUBLIC_PATHS = ['/login', '/setup', '/forgot-password']
-const AUTH_PATHS = ['/api/auth', '/api/admin/setup', '/api/admin/login-debug', '/api/admin/forgot-password']
+const PUBLIC_PATHS = ['/login', '/setup', '/forgot-password', '/status']
+const AUTH_PATHS = ['/api/auth', '/api/admin/setup', '/api/admin/login-debug', '/api/admin/forgot-password', '/api/status']
 
 function isPublicPath(pathname: string): boolean {
   if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) return true

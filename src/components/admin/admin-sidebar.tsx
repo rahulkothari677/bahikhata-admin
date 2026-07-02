@@ -117,6 +117,7 @@ const NAV_STRUCTURE: NavGroup[] = [
     items: [
       { label: 'Feature Flags', href: '/features', icon: Flag },
       { label: 'Risk & Compliance', href: '/risk', icon: AlertTriangle },
+      { label: 'Status Page', href: '/incidents', icon: Activity },
       { label: 'Audit Log', href: '/audit-log', icon: ScrollText },
       { label: 'Settings', href: '/settings', icon: Settings },
     ],

@@ -718,3 +718,48 @@ model CampaignStep {
   @@index([campaignId, stepNumber])
   @@index([status, scheduledAt])
 }
+
+// ==================== STATUS PAGE / INCIDENTS ====================
+// Public-facing status page data. NO AUTH REQUIRED to read.
+// Used by /status page (investor + user trust signal).
+//
+// An incident has:
+//   - A title (e.g. "Database connectivity issues")
+//   - A severity (minor | major | critical | maintenance)
+//   - A status (investigating | identified | monitoring | resolved)
+//   - A service affected (api | database | ai_providers | payments | all)
+//   - A timeline of updates (IncidentUpdate[])
+//   - startedAt + resolvedAt timestamps
+model Incident {
+  id          String   @id @default(cuid())
+  title       String
+  description String   @db.Text
+  severity    String   @default("minor")     // minor | major | critical | maintenance
+  status      String   @default("investigating") // investigating | identified | monitoring | resolved
+  service     String   @default("all")       // api | database | ai_providers | payments | all
+
+  startedAt   DateTime @default(now())
+  resolvedAt  DateTime?
+
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  updates     IncidentUpdate[]
+
+  @@index([status, startedAt])
+  @@index([service, status])
+}
+
+model IncidentUpdate {
+  id          String   @id @default(cuid())
+  incidentId  String
+  incident    Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  message     String   @db.Text
+  status      String                                   // snapshot of incident status at this update
+  createdBy   String?
+  createdAt   DateTime @default(now())
+
+  @@index([incidentId, createdAt])
+}
