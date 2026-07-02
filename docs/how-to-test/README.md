@@ -34,6 +34,7 @@ Each guide tells you exactly what to click, what to expect, and how to verify th
 | 10 | Revenue Recognition | [phase-2.10-revenue-recognition.md](./phase-2.10-revenue-recognition.md) | `/revenue-recognition` |
 | 11 | Financial Reports | [phase-2.11-financial-reports.md](./phase-2.11-financial-reports.md) | `/financial-reports` |
 | 12 | A/B Testing | [phase-2.12-ab-testing.md](./phase-2.12-ab-testing.md) | `/experiments` |
+| 13 | Database Admin Tools | [phase-2.13-database-admin.md](./phase-2.13-database-admin.md) | `/database` |
 
 ---
 
@@ -96,5 +97,5 @@ Every feature in this admin panel satisfies these 13 principles:
 
 ---
 
-**Last updated:** Phase 2 (12/22) — A/B Testing
-**Total features documented:** 18 (17 feature guides + 4 foundational reference docs)
+**Last updated:** Phase 2 (13/22) — Database Admin Tools
+**Total features documented:** 19 (18 feature guides + 4 foundational reference docs)

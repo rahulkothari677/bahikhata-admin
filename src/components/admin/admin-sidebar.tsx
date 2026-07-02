@@ -127,6 +127,7 @@ const NAV_STRUCTURE: NavGroup[] = [
       { label: 'Fraud Rules', href: '/fraud-rules', icon: ShieldAlert },
       { label: 'Anomaly Detection', href: '/anomalies', icon: Activity },
       { label: 'Status Page', href: '/incidents', icon: Activity },
+      { label: 'Database Admin', href: '/database', icon: Database },
       { label: 'Audit Log', href: '/audit-log', icon: ScrollText },
       { label: 'Settings', href: '/settings', icon: Settings },
     ],
