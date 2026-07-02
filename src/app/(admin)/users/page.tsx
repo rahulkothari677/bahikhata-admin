@@ -58,13 +58,16 @@ export default function UsersPage() {
     onSuccess: (data) => {
       if (bulkAction === 'export' && data.csv) {
         // Download CSV
-        const blob = new Blob([data.csv], { type: 'text/csv' })
+        const blob = new Blob([data.csv], { type: 'text/csv;charset=utf-8;' })
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
         a.download = data.filename || 'users-export.csv'
+        a.style.display = 'none'
+        document.body.appendChild(a)
         a.click()
-        URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+        setTimeout(() => URL.revokeObjectURL(url), 1000)
         sonnerToast.success(`Exported ${data.count} users to CSV`)
       } else {
         sonnerToast.success(data.message || `Bulk ${bulkAction} completed`)
