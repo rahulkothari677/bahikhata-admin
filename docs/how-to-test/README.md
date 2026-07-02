@@ -29,6 +29,7 @@ Each guide tells you exactly what to click, what to expect, and how to verify th
 | 5 | Anomaly Detection | [phase-2.5-anomaly-detection.md](./phase-2.5-anomaly-detection.md) | `/anomalies` |
 | 6 | Configurable Fraud Rules | [phase-2.6-configurable-fraud-rules.md](./phase-2.6-configurable-fraud-rules.md) | `/fraud-rules` |
 | 7 | Partner Management | [phase-2.7-partner-management.md](./phase-2.7-partner-management.md) | `/partners` |
+| 8 | API Key Management | [phase-2.8-api-key-management.md](./phase-2.8-api-key-management.md) | `/api-keys` |
 
 ---
 
@@ -91,5 +92,5 @@ Every feature in this admin panel satisfies these 13 principles:
 
 ---
 
-**Last updated:** Phase 2 (7/22) — Partner Management
-**Total features documented:** 13 (12 feature guides + 4 foundational reference docs)
+**Last updated:** Phase 2 (8/22) — API Key Management
+**Total features documented:** 14 (13 feature guides + 4 foundational reference docs)

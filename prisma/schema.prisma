@@ -923,6 +923,47 @@ model Partner {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
+  apiKeys             ApiKey[]
+
   @@index([type, status])
   @@index([status])
+}
+
+// ==================== API KEYS (Partner Authentication) ====================
+// API keys issued to partners for programmatic access to our API.
+// SECURITY: We store only the SHA-256 hash of the key, never the raw key.
+// The raw key is shown ONCE on creation — admin must save it securely.
+//
+// Scopes define what the key can access:
+//   - read_leads: GET lead data (credit scores for lending)
+//   - write_leads: POST lead status updates (approved/rejected)
+//   - read_analytics: GET aggregate analytics (market intelligence)
+//   - read_users: GET user data (anonymized)
+//   - read_revenue: GET revenue/share data
+//   - admin: full access (use sparingly)
+model ApiKey {
+  id            String    @id @default(cuid())
+  partnerId     String?                            // null = internal/admin key (not tied to partner)
+  partner       Partner?  @relation(fields: [partnerId], references: [id], onDelete: SetNull)
+
+  name          String                             // human-readable label (e.g. "Bajaj Production Key")
+  keyHash       String   @unique                   // SHA-256 hash of the raw key (never store raw)
+  keyPrefix     String                             // first 12 chars of raw key (for display: bkh_live_abc1...)
+  scopes        String   @default("[]") @db.Text   // JSON array of scope strings
+
+  status        String   @default("active")        // active | revoked | expired
+  expiresAt     DateTime?                          // null = never expires
+
+  // Usage tracking
+  lastUsedAt    DateTime?
+  usageCount    Int      @default(0)
+
+  // Metadata
+  createdBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([partnerId, status])
+  @@index([status])
+  @@index([keyHash])
 }
