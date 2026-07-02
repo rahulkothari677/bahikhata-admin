@@ -54,7 +54,15 @@ Each guide tells you exactly what to click, what to expect, and how to verify th
 | 4 | GST Filing Service | [phase-3.4-gst-filing.md](./phase-3.4-gst-filing.md) | `/gst-filing` |
 | 5 | Account Aggregator | [phase-3.5-account-aggregator.md](./phase-3.5-account-aggregator.md) | `/account-aggregator` |
 
-These docs explain the architecture, setup, and principles behind the admin panel:
+## 📋 Final Summary
+
+For a complete overview of all 33 features, the process followed, architecture decisions, and what's remaining, see:
+
+**[FINAL-SUMMARY.md](./FINAL-SUMMARY.md)** — Comprehensive summary of everything built across all 3 phases.
+
+---
+
+## Foundational Reference Docs
 
 | Doc | Description |
 |-----|-------------|
