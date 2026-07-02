@@ -805,3 +805,75 @@ model Anomaly {
   @@index([metric, detectedAt])
   @@index([detectedAt])
 }
+
+// ==================== CONFIGURABLE FRAUD RULES ====================
+// Admin-defined rules that auto-detect suspicious activity.
+// Each rule has a metric, condition, threshold, and time window.
+// When a user's activity matches a rule, a FraudAlert is created.
+//
+// Example rules:
+//   - "Flag users with > 50 transactions in 1 hour"
+//   - "Flag users with > ₹1,00,000 total sales in 24 hours"
+//   - "Flag users with > 20 AI calls in 1 hour"
+//   - "Flag users who created account < 1 hour ago AND have > 10 transactions"
+model FraudRule {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?  @db.Text
+
+  // What to measure
+  metric          String                          // transaction_count | transaction_amount | ai_call_count | login_failure_count | new_user_with_activity
+  // Condition
+  operator        String                          // gt | gte | lt | lte | eq
+  threshold       Float
+
+  // Time window in minutes (e.g. 60 = 1 hour, 1440 = 24 hours)
+  // null = all-time (no window)
+  windowMinutes   Int?
+
+  // Optional: only apply to users created within X minutes (for "new user" rules)
+  userAgeMinutes  Int?
+
+  // Status
+  enabled         Boolean  @default(true)
+  severity        String   @default("medium")     // low | medium | high | critical
+
+  // Metadata
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  alerts          FraudAlert[]
+
+  @@index([enabled, metric])
+}
+
+model FraudAlert {
+  id              String   @id @default(cuid())
+  ruleId          String
+  rule            FraudRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  // Who triggered it
+  userId          String
+  userName        String?
+  userEmail       String?
+
+  // What was detected
+  metricValue     Float                            // the value that triggered the alert
+  threshold       Float                            // the rule's threshold (snapshot)
+
+  // Status
+  status          String   @default("open")       // open | acknowledged | resolved | false_positive
+  adminNote       String?  @db.Text
+
+  // Metadata
+  detectedAt      DateTime @default(now())
+  acknowledgedBy  String?
+  acknowledgedAt  DateTime?
+  resolvedBy      String?
+  resolvedAt      DateTime?
+
+  @@index([status, detectedAt])
+  @@index([ruleId, detectedAt])
+  @@index([userId, detectedAt])
+}

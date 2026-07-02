@@ -6,7 +6,7 @@ import { signOut, useSession } from 'next-auth/react'
 import { useState, useEffect } from 'react'
 import {
   LayoutDashboard, TrendingUp, Rocket, Users as UsersIcon,
-  Brain, Shield, LogOut,
+  Brain, Shield, ShieldAlert, LogOut,
   Activity, BarChart3, AlertTriangle, CreditCard,
   Target, Users2, Gift, Megaphone,
   UserCog, Headphones, MessageSquare,
@@ -118,6 +118,8 @@ const NAV_STRUCTURE: NavGroup[] = [
     items: [
       { label: 'Feature Flags', href: '/features', icon: Flag },
       { label: 'Risk & Compliance', href: '/risk', icon: AlertTriangle },
+      { label: 'Fraud Rules', href: '/fraud-rules', icon: ShieldAlert },
+      { label: 'Anomaly Detection', href: '/anomalies', icon: Activity },
       { label: 'Status Page', href: '/incidents', icon: Activity },
       { label: 'Audit Log', href: '/audit-log', icon: ScrollText },
       { label: 'Settings', href: '/settings', icon: Settings },
