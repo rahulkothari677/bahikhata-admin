@@ -1341,3 +1341,42 @@ model ChurnPrediction {
   @@index([riskLevel, riskScore])
   @@index([userPlan, riskLevel])
 }
+
+// ==================== SUPPLIER INTELLIGENCE ====================
+// Anonymized market intelligence reports generated from aggregate user data.
+// Sold to FMCG partners (HUL, ITC, etc.) for market research.
+//
+// Report types:
+//   - product_trends: top-selling products across all users (anonymized)
+//   - transaction_volume: monthly transaction volumes by category
+//   - payment_patterns: payment method distribution (UPI/cash/card)
+//   - regional_insights: transaction volume by state/region
+//   - category_analysis: category-wise sales trends
+//
+// PRIVACY: All data is AGGREGATED — no individual user data exposed.
+// Minimum aggregation threshold: at least 10 users per data point.
+model SupplierReport {
+  id              String   @id @default(cuid())
+  name            String
+  type            String                            // product_trends | transaction_volume | payment_patterns | regional_insights | category_analysis
+  partnerId       String?                           // linked Partner (optional — null = general report)
+  status          String   @default("generated")    // generated | delivered | archived
+
+  // Report content (JSON with aggregated data)
+  summary         String?  @db.Text                 // human-readable summary
+  data            String   @default("{}") @db.Text  // JSON: aggregated data
+  dataPoints      Int      @default(0)              // number of data points in report
+  userCount       Int      @default(0)              // number of users included in aggregation
+
+  // Pricing
+  priceInr        Float    @default(0)              // price charged to partner (₹)
+
+  // Metadata
+  period          String?                           // e.g. "2026-06" or "Q2 2026"
+  generatedBy     String?
+  createdAt       DateTime @default(now())
+  deliveredAt     DateTime?
+
+  @@index([type, status])
+  @@index([partnerId, status])
+}

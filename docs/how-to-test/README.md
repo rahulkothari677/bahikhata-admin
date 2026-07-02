@@ -49,6 +49,7 @@ Each guide tells you exactly what to click, what to expect, and how to verify th
 | # | Feature | Guide | Page URL |
 |---|---------|-------|----------|
 | 1 | Predictive Churn Model | [phase-3.1-predictive-churn.md](./phase-3.1-predictive-churn.md) | `/churn-predictions` |
+| 2 | Supplier Intelligence | [phase-3.2-supplier-intelligence.md](./phase-3.2-supplier-intelligence.md) | `/supplier-intelligence` |
 
 These docs explain the architecture, setup, and principles behind the admin panel:
 
@@ -107,5 +108,5 @@ Every feature in this admin panel satisfies these 13 principles:
 
 ---
 
-**Last updated:** Phase 3 (1/5) — Predictive Churn Model
-**Total features documented:** 29 (28 feature guides + 4 foundational reference docs)
+**Last updated:** Phase 3 (2/5) — Supplier Intelligence
+**Total features documented:** 30 (29 feature guides + 4 foundational reference docs)
