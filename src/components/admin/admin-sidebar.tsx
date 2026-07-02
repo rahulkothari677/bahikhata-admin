@@ -13,6 +13,7 @@ import {
   Coins, Database, FileBarChart,
   Flag, ScrollText, Settings,
   ChevronDown, ChevronRight,
+  Bell, Mail, Smartphone,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -75,6 +76,15 @@ const NAV_STRUCTURE: NavGroup[] = [
       { label: 'Funnel Analytics', href: '/growth', icon: Target },
       { label: 'User Segments', href: '/segments', icon: Users2 },
       { label: 'Feedback (NPS)', href: '/feedback', icon: MessageSquare },
+    ],
+  },
+  {
+    id: 'engagement',
+    label: 'Engagement',
+    icon: Megaphone,
+    color: 'text-pink-500',
+    items: [
+      { label: 'Notification Templates', href: '/notification-templates', icon: Bell },
     ],
   },
   {

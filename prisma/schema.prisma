@@ -578,3 +578,28 @@ model CreditScoreCache {
   @@index([score])
   @@index([band])
 }
+
+// ==================== NOTIFICATION TEMPLATES ====================
+// Reusable templates for SMS, Email, and Push notifications.
+// Variables use {{double_curly_brace}} syntax (e.g. {{userName}}, {{amount}}).
+// Used by: Campaign Management, Multi-channel Notifications, transactional sends.
+// Created by admin, versioned (version field), with category for organization.
+model NotificationTemplate {
+  id          String   @id @default(cuid())
+  name        String                          // human-readable name (e.g. "Payment Reminder")
+  category    String   @default("general")   // general | payment | onboarding | churn | promotional
+  channel     String                          // sms | email | push
+  subject     String?                          // email subject (null for sms/push)
+  body        String   @db.Text               // template body with {{variables}}
+  variables   String   @default("[]") @db.Text // JSON array of variable names: ["userName", "amount"]
+  language    String   @default("en")         // en | hi | bilingual
+  status      String   @default("draft")      // draft | active | archived
+  version     Int      @default(1)            // bumped on each edit
+  createdBy   String?                          // admin user ID
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([channel, status])
+  @@index([category, status])
+  @@index([status])
+}
