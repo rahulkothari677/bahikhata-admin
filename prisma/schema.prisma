@@ -1228,3 +1228,42 @@ model BulkJob {
   @@index([status, scheduledAt])
   @@index([action, status])
 }
+
+// ==================== NPS SURVEY CONFIG ====================
+// Configurable triggers for when NPS surveys appear in the main app.
+// Multiple trigger rules can be active simultaneously.
+// The main app checks these rules and shows the survey when any match.
+//
+// Trigger types:
+//   - days_after_signup: show X days after user created (e.g. 7 days)
+//   - transaction_count: show after X transactions (e.g. 10th transaction)
+//   - days_since_last_survey: show if last survey was > X days ago (e.g. 90 days)
+//   - plan_upgrade: show when user upgrades plan (immediate)
+//   - manual: only show when admin triggers manually
+model NpsSurveyConfig {
+  id              String   @id @default(cuid())
+  name            String
+  triggerType     String                            // days_after_signup | transaction_count | days_since_last_survey | plan_upgrade | manual
+  triggerValue    Int                               // X (days, count, etc.)
+  question        String   @default("How likely are you to recommend BahiKhata Pro to a friend or colleague?")
+
+  // Cooldown: don't show again for X days after user responds
+  cooldownDays    Int      @default(90)
+
+  // Targeting
+  targetPlans     String   @default("all")          // all | free | pro | elite (comma-separated)
+
+  // Status
+  enabled         Boolean  @default(true)
+  priority        Int      @default(1)              // higher = shown first if multiple match
+
+  // Stats (updated when survey is shown)
+  timesShown      Int      @default(0)
+  timesResponded  Int      @default(0)
+
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([enabled, triggerType])
+}

@@ -40,6 +40,7 @@ Each guide tells you exactly what to click, what to expect, and how to verify th
 | 16 | Bulk Operations v2 | [phase-2.16-bulk-operations.md](./phase-2.16-bulk-operations.md) | `/bulk-jobs` |
 | 17 | Feature Flag Analytics | [phase-2.17-feature-flag-analytics.md](./phase-2.17-feature-flag-analytics.md) | `/features` |
 | 18 | Segment-to-Campaign | [phase-2.18-segment-to-campaign.md](./phase-2.18-segment-to-campaign.md) | `/campaigns` + `/segments` |
+| 19 | NPS Survey Builder | [phase-2.19-nps-survey-builder.md](./phase-2.19-nps-survey-builder.md) | `/nps-config` |
 
 ---
 
@@ -102,5 +103,5 @@ Every feature in this admin panel satisfies these 13 principles:
 
 ---
 
-**Last updated:** Phase 2 (18/22) — Segment-to-Campaign
-**Total features documented:** 24 (23 feature guides + 4 foundational reference docs)
+**Last updated:** Phase 2 (19/22) — NPS Survey Builder
+**Total features documented:** 25 (24 feature guides + 4 foundational reference docs)
