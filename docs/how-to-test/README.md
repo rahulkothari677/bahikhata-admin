@@ -38,6 +38,7 @@ Each guide tells you exactly what to click, what to expect, and how to verify th
 | 14 | Competitor Monitoring | [phase-2.14-competitor-monitoring.md](./phase-2.14-competitor-monitoring.md) | `/competitors` |
 | 15 | Audit Log Explorer | [phase-2.15-audit-log-explorer.md](./phase-2.15-audit-log-explorer.md) | `/audit-log` |
 | 16 | Bulk Operations v2 | [phase-2.16-bulk-operations.md](./phase-2.16-bulk-operations.md) | `/bulk-jobs` |
+| 17 | Feature Flag Analytics | [phase-2.17-feature-flag-analytics.md](./phase-2.17-feature-flag-analytics.md) | `/features` |
 
 ---
 
@@ -100,5 +101,5 @@ Every feature in this admin panel satisfies these 13 principles:
 
 ---
 
-**Last updated:** Phase 2 (16/22) — Bulk Operations v2
-**Total features documented:** 22 (21 feature guides + 4 foundational reference docs)
+**Last updated:** Phase 2 (17/22) — Feature Flag Analytics
+**Total features documented:** 23 (22 feature guides + 4 foundational reference docs)
