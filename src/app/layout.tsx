@@ -11,6 +11,11 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Tell Chrome: this page is designed for light mode only.
+            Prevents Chrome's force-dark flag from applying a dark filter. */}
+        <meta name="color-scheme" content="light" />
+      </head>
       <body className="min-h-screen bg-background antialiased">
         <Providers>{children}</Providers>
       </body>

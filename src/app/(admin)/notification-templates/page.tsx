@@ -556,10 +556,13 @@ function TemplateEditor({
       role="dialog"
       aria-modal="true"
     >
-      <div className="relative bg-card text-card-foreground rounded-xl border border-border shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto z-[101]">
+      <div
+        className="relative rounded-xl border border-slate-200 shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto z-[101]"
+        style={{ backgroundColor: '#ffffff', color: '#0f172a' }}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-card z-10">
-          <h2 className="text-lg font-bold">
+        <div className="flex items-center justify-between p-4 border-b border-slate-200 sticky top-0 z-10" style={{ backgroundColor: '#ffffff' }}>
+          <h2 className="text-lg font-bold" style={{ color: '#0f172a' }}>
             {template?.id ? `Edit Template (v${template.version})` : 'New Template'}
           </h2>
           <button
@@ -701,7 +704,7 @@ function TemplateEditor({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 p-4 border-t border-border sticky bottom-0 bg-card">
+        <div className="flex items-center justify-end gap-2 p-4 border-t border-slate-200 sticky bottom-0 z-10" style={{ backgroundColor: '#ffffff' }}>
           <button
             onClick={onClose}
             className="px-4 py-2 text-sm font-medium bg-muted text-muted-foreground rounded-lg hover:bg-muted/80 transition"

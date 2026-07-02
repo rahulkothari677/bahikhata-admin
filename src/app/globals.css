@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/* Tell Chrome: this page supports light mode only.
+   Prevents Chrome's "Auto Dark Mode for Web Contents" flag
+   (chrome://flags/#enable-force-dark) from applying a dark filter
+   over the entire page, which makes modals look like "sunglasses glass". */
+:root {
+  color-scheme: light;
+}
+
 :root {
   --background: 0 0% 100%;
   --foreground: 222 47% 11%;
