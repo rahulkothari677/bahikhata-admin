@@ -134,12 +134,42 @@ export default function UsersPage() {
         </div>
         <button
           onClick={() => {
-            // Export all users as CSV
             const ids = users.map((u: any) => u.id)
-            if (ids.length === 0) return
-            bulkMutation.mutate({ action: 'export', userIds: ids })
+            if (ids.length === 0) {
+              sonnerToast.error('No users to export')
+              return
+            }
+            sonnerToast.loading('Generating CSV...', { id: 'csv-export' })
+            fetch('/api/admin/bulk', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'export', userIds: ids }),
+            })
+            .then(r => r.json())
+            .then(data => {
+              if (!data.success) throw new Error(data.error || 'Export failed')
+              // Download CSV
+              const blob = new Blob([data.csv], { type: 'text/csv;charset=utf-8;' })
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = data.filename || 'users-export.csv'
+              a.style.display = 'none'
+              document.body.appendChild(a)
+              a.click()
+              document.body.removeChild(a)
+              setTimeout(() => URL.revokeObjectURL(url), 2000)
+              sonnerToast.success(`Exported ${data.count} users to CSV`, { id: 'csv-export' })
+            })
+            .catch(err => {
+              sonnerToast.error('CSV export failed', {
+                description: String(err.message || err).slice(0, 200),
+                id: 'csv-export',
+                duration: 8000,
+              })
+            })
           }}
-          disabled={users.length === 0 || bulkMutation.isPending}
+          disabled={users.length === 0}
           className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg text-sm font-medium hover:bg-muted/50 transition disabled:opacity-50"
         >
           <Download className="w-4 h-4" />
