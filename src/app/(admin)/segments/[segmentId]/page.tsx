@@ -3,11 +3,25 @@
 import { useQuery } from '@tanstack/react-query'
 import { useParams, useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { ArrowLeft, Search, Loader2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react'
+import { PageHeader, ContentCard, EmptyState, LoadingSkeleton, SearchBar, Pagination, Badge } from '@/components/admin/ui'
+import { formatRelativeTime } from '@/lib/utils'
 import Link from 'next/link'
-import { useDebounce } from '@/hooks/use-debounce'
 
 const PAGE_SIZE = 20
+
+const SEGMENT_NAMES: Record<string, string> = {
+  power_users: '⚡ Power Users',
+  whales: '🐋 Whales',
+  new_users: '🆕 New Users',
+  at_risk: '⚠️ At Risk',
+  churned: '💀 Churned',
+  ai_power: '🤖 AI Power Users',
+  free_active: '🆓 Free Tier Active',
+  paying: '👑 Paying Users',
+  abandoned: '🚫 Trial Abandoned',
+  rising_stars: '🌟 Rising Stars',
+}
 
 export default function SegmentDetailPage() {
   const params = useParams()
@@ -16,47 +30,26 @@ export default function SegmentDetailPage() {
 
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
-  const debouncedSearch = useDebounce(search, 300)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['admin-segments'],
+    queryKey: ['admin-segment-detail', segmentId, page, search],
     queryFn: async () => {
-      const r = await fetch('/api/admin/segments')
+      const params = new URLSearchParams({ segmentId, page: String(page) })
+      if (search) params.set('search', search)
+      const r = await fetch(`/api/admin/segments?${params}`)
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
       return r.json()
     },
+    staleTime: 60 * 1000,
   })
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-6 h-6 animate-spin text-primary" />
-      </div>
-    )
-  }
-
-  if (!data?.success) return <div className="p-6 text-muted-foreground">Failed to load</div>
-
-  const segment = data.segments.find((s: any) => s.id === segmentId)
-
-  if (!segment) {
-    return <div className="p-6 text-muted-foreground">Segment not found</div>
-  }
-
-  // Filter users by search
-  const filteredUsers = debouncedSearch
-    ? segment.users.filter((u: any) =>
-        u.email.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-        (u.name && u.name.toLowerCase().includes(debouncedSearch.toLowerCase()))
-      )
-    : segment.users
-
-  // Pagination
-  const totalPages = Math.ceil(filteredUsers.length / PAGE_SIZE)
-  const paginatedUsers = filteredUsers.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const users = data?.users || []
+  const total = data?.total || 0
+  const totalPages = data?.totalPages || 0
 
   return (
     <div className="p-6 space-y-6">
-      {/* Back + header */}
+      {/* Back */}
       <button
         onClick={() => router.push('/segments')}
         className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition"
@@ -65,32 +58,28 @@ export default function SegmentDetailPage() {
         Back to segments
       </button>
 
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <span className="text-3xl">{segment.icon}</span>
-          {segment.name}
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">{segment.description}</p>
-        <p className="text-xs text-muted-foreground mt-1">{segment.users.length} users in this segment</p>
-      </div>
+      <PageHeader
+        title={SEGMENT_NAMES[segmentId] || 'Segment'}
+        description={`${total} users in this segment`}
+      />
 
       {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <input
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-          placeholder="Search by name or email..."
-          className="w-full pl-10 pr-3 py-2 bg-card border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-        />
-      </div>
+      <SearchBar
+        value={search}
+        onChange={(v) => { setSearch(v); setPage(1) }}
+        placeholder="Search by name or email..."
+      />
 
       {/* Users table */}
-      <div className="bg-card rounded-xl border border-border overflow-hidden">
-        {paginatedUsers.length === 0 ? (
-          <div className="py-12 text-center text-sm text-muted-foreground">
-            No users found
-          </div>
+      <ContentCard>
+        {isLoading ? (
+          <LoadingSkeleton rows={8} />
+        ) : users.length === 0 ? (
+          <EmptyState
+            icon={ArrowLeft}
+            title="No users found"
+            description={search ? "Try adjusting your search" : "No users in this segment"}
+          />
         ) : (
           <table className="w-full">
             <thead className="bg-muted/50 border-b border-border">
@@ -98,10 +87,11 @@ export default function SegmentDetailPage() {
                 <th className="text-left text-xs font-medium text-muted-foreground uppercase px-4 py-3">User</th>
                 <th className="text-left text-xs font-medium text-muted-foreground uppercase px-4 py-3">Email</th>
                 <th className="text-left text-xs font-medium text-muted-foreground uppercase px-4 py-3">Plan</th>
+                <th className="text-right text-xs font-medium text-muted-foreground uppercase px-4 py-3">Last Active</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {paginatedUsers.map((user: any) => (
+              {users.map((user: any) => (
                 <tr key={user.id} className="hover:bg-muted/30 transition">
                   <td className="px-4 py-3">
                     <Link href={`/users/${user.id}`} className="flex items-center gap-2">
@@ -113,46 +103,28 @@ export default function SegmentDetailPage() {
                   </td>
                   <td className="px-4 py-3 text-sm text-muted-foreground">{user.email}</td>
                   <td className="px-4 py-3">
-                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
-                      user.plan === 'elite' ? 'bg-violet-100 text-violet-700' :
-                      user.plan === 'pro' ? 'bg-amber-100 text-amber-700' :
-                      'bg-muted text-muted-foreground'
-                    }`}>
+                    <Badge variant={user.plan === 'elite' ? 'info' : user.plan === 'pro' ? 'warning' : 'neutral'}>
                       {user.plan}
-                    </span>
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-3 text-right text-xs text-muted-foreground">
+                    {formatRelativeTime(user.updatedAt)}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
-      </div>
+      </ContentCard>
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-muted-foreground">
-            Showing {(page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, filteredUsers.length)} of {filteredUsers.length}
-          </p>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="p-2 rounded-lg border border-border hover:bg-muted disabled:opacity-30"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="text-sm font-medium">{page} / {totalPages}</span>
-            <button
-              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-              className="p-2 rounded-lg border border-border hover:bg-muted disabled:opacity-30"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
+      <Pagination
+        page={page}
+        totalPages={totalPages}
+        total={total}
+        pageSize={PAGE_SIZE}
+        onPageChange={setPage}
+      />
     </div>
   )
 }
