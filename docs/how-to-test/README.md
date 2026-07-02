@@ -52,6 +52,7 @@ Each guide tells you exactly what to click, what to expect, and how to verify th
 | 2 | Supplier Intelligence | [phase-3.2-supplier-intelligence.md](./phase-3.2-supplier-intelligence.md) | `/supplier-intelligence` |
 | 3 | Lending Pipeline | [phase-3.3-lending-pipeline.md](./phase-3.3-lending-pipeline.md) | `/lending-pipeline` |
 | 4 | GST Filing Service | [phase-3.4-gst-filing.md](./phase-3.4-gst-filing.md) | `/gst-filing` |
+| 5 | Account Aggregator | [phase-3.5-account-aggregator.md](./phase-3.5-account-aggregator.md) | `/account-aggregator` |
 
 These docs explain the architecture, setup, and principles behind the admin panel:
 
@@ -110,5 +111,5 @@ Every feature in this admin panel satisfies these 13 principles:
 
 ---
 
-**Last updated:** Phase 3 (4/5) — GST Filing Service
-**Total features documented:** 32 (31 feature guides + 4 foundational reference docs)
+**Last updated:** Phase 3 (5/5) — Account Aggregator — PHASE 3 COMPLETE 🎉
+**Total features documented:** 33 (32 feature guides + 4 foundational reference docs)
