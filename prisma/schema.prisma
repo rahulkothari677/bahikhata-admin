@@ -1267,3 +1267,35 @@ model NpsSurveyConfig {
 
   @@index([enabled, triggerType])
 }
+
+// ==================== DATA EXPORT CENTER (GDPR/DPDP) ====================
+// Tracks data export requests for compliance (GDPR Article 20 / DPDP Act).
+// Users can request their data → admin approves → system generates export.
+//
+// Export types:
+//   - user_data: single user's complete data (for DPDP data portability request)
+//   - all_users: all users (for admin analysis/migration)
+//   - transactions: transaction data (for accounting/audit)
+//   - subscriptions: subscription history (for revenue analysis)
+//   - ai_usage: AI usage logs (for cost analysis)
+//   - custom: custom SQL query export (uses Database Admin query runner)
+model DataExportRequest {
+  id              String   @id @default(cuid())
+  type            String                            // user_data | all_users | transactions | subscriptions | ai_usage | custom
+  format          String   @default("csv")          // csv | json
+  status          String   @default("pending")      // pending | processing | completed | failed
+  userId          String?                           // for user_data type (which user's data)
+  customQuery     String?  @db.Text                 // for custom type (SQL query)
+  fileName        String?                           // generated file name
+  fileSizeBytes   Int      @default(0)
+  rowCount        Int      @default(0)
+  errorMessage    String?  @db.Text
+  requestedBy     String?                           // admin who requested
+  processedBy     String?
+  createdAt       DateTime @default(now())
+  completedAt     DateTime?
+  expiresAt       DateTime?                          // download link expiry (default 24h)
+
+  @@index([status, createdAt])
+  @@index([type, status])
+}

@@ -131,6 +131,7 @@ const NAV_STRUCTURE: NavGroup[] = [
       { label: 'Anomaly Detection', href: '/anomalies', icon: Activity },
       { label: 'Status Page', href: '/incidents', icon: Activity },
       { label: 'Database Admin', href: '/database', icon: Database },
+      { label: 'Data Exports', href: '/data-exports', icon: FileBarChart },
       { label: 'Audit Log', href: '/audit-log', icon: ScrollText },
       { label: 'Settings', href: '/settings', icon: Settings },
     ],
