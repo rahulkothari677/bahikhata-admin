@@ -27,6 +27,23 @@ export default function UsersPage() {
     },
   })
 
+  // Fetch health scores for all users
+  const { data: healthData } = useQuery({
+    queryKey: ['admin-health'],
+    queryFn: async () => {
+      const r = await fetch('/api/admin/health')
+      return r.json()
+    },
+  })
+
+  // Build a lookup map of userId → health score
+  const healthMap: Record<string, any> = {}
+  if (healthData?.scores) {
+    for (const s of healthData.scores) {
+      healthMap[s.userId] = s
+    }
+  }
+
   const bulkMutation = useMutation({
     mutationFn: async (body: any) => {
       const r = await fetch('/api/admin/bulk', {
@@ -107,9 +124,24 @@ export default function UsersPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Users</h1>
-        <p className="text-sm text-muted-foreground mt-1">Manage all BahiKhata Pro users</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Users</h1>
+          <p className="text-sm text-muted-foreground mt-1">Manage all BahiKhata Pro users</p>
+        </div>
+        <button
+          onClick={() => {
+            // Export all users as CSV
+            const ids = users.map((u: any) => u.id)
+            if (ids.length === 0) return
+            bulkMutation.mutate({ action: 'export', userIds: ids })
+          }}
+          disabled={users.length === 0 || bulkMutation.isPending}
+          className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg text-sm font-medium hover:bg-muted/50 transition disabled:opacity-50"
+        >
+          <Download className="w-4 h-4" />
+          Export CSV
+        </button>
       </div>
 
       {/* Filters */}
@@ -196,6 +228,7 @@ export default function UsersPage() {
                 <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wide px-4 py-3">Plan</th>
                 <th className="text-right text-xs font-medium text-muted-foreground uppercase tracking-wide px-4 py-3">Transactions</th>
                 <th className="text-right text-xs font-medium text-muted-foreground uppercase tracking-wide px-4 py-3">AI Calls</th>
+                <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wide px-4 py-3">Health</th>
                 <th className="text-right text-xs font-medium text-muted-foreground uppercase tracking-wide px-4 py-3">Joined</th>
                 <th className="text-right text-xs font-medium text-muted-foreground uppercase tracking-wide px-4 py-3">Actions</th>
               </tr>
@@ -234,6 +267,15 @@ export default function UsersPage() {
                   </td>
                   <td className="px-4 py-3 text-right text-sm tabular-nums">{user._count.transactions}</td>
                   <td className="px-4 py-3 text-right text-sm tabular-nums">{user._count.aiUsageLogs}</td>
+                  <td className="px-4 py-3">
+                    {healthMap[user.id] ? (
+                      <span className={`text-xs font-bold ${healthMap[user.id].color}`}>
+                        {healthMap[user.id].score} · {healthMap[user.id].label}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-right text-xs text-muted-foreground">{formatRelativeTime(user.createdAt)}</td>
                   <td className="px-4 py-3 text-right">
                     <Link

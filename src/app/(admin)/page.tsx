@@ -2,6 +2,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { StatCard } from '@/components/admin/stat-card'
+import { ActivityFeedClient } from '@/components/admin/activity-feed'
 import { Users, DollarSign, TrendingUp, Coins, Activity, Zap, UserCheck, ShoppingCart } from 'lucide-react'
 import { formatINR, formatNumber, formatRelativeTime } from '@/lib/utils'
 
@@ -244,6 +245,9 @@ export default async function OverviewPage() {
           </div>
         </div>
       </div>
+
+      {/* Real-time Activity Feed */}
+      <ActivityFeedClient />
     </div>
   )
 }
