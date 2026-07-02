@@ -551,8 +551,12 @@ function TemplateEditor({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-card rounded-xl border border-border w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="relative bg-card text-card-foreground rounded-xl border border-border shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto z-[101]">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-card z-10">
           <h2 className="text-lg font-bold">
