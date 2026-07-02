@@ -45,9 +45,10 @@ Each guide tells you exactly what to click, what to expect, and how to verify th
 | 21 | Admin Team Management | [phase-2.21-admin-team-management.md](./phase-2.21-admin-team-management.md) | `/admin-users` |
 | 22 | Impersonation Audit | [phase-2.22-impersonation-audit.md](./phase-2.22-impersonation-audit.md) | `/impersonation-log` |
 
----
-
-## Foundational Reference Docs
+### Phase 3 — Advanced Intelligence
+| # | Feature | Guide | Page URL |
+|---|---------|-------|----------|
+| 1 | Predictive Churn Model | [phase-3.1-predictive-churn.md](./phase-3.1-predictive-churn.md) | `/churn-predictions` |
 
 These docs explain the architecture, setup, and principles behind the admin panel:
 
@@ -106,5 +107,5 @@ Every feature in this admin panel satisfies these 13 principles:
 
 ---
 
-**Last updated:** Phase 2 (22/22) — Impersonation Audit — PHASE 2 COMPLETE 🎉
-**Total features documented:** 28 (27 feature guides + 4 foundational reference docs)
+**Last updated:** Phase 3 (1/5) — Predictive Churn Model
+**Total features documented:** 29 (28 feature guides + 4 foundational reference docs)

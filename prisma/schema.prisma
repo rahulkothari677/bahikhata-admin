@@ -1299,3 +1299,45 @@ model DataExportRequest {
   @@index([status, createdAt])
   @@index([type, status])
 }
+
+// ==================== PREDICTIVE CHURN MODEL ====================
+// Pre-computed churn risk scores per user.
+// A background job (or manual trigger) runs the churn scoring algorithm,
+// which analyzes user behavior signals and assigns a 0-100 risk score.
+//
+// Risk factors (higher = more likely to churn):
+//   - Days since last login (inactivity)
+//   - Days since last transaction (engagement drop)
+//   - AI usage decline (comparing last 7 days vs previous 7 days)
+//   - Plan tier (free users churn more than paid)
+//   - Account age (very new or very old accounts churn more)
+//   - Support tickets (frustrated users churn more)
+//   - Failed payments (payment issues = churn signal)
+model ChurnPrediction {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  userName        String?
+  userEmail       String?
+  userPlan        String?
+
+  // Risk score (0-100, higher = more likely to churn)
+  riskScore       Int
+  riskLevel       String                          // low | medium | high | critical
+
+  // Individual factor scores (0-100 each)
+  inactivityScore Int      @default(0)             // days since last login
+  engagementScore Int      @default(0)             // days since last transaction
+  aiUsageScore    Int      @default(0)             // AI usage decline
+  planScore       Int      @default(0)             // plan tier factor
+  ageScore        Int      @default(0)             // account age factor
+  supportScore    Int      @default(0)             // support ticket factor
+
+  // Recommendation
+  recommendedAction String?                        // e.g. "Send win-back campaign", "Offer discount"
+
+  // Metadata
+  computedAt      DateTime @default(now())
+
+  @@index([riskLevel, riskScore])
+  @@index([userPlan, riskLevel])
+}

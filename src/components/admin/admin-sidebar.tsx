@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react'
 import {
   LayoutDashboard, TrendingUp, Rocket, Users as UsersIcon,
   Brain, Shield, ShieldAlert, Handshake, Key, Webhook, FlaskConical, Swords, Layers, LogOut,
-  Activity, BarChart3, AlertTriangle, CreditCard,
+  Activity, BarChart3, AlertTriangle, CreditCard, TrendingDown,
   Target, Users2, Gift, Megaphone, Star,
   UserCog, Headphones, MessageSquare, UserCheck,
   Coins, Database, FileBarChart,
@@ -77,6 +77,7 @@ const NAV_STRUCTURE: NavGroup[] = [
     items: [
       { label: 'Funnel Analytics', href: '/growth', icon: Target },
       { label: 'User Segments', href: '/segments', icon: Users2 },
+      { label: 'Churn Predictions', href: '/churn-predictions', icon: TrendingDown },
       { label: 'Feedback (NPS)', href: '/feedback', icon: MessageSquare },
       { label: 'NPS Survey Builder', href: '/nps-config', icon: Star },
       { label: 'A/B Testing', href: '/experiments', icon: FlaskConical },
