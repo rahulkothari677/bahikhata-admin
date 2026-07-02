@@ -603,3 +603,37 @@ model NotificationTemplate {
   @@index([category, status])
   @@index([status])
 }
+
+// ==================== NOTIFICATION LOG ====================
+// Logs every notification send attempt (SMS/Email/Push).
+// Used for: audit trail, delivery analytics, retry logic, compliance.
+// A notification can be: sent (delivered), failed (provider error),
+// pending (queued), or skipped (dry-run mode / user opted out).
+model NotificationLog {
+  id            String   @id @default(cuid())
+  // Recipient
+  userId        String?                          // null = anonymous/bulk recipient
+  recipient     String                            // phone (SMS) or email (Email) or deviceToken (Push)
+  // Template used (optional — direct sends don't use templates)
+  templateId    String?
+  templateName  String?                           // snapshot of template name at send time
+  // Content snapshot (what was actually sent, after variable substitution)
+  channel       String                            // sms | email | push
+  subject       String?
+  body          String   @db.Text
+  // Delivery status
+  status        String   @default("pending")     // pending | sent | failed | skipped
+  provider      String?                           // msg91 | resend | fcm | dry-run
+  providerMessageId String?                       // ID returned by provider (for tracking)
+  errorMessage  String?                           // null if success, error text if failed
+  // Metadata
+  sentBy        String?                           // admin user ID
+  sentAt        DateTime @default(now())
+  // Category for filtering (mirrors template category)
+  category      String   @default("general")
+
+  @@index([userId, sentAt])
+  @@index([channel, status, sentAt])
+  @@index([status, sentAt])
+  @@index([sentAt])
+}

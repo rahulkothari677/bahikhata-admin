@@ -13,7 +13,7 @@ import {
   Coins, Database, FileBarChart,
   Flag, ScrollText, Settings,
   ChevronDown, ChevronRight,
-  Bell, Mail, Smartphone,
+  Bell, Mail, Smartphone, Send,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -85,6 +85,7 @@ const NAV_STRUCTURE: NavGroup[] = [
     color: 'text-pink-500',
     items: [
       { label: 'Notification Templates', href: '/notification-templates', icon: Bell },
+      { label: 'Send Notifications', href: '/notifications', icon: Send },
     ],
   },
   {
