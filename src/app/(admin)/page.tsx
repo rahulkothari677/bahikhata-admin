@@ -1,89 +1,64 @@
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
-import { db } from '@/lib/db'
-import { PageHeader, KPIGrid, KPICard, ContentCard } from '@/components/admin/ui'
-import { ActivityFeedClient } from '@/components/admin/activity-feed'
-import { Users, DollarSign, TrendingUp, Coins, AlertCircle } from 'lucide-react'
-import { formatINR, formatNumber } from '@/lib/utils'
+'use client'
 
-export const dynamic = 'force-dynamic'
+import { useQuery } from '@tanstack/react-query'
+import { Users, DollarSign, TrendingUp, Coins, AlertCircle, Activity as ActivityIcon, Loader2 } from 'lucide-react'
+import { PageHeader, KPIGrid, KPICard, ContentCard, LoadingSkeleton, EmptyState } from '@/components/admin/ui'
+import { formatINR, formatNumber, formatRelativeTime } from '@/lib/utils'
 
-async function getOverviewStats() {
-  const now = new Date()
-  const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+export default function OverviewPage() {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['admin-overview'],
+    queryFn: async () => {
+      const r = await fetch('/api/admin/overview')
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      return r.json()
+    },
+    retry: 1,
+  })
 
-  // Use aggregate queries — NO row fetching. Scales to millions.
-  // Each query wrapped individually so one failure doesn't crash everything.
-  const safeCount = async (fn: () => Promise<number>) => {
-    try { return await fn() } catch { return 0 }
-  }
-  const safeAggregate = async (fn: () => Promise<any>, field: string) => {
-    try { const r = await fn(); return r._sum?.[field] || r._count || 0 } catch { return 0 }
-  }
-
-  const [
-    totalUsers,
-    todayActiveUsers,
-    totalGmv,
-    totalTransactions,
-    monthAiCost,
-    payingUsers,
-    monthRevenue,
-    todaySignups,
-    totalAiCalls,
-  ] = await Promise.all([
-    safeCount(() => db.user.count()),
-    safeCount(() => db.user.count({ where: { updatedAt: { gte: todayStart } } })),
-    safeAggregate(() => db.transaction.aggregate({ _sum: { totalAmount: true } }), 'totalAmount'),
-    safeCount(() => db.transaction.count()),
-    safeAggregate(() => db.aiUsageLog.aggregate({ where: { createdAt: { gte: monthStart } }, _sum: { costInr: true } }), 'costInr'),
-    safeCount(() => db.user.count({ where: { plan: { in: ['pro', 'elite'] } } })),
-    safeAggregate(() => db.subscription.aggregate({ where: { status: 'active' }, _sum: { amount: true } }), 'amount'),
-    safeCount(() => db.user.count({ where: { createdAt: { gte: todayStart } } })),
-    safeCount(() => db.aiUsageLog.count()),
-  ])
-
-  return {
-    totalUsers,
-    todayActiveUsers,
-    totalGmv,
-    totalTransactions,
-    monthAiCost,
-    payingUsers,
-    monthRevenue,
-    todaySignups,
-    totalAiCalls,
-  }
-}
-
-export default async function OverviewPage() {
-  let stats: any = null
-  let dbError = false
-
-  try {
-    stats = await getOverviewStats()
-  } catch (error) {
-    console.error('Overview stats error:', error)
-    dbError = true
-  }
-
-  if (dbError || !stats) {
+  if (isLoading) {
     return (
       <div className="p-6 space-y-6">
         <PageHeader title="Dashboard" description="Real-time business overview" />
-        <div className="bg-amber-50 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-900 p-6 text-center">
-          <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
-          <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Database temporarily unavailable</p>
-          <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
-            The database might be waking up (Neon free tier auto-suspends).
-            Please refresh in a few seconds.
-          </p>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="bg-card rounded-xl border border-border p-4 animate-pulse">
+              <div className="h-3 bg-muted rounded w-1/2 mb-2" />
+              <div className="h-6 bg-muted rounded w-3/4" />
+            </div>
+          ))}
+        </div>
+        <div className="bg-card rounded-xl border border-border">
+          <LoadingSkeleton rows={5} />
         </div>
       </div>
     )
   }
 
+  if (error || !data?.success) {
+    return (
+      <div className="p-6 space-y-6">
+        <PageHeader title="Dashboard" description="Real-time business overview" />
+        <div className="bg-amber-50 dark:bg-amber-950/20 rounded-xl border border-amber-200 dark:border-amber-900 p-6 text-center">
+          <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
+          <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+            {error ? `Error: ${error.message}` : 'Failed to load dashboard data'}
+          </p>
+          <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+            The database might be waking up. Please refresh in a few seconds.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-3 px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  const stats = data.stats
   const conversionRate = stats.totalUsers > 0 ? (stats.payingUsers / stats.totalUsers) * 100 : 0
   const profitMargin = stats.monthRevenue > 0
     ? Math.round(((stats.monthRevenue - stats.monthAiCost) / stats.monthRevenue) * 100)
@@ -91,13 +66,9 @@ export default async function OverviewPage() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
-      <PageHeader
-        title="Dashboard"
-        description="Real-time business overview"
-      />
+      <PageHeader title="Dashboard" description="Real-time business overview" />
 
-      {/* 4 KPI cards — ONLY the most critical numbers */}
+      {/* 4 KPI cards */}
       <KPIGrid>
         <KPICard
           label="Total Users"
@@ -148,7 +119,35 @@ export default async function OverviewPage() {
 
       {/* Activity Feed */}
       <ContentCard>
-        <ActivityFeedClient />
+        <div className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
+              <ActivityIcon className="w-4 h-4 text-blue-500" />
+              Live Activity Feed
+            </h2>
+            <span className="text-[10px] text-muted-foreground">
+              {data.activity?.summary ? `${data.activity.summary.total} events · auto-refresh 15s` : 'Loading...'}
+            </span>
+          </div>
+          {data.activity?.events?.length === 0 ? (
+            <EmptyState icon={ActivityIcon} title="No activity yet" description="Events from the last 7 days will appear here" />
+          ) : (
+            <div className="space-y-1 max-h-[500px] overflow-y-auto">
+              {data.activity?.events?.map((event: any) => (
+                <div key={event.id} className="flex items-start gap-3 py-2 border-b border-border last:border-0">
+                  <span className="text-base flex-shrink-0 mt-0.5">{event.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-medium ${event.color}`}>{event.title}</p>
+                    <p className="text-xs text-muted-foreground truncate">{event.description}</p>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground flex-shrink-0 whitespace-nowrap">
+                    {formatRelativeTime(event.timestamp)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </ContentCard>
     </div>
   )
