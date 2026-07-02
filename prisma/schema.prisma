@@ -1194,3 +1194,37 @@ model CompetitorUpdate {
 
   @@index([competitorId, createdAt])
 }
+
+// ==================== BULK OPERATIONS v2 (Scheduled) ====================
+// Extends existing bulk operations with scheduling.
+// Admin can schedule bulk actions (plan change, message, ban, delete) for
+// future execution — e.g. "Upgrade all free users to Pro on Jan 1".
+//
+// Lifecycle: scheduled → running → completed | failed | cancelled
+model BulkJob {
+  id              String   @id @default(cuid())
+  name            String
+  action          String                            // change_plan | message | ban | delete | export
+  targetType      String   @default("user")         // user | segment
+  targetCriteria  String   @default("{}") @db.Text  // JSON: { plan: 'free', segmentId: 'power_users', userIds: [...] }
+  actionParams    String   @default("{}") @db.Text  // JSON: { plan: 'pro', message: '...', duration: '7d' }
+
+  status          String   @default("scheduled")    // scheduled | running | completed | failed | cancelled
+  scheduledAt     DateTime                          // when to execute
+  startedAt       DateTime?
+  completedAt     DateTime?
+
+  // Stats (filled during execution)
+  totalTargets    Int      @default(0)
+  processedCount  Int      @default(0)
+  successCount    Int      @default(0)
+  failedCount     Int      @default(0)
+  errorMessage    String?  @db.Text
+
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status, scheduledAt])
+  @@index([action, status])
+}
