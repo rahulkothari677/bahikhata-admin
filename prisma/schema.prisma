@@ -1074,3 +1074,72 @@ model RevenueSchedule {
   @@index([subscriptionId])
   @@index([periodStart])
 }
+
+// ==================== A/B TESTING (Experiments) ====================
+// Create experiments to test variations (e.g. different pricing, UI, features).
+// Users are assigned to variants deterministically (same user always gets same variant).
+//
+// Experiment lifecycle:
+//   draft → running → completed | cancelled
+//
+// Variants:
+//   - control: the current/default experience (always 1 control)
+//   - treatment: the new experience being tested (1+ treatments)
+//
+// Metrics tracked:
+//   - Conversion: did the user complete a goal? (signup, payment, etc.)
+//   - Revenue: how much revenue did the user generate?
+//   - Retention: did the user come back after N days?
+model Experiment {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?  @db.Text
+  status          String   @default("draft")       // draft | running | completed | cancelled
+
+  // What are we testing?
+  metric          String                            // conversion | revenue | retention
+  metricGoal      String  @default("increase")     // increase | decrease
+  targetEvent     String?                           // e.g. 'signup', 'payment', 'day7_retention'
+
+  // Traffic allocation
+  trafficPct      Int      @default(100)            // % of users included in experiment (0-100)
+
+  // Variants (stored as JSON: [{ key: 'control', name: 'Default', weight: 50 }, { key: 'treatment_a', name: 'New UI', weight: 50 }])
+  variants        String   @default("[]") @db.Text
+
+  // Schedule
+  startAt         DateTime?
+  endAt           DateTime?
+
+  // Results (filled when experiment completes)
+  winnerVariant   String?                           // key of winning variant
+  conclusion      String?  @db.Text                 // summary of findings
+
+  // Metadata
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  assignments     ExperimentAssignment[]
+
+  @@index([status, startAt])
+}
+
+model ExperimentAssignment {
+  id              String   @id @default(cuid())
+  experimentId    String
+  experiment      Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+
+  userId          String
+  variantKey      String                             // 'control' | 'treatment_a' | etc.
+  assignedAt      DateTime @default(now())
+
+  // Conversion tracking (filled when user completes the goal)
+  convertedAt     DateTime?
+  conversionValue Float    @default(0)              // e.g. revenue amount (for revenue metric)
+
+  @@unique([experimentId, userId])                   // one assignment per user per experiment
+  @@index([experimentId, variantKey])
+  @@index([userId, experimentId])
+  @@index([convertedAt])
+}
