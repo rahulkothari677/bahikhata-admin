@@ -3,7 +3,7 @@
 import { useState, Suspense } from 'react'
 import { signIn } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Shield, Loader2, AlertCircle, KeyRound } from 'lucide-react'
+import { Shield, Loader2, AlertCircle, KeyRound, Eye, EyeOff } from 'lucide-react'
 
 function LoginForm() {
   const router = useRouter()
@@ -12,6 +12,7 @@ function LoginForm() {
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [totpCode, setTotpCode] = useState('')
   const [show2FA, setShow2FA] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -30,17 +31,28 @@ function LoginForm() {
     })
 
     if (result?.error) {
-      // Check if 2FA is required
-      try {
-        const res = await fetch('/api/auth/error', { method: 'GET' })
-        // The error could be '2FA_REQUIRED' or generic 'CredentialsSignin'
-      } catch {}
-
       if (result.error === '2FA_REQUIRED') {
         setShow2FA(true)
         setError('Enter your 2FA code from Google Authenticator')
+      } else if (result.error === 'CredentialsSignin') {
+        // Try to figure out WHY it failed by calling a debug endpoint
+        try {
+          const debugRes = await fetch('/api/admin/login-debug', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password }),
+          })
+          const debugData = await debugRes.json()
+          if (debugData.reason) {
+            setError(debugData.reason)
+          } else {
+            setError('Invalid email or password. Check that your email is in the founder whitelist and your password is correct.')
+          }
+        } catch {
+          setError('Invalid email or password. Only founder emails can access.')
+        }
       } else {
-        setError('Invalid email or password. Only founder emails can access.')
+        setError(result.error)
       }
       setLoading(false)
     } else if (result?.ok) {
@@ -96,15 +108,24 @@ function LoginForm() {
 
           <div>
             <label className="text-xs font-medium text-slate-300 block mb-1.5">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              disabled={loading}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
-              placeholder="••••••••"
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                disabled={loading}
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 pr-10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition"
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
 
           {show2FA && (
@@ -146,6 +167,17 @@ function LoginForm() {
               'Access Dashboard'
             )}
           </button>
+
+          {/* Forgot password link */}
+          <div className="text-center">
+            <button
+              type="button"
+              onClick={() => router.push('/forgot-password')}
+              className="text-xs text-amber-400 hover:text-amber-300 transition"
+            >
+              Forgot password?
+            </button>
+          </div>
         </form>
 
         {/* Footer */}
