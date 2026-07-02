@@ -1039,3 +1039,38 @@ model WebhookDelivery {
   @@index([status, nextRetryAt])
   @@index([createdAt])
 }
+
+// ==================== REVENUE RECOGNITION (Accrual Accounting) ====================
+// Splits each subscription payment into monthly recognition entries.
+//
+// ACCRUAL ACCOUNTING PRINCIPLE:
+//   - Cash received upfront (e.g. ₹2,988 for yearly Pro on Jan 1)
+//   - But revenue is "earned" over the subscription period (₹249/month for 12 months)
+//   - On Jan 1: Cash=₹2,988, Deferred Revenue=₹2,988 (liability), Recognized=₹0
+//   - On Feb 1: Recognized=₹249, Deferred=₹2,739
+//   - On Dec 31: Recognized=₹2,988, Deferred=₹0
+//
+// This table stores one row per subscription per month:
+//   - subscriptionId → which subscription this is for
+//   - periodStart/End → the month this entry covers
+//   - amount → how much revenue is recognized in this period
+//   - status → pending (future) | recognized (past) | current (this month)
+model RevenueSchedule {
+  id              String   @id @default(cuid())
+  subscriptionId  String                             // FK to Subscription (not enforced — cross-relation)
+  userId          String                             // denormalized for fast queries
+  plan            String                             // pro | elite (snapshot)
+  amount          Float                              // revenue recognized this period (₹)
+  periodStart     DateTime                           // start of the month (e.g. Jan 1 00:00)
+  periodEnd       DateTime                           // end of the month (e.g. Jan 31 23:59)
+  status          String   @default("pending")       // pending | current | recognized
+  recognizedAt    DateTime?                          // when this period was recognized (set by cron)
+
+  // Metadata
+  createdAt       DateTime @default(now())
+
+  @@index([status, periodStart])
+  @@index([userId, periodStart])
+  @@index([subscriptionId])
+  @@index([periodStart])
+}
