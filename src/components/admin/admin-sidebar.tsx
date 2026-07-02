@@ -86,6 +86,7 @@ const NAV_STRUCTURE: NavGroup[] = [
     items: [
       { label: 'Notification Templates', href: '/notification-templates', icon: Bell },
       { label: 'Send Notifications', href: '/notifications', icon: Send },
+      { label: 'Campaigns', href: '/campaigns', icon: Megaphone },
     ],
   },
   {

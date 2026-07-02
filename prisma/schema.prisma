@@ -637,3 +637,84 @@ model NotificationLog {
   @@index([status, sentAt])
   @@index([sentAt])
 }
+
+// ==================== CAMPAIGNS ====================
+// A campaign = a sequence of scheduled notifications sent to a target audience
+// over time. Each campaign has 1+ steps, each step uses a notification template.
+//
+// Example: "Onboarding Drip"
+//   Step 1: Day 0  → Welcome SMS (template: welcome_sms)
+//   Step 2: Day 3  → Tips Email (template: tips_email)
+//   Step 3: Day 7  → Discount Push (template: discount_push)
+//   Step 4: Day 14 → Win-back SMS (template: winback_sms)
+//
+// Target audience can be:
+//   - A segment ID (uses pre-computed UserSegmentCache)
+//   - A manual list of user IDs (JSON array)
+//
+// Status lifecycle: draft → scheduled → running → completed | cancelled | paused
+model Campaign {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?  @db.Text
+  status          String   @default("draft")   // draft | scheduled | running | paused | completed | cancelled
+
+  // Target audience
+  targetSegmentId String?                          // null if using manual userIds
+  targetUserIds   String   @default("[]") @db.Text // JSON array of user IDs (if no segment)
+
+  // Schedule
+  startAt         DateTime?                        // when to start sending step 1
+  endAt           DateTime?                        // computed: startAt + sum(step delays)
+
+  // Stats (updated by background job after each step)
+  totalRecipients Int      @default(0)
+  totalSent       Int      @default(0)
+  totalFailed     Int      @default(0)
+  totalSkipped    Int      @default(0)
+  currentStep     Int      @default(0)             // which step is currently running (0 = not started)
+
+  // Metadata
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  startedAt       DateTime?
+  completedAt     DateTime?
+
+  steps           CampaignStep[]
+
+  @@index([status, startAt])
+  @@index([createdBy])
+}
+
+model CampaignStep {
+  id              String   @id @default(cuid())
+  campaignId      String
+  campaign        Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  stepNumber      Int                                // 1-indexed (step 1, 2, 3...)
+  templateId      String                             // NotificationTemplate ID
+  templateName    String?                            // snapshot at send time
+
+  // Delay AFTER campaign startAt (in minutes)
+  // Step 1: delayMinutes=0 (send immediately on start)
+  // Step 2: delayMinutes=4320 (3 days × 1440 min/day)
+  // Step 3: delayMinutes=10080 (7 days)
+  delayMinutes    Int      @default(0)
+
+  // Status of this step
+  status          String   @default("pending")      // pending | running | sent | failed | skipped
+  scheduledAt     DateTime?                          // computed: campaign.startAt + delayMinutes
+  sentAt          DateTime?
+
+  // Stats for this step
+  recipientCount  Int      @default(0)
+  sentCount       Int      @default(0)
+  failedCount     Int      @default(0)
+  skippedCount    Int      @default(0)
+
+  errorMessage    String?
+
+  @@index([campaignId, stepNumber])
+  @@index([status, scheduledAt])
+}
