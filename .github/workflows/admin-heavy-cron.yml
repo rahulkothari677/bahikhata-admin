@@ -1,0 +1,75 @@
+name: Admin Heavy Cron Jobs
+
+# These jobs are too heavy for Vercel's 10-second timeout.
+# GitHub Actions allows up to 6 hours per job.
+# They trigger the same API endpoints that exist in the admin panel.
+#
+# REQUIRED SECRETS (set in GitHub repo → Settings → Secrets → Actions):
+#   ADMIN_URL    — Your admin panel URL (e.g. https://admin.bahikhata.pro)
+#   CRON_SECRET  — Same value as CRON_SECRET env var in Vercel
+
+on:
+  schedule:
+    # 4 AM IST (10:30 PM UTC) — Credit Scores
+    - cron: '30 22 * * *'
+    # 6 AM IST (12:30 AM UTC) — Churn Predictions
+    - cron: '30 0 * * *'
+  # Allow manual trigger for testing
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Which job to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - credit-scores
+          - churn-predictions
+          - all
+
+jobs:
+  run-credit-scores:
+    name: Compute Credit Scores
+    if: github.event.inputs.job == 'credit-scores' || github.event.inputs.job == 'all' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Trigger credit score compute
+        run: |
+          echo "🔄 Triggering credit score computation..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ secrets.ADMIN_URL }}/api/admin/data-monetization/compute" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "✅ Credit scores computed successfully"
+
+  run-churn-predictions:
+    name: Compute Churn Predictions
+    if: github.event.inputs.job == 'churn-predictions' || github.event.inputs.job == 'all' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Trigger churn prediction compute
+        run: |
+          echo "🔄 Triggering churn prediction computation..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ secrets.ADMIN_URL }}/api/admin/churn-predictions/compute" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "✅ Churn predictions computed successfully"

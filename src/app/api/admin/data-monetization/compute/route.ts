@@ -1,3 +1,4 @@
+import type { NextRequest } from "next/server"
 import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -21,10 +22,13 @@ import { computeAndCacheAllScores } from '@/lib/credit-score'
 const lastComputeAt: { ts: number | null } = { ts: null }
 const COMPUTE_COOLDOWN_MS = 5 * 60 * 1000 // 5 minutes
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const cronSecret = process.env.CRON_SECRET
+    const authHeader = req.headers.get('authorization')
+    const isCron = !!(cronSecret && authHeader === `Bearer ${cronSecret}`)
+    const session = isCron ? null : await getServerSession(authOptions)
+    if (!isCron && !session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     // Cooldown check (prevent accidental double-trigger)
     if (lastComputeAt.ts && Date.now() - lastComputeAt.ts < COMPUTE_COOLDOWN_MS) {

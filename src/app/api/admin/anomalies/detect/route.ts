@@ -19,10 +19,13 @@ import { logAdminAction } from '@/lib/audit'
 const lastDetectAt: { ts: number | null } = { ts: null }
 const DETECT_COOLDOWN_MS = 5 * 60 * 1000
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const cronSecret = process.env.CRON_SECRET
+    const authHeader = req.headers.get('authorization')
+    const isCron = !!(cronSecret && authHeader === `Bearer ${cronSecret}`)
+    const session = isCron ? null : await getServerSession(authOptions)
+    if (!isCron && !session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     // Cooldown check
     if (lastDetectAt.ts && Date.now() - lastDetectAt.ts < DETECT_COOLDOWN_MS) {
@@ -39,7 +42,7 @@ export async function POST() {
     const result = await detectAnomalies()
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: (session ? (session.user as any).id : 'cron'),
       action: 'anomaly_detection_run',
       description: `Ran anomaly detection — ${result.totalMetricsChecked} metrics checked, ${result.newAnomalies} new anomalies in ${result.durationMs}ms`,
       targetType: 'anomaly_detection',

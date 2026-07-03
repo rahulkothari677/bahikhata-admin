@@ -1,3 +1,4 @@
+import type { NextRequest } from "next/server"
 import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -22,10 +23,13 @@ import { logAdminAction } from '@/lib/audit'
 const lastExecuteAt: { ts: number | null } = { ts: null }
 const EXECUTE_COOLDOWN_MS = 60 * 1000
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const cronSecret = process.env.CRON_SECRET
+    const authHeader = req.headers.get('authorization')
+    const isCron = !!(cronSecret && authHeader === `Bearer ${cronSecret}`)
+    const session = isCron ? null : await getServerSession(authOptions)
+    if (!isCron && !session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     if (lastExecuteAt.ts && Date.now() - lastExecuteAt.ts < EXECUTE_COOLDOWN_MS) {
       const remaining = Math.ceil((EXECUTE_COOLDOWN_MS - (Date.now() - lastExecuteAt.ts)) / 1000)
@@ -139,7 +143,7 @@ export async function POST() {
                     body: params.message || '',
                     status: 'skipped',
                     provider: 'dry-run',
-                    sentBy: (session.user as any).id,
+                    sentBy: (session ? (session.user as any).id : 'cron'),
                     category: params.category || 'promotional',
                   },
                 }).catch(() => {})
@@ -199,7 +203,7 @@ export async function POST() {
     }
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: (session ? (session.user as any).id : 'cron'),
       action: 'bulk_jobs_execute',
       description: `Executed ${processedJobs} bulk jobs — ${totalProcessed} users processed, ${totalSuccess} success, ${totalFailed} failed`,
       targetType: 'bulk_job',

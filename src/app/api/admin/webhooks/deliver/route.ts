@@ -1,3 +1,4 @@
+import type { NextRequest } from "next/server"
 import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -14,10 +15,13 @@ import { logAdminAction } from '@/lib/audit'
 const lastTriggerAt: { ts: number | null } = { ts: null }
 const COOLDOWN_MS = 60 * 1000
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const cronSecret = process.env.CRON_SECRET
+    const authHeader = req.headers.get('authorization')
+    const isCron = !!(cronSecret && authHeader === `Bearer ${cronSecret}`)
+    const session = isCron ? null : await getServerSession(authOptions)
+    if (!isCron && !session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     if (lastTriggerAt.ts && Date.now() - lastTriggerAt.ts < COOLDOWN_MS) {
       const remaining = Math.ceil((COOLDOWN_MS - (Date.now() - lastTriggerAt.ts)) / 1000)
@@ -32,7 +36,7 @@ export async function POST() {
     const result = await processPendingDeliveries()
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: (session ? (session.user as any).id : 'cron'),
       action: 'webhook_deliver_run',
       description: `Processed ${result.processed} deliveries — success: ${result.succeeded}, retrying: ${result.retrying}, failed: ${result.failed}`,
       targetType: 'webhook_delivery',

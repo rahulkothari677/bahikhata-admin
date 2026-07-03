@@ -1,3 +1,4 @@
+import type { NextRequest } from "next/server"
 import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -18,10 +19,13 @@ import { logAdminAction } from '@/lib/audit'
 const lastEvalAt: { ts: number | null } = { ts: null }
 const EVAL_COOLDOWN_MS = 5 * 60 * 1000
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const cronSecret = process.env.CRON_SECRET
+    const authHeader = req.headers.get('authorization')
+    const isCron = !!(cronSecret && authHeader === `Bearer ${cronSecret}`)
+    const session = isCron ? null : await getServerSession(authOptions)
+    if (!isCron && !session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     if (lastEvalAt.ts && Date.now() - lastEvalAt.ts < EVAL_COOLDOWN_MS) {
       const remaining = Math.ceil((EVAL_COOLDOWN_MS - (Date.now() - lastEvalAt.ts)) / 1000)
@@ -37,7 +41,7 @@ export async function POST() {
     const result = await evaluateAllRules()
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: (session ? (session.user as any).id : 'cron'),
       action: 'fraud_rules_evaluation',
       description: `Evaluated ${result.totalRules} fraud rules — ${result.totalAlertsCreated} new alerts in ${result.durationMs}ms`,
       targetType: 'fraud_rules',

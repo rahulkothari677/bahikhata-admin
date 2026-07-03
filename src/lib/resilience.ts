@@ -195,3 +195,45 @@ export function validateStat(label: string, displayed: number, actual: number): 
     discrepancy,
   }
 }
+
+// =====================================================================
+// CRON AUTHENTICATION
+// =====================================================================
+/**
+ * Validates that a request is authorized to trigger cron jobs.
+ * 
+ * Two modes:
+ *   1. Admin session (manual trigger from admin panel) — checks NextAuth session
+ *   2. Cron secret (automated trigger from Vercel Cron or GitHub Actions) — checks Bearer token
+ * 
+ * Usage in API route:
+ *   import { checkCronAuth } from '@/lib/resilience'
+ *   const auth = await checkCronAuth(req)
+ *   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+ */
+import type { NextRequest } from 'next/server'
+
+export async function checkCronAuth(req: NextRequest): Promise<{ ok: boolean; error?: string; status?: number }> {
+  // Check for CRON_SECRET (automated trigger)
+  const authHeader = req.headers.get('authorization')
+  const cronSecret = process.env.CRON_SECRET
+
+  if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
+    return { ok: true }
+  }
+
+  // If no CRON_SECRET is set, fall back to session check
+  // (this allows manual triggering from admin panel even without CRON_SECRET)
+  if (!cronSecret) {
+    const { getServerSession } = await import('next-auth')
+    const { authOptions } = await import('@/lib/auth')
+    const session = await getServerSession(authOptions)
+    if (session) {
+      return { ok: true }
+    }
+    return { ok: false, error: 'Unauthorized — set CRON_SECRET env var or login as admin', status: 401 }
+  }
+
+  // CRON_SECRET is set but request doesn't match
+  return { ok: false, error: 'Unauthorized — invalid cron secret', status: 401 }
+}
