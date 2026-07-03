@@ -17,7 +17,18 @@ import { getToken } from 'next-auth/jwt'
  */
 
 const PUBLIC_PATHS = ['/login', '/setup', '/forgot-password', '/status']
-const AUTH_PATHS = ['/api/auth', '/api/admin/setup', '/api/admin/login-debug', '/api/admin/forgot-password', '/api/status']
+const AUTH_PATHS = ['/api/auth', '/api/admin/setup', '/api/admin/login-debug', '/api/admin/forgot-password', '/api/status', '/api/admin/cron-debug']
+
+// Cron endpoints that accept CRON_SECRET as alternative to session auth
+const CRON_PATHS = [
+  '/api/admin/compute-daily-stats',
+  '/api/admin/anomalies/detect',
+  '/api/admin/fraud-rules/evaluate',
+  '/api/admin/webhooks/deliver',
+  '/api/admin/bulk-jobs/execute',
+  '/api/admin/data-monetization/compute',
+  '/api/admin/churn-predictions/compute',
+]
 
 function isPublicPath(pathname: string): boolean {
   if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) return true
@@ -25,6 +36,10 @@ function isPublicPath(pathname: string): boolean {
   if (pathname.startsWith('/_next')) return true
   if (pathname.startsWith('/favicon')) return true
   return false
+}
+
+function isCronPath(pathname: string): boolean {
+  return CRON_PATHS.some(p => pathname === p)
 }
 
 function isAllowedIp(ip: string): boolean {
@@ -67,6 +82,27 @@ export async function middleware(req: NextRequest) {
   if (isPublicPath(pathname)) {
     // Still apply CSRF check on mutations to auth paths
     return res
+  }
+
+  // ===== CRON AUTH CHECK =====
+  // Cron endpoints accept CRON_SECRET as alternative to session auth
+  if (isCronPath(pathname)) {
+    const cronSecret = process.env.CRON_SECRET
+    const authHeader = req.headers.get('authorization')
+    
+    // If CRON_SECRET matches, skip session check AND CSRF check
+    if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
+      return res // Allow through (no CSRF check for cron)
+    }
+    
+    // If CRON_SECRET is not set, fall through to session check below
+    // (allows manual triggering from admin panel)
+    if (!cronSecret) {
+      // Fall through to session check
+    } else {
+      // CRON_SECRET is set but doesn't match — check session (manual trigger)
+      // Fall through to session check
+    }
   }
 
   // ===== AUTH CHECK =====
