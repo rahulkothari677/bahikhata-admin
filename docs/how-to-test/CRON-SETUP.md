@@ -98,3 +98,5 @@ if (!isCron && !session) return NextResponse.json({ error: 'Unauthorized' }, { s
 - ✅ All existing buttons ("Recompute", "Run Detection", etc.) work as before
 - ✅ If CRON_SECRET is not set, cron endpoints fall back to session-only
 - ✅ No code logic changed — only auth check expanded
+
+**Note:** If GitHub Actions returns 401, make sure the Vercel deployment includes commit 6c343f0 or later (check Deployments page for 'Production setup: Cron jobs' commit message). Redeploying old commits will NOT include the CRON_SECRET auth code.
