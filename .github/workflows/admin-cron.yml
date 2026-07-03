@@ -1,0 +1,213 @@
+name: Admin Cron Jobs
+
+# All cron jobs run via GitHub Actions (free, no Vercel plan limits).
+# Vercel Hobby plan only allows 1 daily cron — so we moved everything here.
+# GitHub Actions allows up to 6 hours per job and multiple schedules.
+#
+# REQUIRED SECRETS (set in GitHub repo → Settings → Secrets → Actions):
+#   ADMIN_URL    — Your admin panel URL (e.g. https://bahikhata-admin.vercel.app)
+#   CRON_SECRET  — Same value as CRON_SECRET env var in Vercel
+
+on:
+  schedule:
+    # ===== DAILY JOBS =====
+    # 2:00 AM UTC (7:30 AM IST) — Daily Stats
+    - cron: '0 2 * * *'
+    # 5:00 AM UTC (10:30 AM IST) — Anomaly Detection
+    - cron: '0 5 * * *'
+    # 10:30 PM UTC (4:00 AM IST) — Credit Scores (heavy)
+    - cron: '30 22 * * *'
+    # 12:30 AM UTC (6:00 AM IST) — Churn Predictions (heavy)
+    - cron: '30 0 * * *'
+    # ===== FREQUENT JOBS =====
+    # Every 15 minutes — Fraud Rules
+    - cron: '*/15 * * * *'
+    # Every 5 minutes — Bulk Jobs
+    - cron: '*/5 * * * *'
+    # Every 5 minutes — Webhook Delivery (alternate 5-min slot)
+    - cron: '*/5 * * * *'
+  # Allow manual trigger for testing
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Which job to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - daily-stats
+          - anomaly-detection
+          - credit-scores
+          - churn-predictions
+          - fraud-rules
+          - bulk-jobs
+          - webhooks
+          - all
+
+jobs:
+  # ===== DAILY JOBS (run once per day) =====
+
+  run-daily-stats:
+    name: Compute Daily Stats
+    if: github.event.inputs.job == 'daily-stats' || github.event.inputs.job == 'all' || (github.event_name == 'schedule' && github.event.schedule == '0 2 * * *')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Trigger daily stats compute
+        run: |
+          echo "🔄 Triggering daily stats computation..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ secrets.ADMIN_URL }}/api/admin/compute-daily-stats" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "✅ Daily stats computed successfully"
+
+  run-anomaly-detection:
+    name: Run Anomaly Detection
+    if: github.event.inputs.job == 'anomaly-detection' || github.event.inputs.job == 'all' || (github.event_name == 'schedule' && github.event.schedule == '0 5 * * *')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Trigger anomaly detection
+        run: |
+          echo "🔄 Triggering anomaly detection..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ secrets.ADMIN_URL }}/api/admin/anomalies/detect" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "✅ Anomaly detection completed successfully"
+
+  # ===== HEAVY JOBS (run once per day, need >10s) =====
+
+  run-credit-scores:
+    name: Compute Credit Scores
+    if: github.event.inputs.job == 'credit-scores' || github.event.inputs.job == 'all' || (github.event_name == 'schedule' && github.event.schedule == '30 22 * * *')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Trigger credit score compute
+        run: |
+          echo "🔄 Triggering credit score computation..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ secrets.ADMIN_URL }}/api/admin/data-monetization/compute" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "✅ Credit scores computed successfully"
+
+  run-churn-predictions:
+    name: Compute Churn Predictions
+    if: github.event.inputs.job == 'churn-predictions' || github.event.inputs.job == 'all' || (github.event_name == 'schedule' && github.event.schedule == '30 0 * * *')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Trigger churn prediction compute
+        run: |
+          echo "🔄 Triggering churn prediction computation..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ secrets.ADMIN_URL }}/api/admin/churn-predictions/compute" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "✅ Churn predictions computed successfully"
+
+  # ===== FREQUENT JOBS (run every few minutes) =====
+
+  run-fraud-rules:
+    name: Evaluate Fraud Rules
+    if: github.event.inputs.job == 'fraud-rules' || github.event.inputs.job == 'all' || (github.event_name == 'schedule' && github.event.schedule == '*/15 * * * *')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger fraud rules evaluation
+        run: |
+          echo "🔄 Triggering fraud rules evaluation..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ secrets.ADMIN_URL }}/api/admin/fraud-rules/evaluate" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "✅ Fraud rules evaluated successfully"
+
+  run-bulk-jobs:
+    name: Execute Bulk Jobs
+    if: github.event.inputs.job == 'bulk-jobs' || github.event.inputs.job == 'all' || (github.event_name == 'schedule' && github.event.schedule == '*/5 * * * *')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger bulk jobs execution
+        run: |
+          echo "🔄 Triggering bulk jobs execution..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ secrets.ADMIN_URL }}/api/admin/bulk-jobs/execute" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "✅ Bulk jobs executed successfully"
+
+  run-webhooks:
+    name: Deliver Pending Webhooks
+    if: github.event.inputs.job == 'webhooks' || github.event.inputs.job == 'all' || (github.event_name == 'schedule' && github.event.schedule == '*/5 * * * *')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger webhook delivery
+        run: |
+          echo "🔄 Triggering webhook delivery..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ secrets.ADMIN_URL }}/api/admin/webhooks/deliver" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "✅ Webhooks delivered successfully"
