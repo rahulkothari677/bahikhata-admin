@@ -88,23 +88,38 @@ export async function middleware(req: NextRequest) {
 
   // ===== CRON AUTH CHECK =====
   // Cron endpoints accept CRON_SECRET as alternative to session auth
+  // 🔒 AUDIT FIX M2 (v2 audit): FAIL CLOSED in production when CRON_SECRET
+  // is unset. Was: fell through to session check (which allows manual
+  // triggering from the admin panel — but also allows unauthenticated
+  // external calls if CRON_SECRET isn't configured). Now: in production,
+  // if CRON_SECRET is unset AND the request has no valid session, reject.
   if (isCronPath(pathname)) {
     const cronSecret = process.env.CRON_SECRET
     const authHeader = req.headers.get('authorization')
-    
+
     // If CRON_SECRET matches, skip session check AND CSRF check
     if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
       return res // Allow through (no CSRF check for cron)
     }
-    
-    // If CRON_SECRET is not set, fall through to session check below
-    // (allows manual triggering from admin panel)
-    if (!cronSecret) {
-      // Fall through to session check
-    } else {
-      // CRON_SECRET is set but doesn't match — check session (manual trigger)
-      // Fall through to session check
+
+    // 🔒 M2: In production, if CRON_SECRET is not set, FAIL CLOSED.
+    // Don't allow unauthenticated cron calls — they could trigger expensive
+    // operations (bulk jobs, fraud evaluation, churn prediction).
+    if (!cronSecret && process.env.NODE_ENV === 'production') {
+      // Check if there's a valid session (admin manually triggering)
+      const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET })
+      if (!token) {
+        return NextResponse.json(
+          { error: 'CRON_SECRET is not configured. Cron endpoints require authentication.' },
+          { status: 403 }
+        )
+      }
+      // Has session — allow through (manual admin trigger)
+      return res
     }
+
+    // In dev or when CRON_SECRET is set but doesn't match, fall through to
+    // session check (allows manual triggering from admin panel)
   }
 
   // ===== AUTH CHECK =====
