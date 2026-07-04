@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
     await logAdminAction({
       adminId: (session.user as any).id,
       action: 'aa_consent_request',
-      description: `Requested AA consent for user ${user.email} (${result.simulationMode ? 'simulation' : 'production'})`,
+      description: `Requested AA consent for user ${(user as any).email} (${result.simulationMode ? 'simulation' : 'production'})`,
       targetType: 'account_aggregator',
       targetId: result.consentId,
     })

@@ -15,7 +15,7 @@
  *   - Verify data integrity (count mismatches)
  */
 
-import { db } from '@/lib/db'
+import { dbReadonly } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 
 // =====================================================================
@@ -45,7 +45,7 @@ export interface QueryResult {
 
 export async function getTableStats(): Promise<TableStats[]> {
   const result = await withTimeout(
-    db.$queryRaw`
+    dbReadonly.$queryRaw`
       SELECT
         relname AS name,
         n_live_tup AS "rowCount",
@@ -139,9 +139,11 @@ export async function executeSafeQuery(sql: string): Promise<QueryResult> {
   const cleanSql = sql.trim().replace(/;$/, '')
 
   // Execute with row limit
+  // 🔒 AUDIT FIX C5 (V6): Uses dbReadonly (read-only DB role) instead of db.
+  // The database itself enforces read-only — no matter what the regex misses.
   const limitedSql = `${cleanSql} LIMIT ${MAX_ROWS + 1}`
   const result = await withTimeout(
-    db.$queryRawUnsafe(limitedSql),
+    dbReadonly.$queryRawUnsafe(limitedSql),
     QUERY_TIMEOUT_MS
   )
 

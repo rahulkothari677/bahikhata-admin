@@ -55,7 +55,7 @@ export async function GET(req: Request) {
           _sum: { inputTokens: 0, outputTokens: 0, totalTokens: 0, costInr: 0 },
           _count: 0,
           _avg: { durationMs: 0 },
-        })),
+        })) as any,
         withTimeout(
           db.aiUsageLog.aggregate({
             where: { createdAt: { gte: weekStart } },
@@ -63,7 +63,7 @@ export async function GET(req: Request) {
             _count: true,
           }),
           5000
-        ).catch(() => ({ _sum: { totalTokens: 0, costInr: 0 }, _count: 0 })),
+        ).catch(() => ({ _sum: { totalTokens: 0, costInr: 0 }, _count: 0 })) as any,
         withTimeout(
           db.aiUsageLog.aggregate({
             where: { createdAt: { gte: monthStart } },
@@ -71,7 +71,7 @@ export async function GET(req: Request) {
             _count: true,
           }),
           5000
-        ).catch(() => ({ _sum: { totalTokens: 0, costInr: 0 }, _count: 0 })),
+        ).catch(() => ({ _sum: { totalTokens: 0, costInr: 0 }, _count: 0 })) as any,
         withTimeout(
           db.aiUsageLog.aggregate({
             _sum: { inputTokens: true, outputTokens: true, totalTokens: true, costInr: true },
@@ -81,7 +81,7 @@ export async function GET(req: Request) {
         ).catch(() => ({
           _sum: { inputTokens: 0, outputTokens: 0, totalTokens: 0, costInr: 0 },
           _count: 0,
-        })),
+        })) as any,
       ])
 
       // 2 parallel groupBy queries for breakdowns (NOT JS-side filtering)
@@ -249,10 +249,10 @@ export async function GET(req: Request) {
               select: { id: true, email: true, name: true, plan: true },
             }),
             5000
-          ).catch(() => [])
+          ).catch(() => []) as any[]
         : []
 
-      const userMap = new Map(userDetails.map((u: any) => [u.id, u]))
+      const userMap = new Map((userDetails as any[]).map((u: any) => [u.id, u]))
 
       const topUsers = (topUsersAgg as any[]).map((u: any) => ({
         userId: u.userId,

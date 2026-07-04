@@ -29,7 +29,7 @@ async function main() {
     const admins = await prisma.adminUser.findMany({
       select: { id: true, email: true, name: true, role: true, totpEnabled: true, createdAt: true },
     })
-    admins.forEach(a => {
+    admins.forEach((a: any) => {
       console.log(`   - ${a.email} (${a.name}) | role: ${a.role} | 2FA: ${a.totpEnabled ? 'ON' : 'OFF'} | created: ${a.createdAt.toISOString()}`)
     })
 

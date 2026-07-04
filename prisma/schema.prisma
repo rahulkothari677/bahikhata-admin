@@ -886,8 +886,8 @@ model FraudAlert {
 //   - admin: full access (use sparingly)
 model ApiKey {
   id            String    @id @default(cuid())
-  partnerId     String?                            // null = internal/admin key (not tied to partner)
-  partner       Partner?  @relation(fields: [partnerId], references: [id], onDelete: SetNull)
+  partnerId     String?                            // null = internal/admin key (kept for backward compat, Partner model removed
+  // 🔒 AUDIT FIX: Partner relation removed — model was deleted (lending pipeline)
 
   name          String                             // human-readable label (e.g. "Bajaj Production Key")
   keyHash       String   @unique                   // SHA-256 hash of the raw key (never store raw)
@@ -924,8 +924,8 @@ model ApiKey {
 //   - anomaly.detected: Anomaly detected (optional — high-priority partners only)
 model WebhookEndpoint {
   id            String   @id @default(cuid())
-  partnerId     String
-  partner       Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  partnerId     String?  // 🔒 AUDIT FIX: Made nullable + removed Partner relation (model deleted)
+  // partner relation removed — Partner model was deleted (lending pipeline)
 
   url           String                            // https://partner.com/webhooks/leads
   secret        String?                           // HMAC signature secret (for verification)

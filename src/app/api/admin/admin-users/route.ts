@@ -28,12 +28,12 @@ export async function GET(req: NextRequest) {
 
     if (tab === 'overview') {
       const [founderCount, adminCount, viewerCount, activeCount, inactiveCount, twoFACount] = await Promise.all([
-        withTimeout(db.adminUser.count({ where: { role: 'founder' } }), 5000).catch(() => 0),
-        withTimeout(db.adminUser.count({ where: { role: 'admin' } }), 5000).catch(() => 0),
-        withTimeout(db.adminUser.count({ where: { role: 'viewer' } }), 5000).catch(() => 0),
-        withTimeout(db.adminUser.count({ where: { isActive: true } }), 5000).catch(() => 0),
-        withTimeout(db.adminUser.count({ where: { isActive: false } }), 5000).catch(() => 0),
-        withTimeout(db.adminUser.count({ where: { totpEnabled: true } }), 5000).catch(() => 0),
+        withTimeout(db.adminUser.count({ where: { role: 'founder' } }), 5000).catch(() => 0) as Promise<number>,
+        withTimeout(db.adminUser.count({ where: { role: 'admin' } }), 5000).catch(() => 0) as Promise<number>,
+        withTimeout(db.adminUser.count({ where: { role: 'viewer' } }), 5000).catch(() => 0) as Promise<number>,
+        withTimeout(db.adminUser.count({ where: { isActive: true } }), 5000).catch(() => 0) as Promise<number>,
+        withTimeout(db.adminUser.count({ where: { isActive: false } }), 5000).catch(() => 0) as Promise<number>,
+        withTimeout(db.adminUser.count({ where: { totpEnabled: true } }), 5000).catch(() => 0) as Promise<number>,
       ])
 
       return NextResponse.json({
