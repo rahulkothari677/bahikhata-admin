@@ -117,11 +117,12 @@ export const authOptions: NextAuthOptions = {
         }
 
         // Step 5: Update last login info
+        // 🔒 AUDIT FIX V5: Actually save the IP (was: undefined)
         await db.adminUser.update({
           where: { id: adminUser.id },
           data: {
             lastLoginAt: new Date(),
-            lastLoginIp: undefined, // set by middleware/API
+            lastLoginIp: ip,  // 🔒 V5: save the IP we already have from line 69
           },
         })
 

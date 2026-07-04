@@ -136,7 +136,7 @@ const NAV_STRUCTURE: NavGroup[] = [
       { label: 'Feature Flags', href: '/features', icon: Flag },
       { label: 'Risk & Compliance', href: '/risk', icon: AlertTriangle },
       { label: 'Fraud Rules', href: '/fraud-rules', icon: ShieldAlert },
-      { label: 'Anomaly Detection', href: '/anomalies', icon: Activity },
+      // 🔒 AUDIT FIX V5: Removed duplicate "Anomaly Detection" (already in Intelligence group)
       { label: 'Status Page', href: '/incidents', icon: Activity },
       { label: 'Database Admin', href: '/database', icon: Database },
       { label: 'Data Exports', href: '/data-exports', icon: FileBarChart },
