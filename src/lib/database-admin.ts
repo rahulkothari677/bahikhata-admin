@@ -73,11 +73,21 @@ export async function getTableStats(): Promise<TableStats[]> {
 const MAX_ROWS = 1000
 const QUERY_TIMEOUT_MS = 10000
 
-// Dangerous keywords that could modify data
+// 🔒 AUDIT FIX C5: Strengthened SQL runner validation.
+// Was: blocklist of dangerous keywords (DROP, DELETE, etc.) — bypassable.
+// Now: strict whitelist — ONLY SELECT and WITH clauses allowed, plus a
+// blocklist as defense-in-depth. Also blocks semicolons (no multi-statement),
+// comments (could hide malicious SQL), and dangerous function calls.
+
+// Dangerous keywords that could modify data — defense-in-depth on top of the whitelist
 const BLOCKED_KEYWORDS = [
   'INSERT', 'UPDATE', 'DELETE', 'DROP', 'TRUNCATE', 'ALTER', 'CREATE',
   'GRANT', 'REVOKE', 'COPY', 'VACUUM', 'REINDEX', 'CLUSTER', 'COMMENT',
-  'EXECUTE', 'MERGE', 'REFRESH', 'REASSIGN', 'SECURITY'
+  'EXECUTE', 'MERGE', 'REFRESH', 'REASSIGN', 'SECURITY',
+  // 🔒 AUDIT FIX: also block function calls that could write/execute
+  'CALL', 'DO', 'PERFORM', 'RAISE', 'NOTIFY', 'LISTEN', 'UNLISTEN',
+  // Block pg_read_file, pg_ls_dir, etc. — could read filesystem
+  'PG_READ_FILE', 'PG_LS_DIR', 'PG_STAT_FILE', 'PG_SLEEP',
 ]
 
 export interface ValidationResult {
@@ -92,14 +102,18 @@ export function validateQuery(sql: string): ValidationResult {
     return { valid: false, error: 'Query is empty' }
   }
 
-  // Must start with SELECT (or WITH for CTEs)
+  // 🔒 WHITELIST: Must start with SELECT or WITH (CTE). Nothing else allowed.
   const upperQuery = trimmed.toUpperCase()
   if (!upperQuery.startsWith('SELECT') && !upperQuery.startsWith('WITH')) {
-    return { valid: false, error: 'Only SELECT queries are allowed' }
+    return { valid: false, error: 'Only SELECT queries are allowed (must start with SELECT or WITH)' }
+  }
+
+  // 🔒 BLOCK COMMENTS: SQL comments (--) and /* */ can hide malicious SQL
+  if (trimmed.includes('--') || trimmed.includes('/*') || trimmed.includes('*/')) {
+    return { valid: false, error: 'SQL comments are not allowed' }
   }
 
   // Check for blocked keywords (word-boundary match to avoid false positives)
-  // We check each keyword as a whole word, not substring
   for (const keyword of BLOCKED_KEYWORDS) {
     const regex = new RegExp(`\\b${keyword}\\b`, 'i')
     if (regex.test(trimmed)) {

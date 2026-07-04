@@ -5,7 +5,7 @@
   "description": "Bahikhata Pro Admin Panel — secure, isolated admin dashboard",
   "scripts": {
     "dev": "next dev -p 3001",
-    "build": "prisma generate && (prisma db push --accept-data-loss || echo 'DB push skipped — database unreachable, will sync on next successful build') && next build",
+    "build": "prisma generate && next build",
     "start": "next start -p 3001",
     "lint": "eslint .",
     "type-check": "tsc --noEmit"

@@ -17,16 +17,18 @@ import { getToken } from 'next-auth/jwt'
  */
 
 const PUBLIC_PATHS = ['/login', '/setup', '/forgot-password', '/status']
-const AUTH_PATHS = ['/api/auth', '/api/admin/setup', '/api/admin/login-debug', '/api/admin/forgot-password', '/api/status', '/api/admin/cron-debug']
+// 🔒 AUDIT FIX: Removed '/api/admin/login-debug' and '/api/admin/cron-debug' from bypass list
+// — these endpoints were deleted (security: login-debug was an unauthenticated info-leak oracle)
+const AUTH_PATHS = ['/api/auth', '/api/admin/setup', '/api/admin/forgot-password', '/api/status']
 
 // Cron endpoints that accept CRON_SECRET as alternative to session auth
+// 🔒 AUDIT FIX: Removed '/api/admin/data-monetization/compute' — endpoint deleted
 const CRON_PATHS = [
   '/api/admin/compute-daily-stats',
   '/api/admin/anomalies/detect',
   '/api/admin/fraud-rules/evaluate',
   '/api/admin/webhooks/deliver',
   '/api/admin/bulk-jobs/execute',
-  '/api/admin/data-monetization/compute',
   '/api/admin/churn-predictions/compute',
 ]
 
@@ -118,12 +120,24 @@ export async function middleware(req: NextRequest) {
   }
 
   // ===== CSRF PROTECTION ON MUTATIONS =====
+  // 🔒 AUDIT FIX: Block mutations where BOTH Origin AND Referer are missing.
+  // Was: allowed through if Origin was missing (CSRF bypass).
+  // Now: requires at least one valid same-origin header on mutations.
   const isMutation = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method.toUpperCase())
   if (isMutation && !pathname.startsWith('/api/auth') && !pathname.startsWith('/api/admin/setup')) {
     const origin = req.headers.get('origin')
+    const referer = req.headers.get('referer')
     const host = req.headers.get('host')
-    // Only block if we have both origin AND host AND they DON'T match
-    // If either is missing, allow through (Vercel internal requests sometimes omit these)
+
+    // Block if BOTH Origin AND Referer are missing
+    if (!origin && !referer) {
+      return NextResponse.json(
+        { error: 'CSRF check failed — missing Origin/Referer header' },
+        { status: 403 }
+      )
+    }
+
+    // If Origin is present, verify it matches host
     if (origin && host) {
       try {
         const originHost = new URL(origin).host
@@ -131,11 +145,21 @@ export async function middleware(req: NextRequest) {
           return NextResponse.json({ error: 'CSRF check failed', detail: `Origin ${originHost} != Host ${host}` }, { status: 403 })
         }
       } catch {
-        // Invalid origin URL — block it
         return NextResponse.json({ error: 'Invalid origin header' }, { status: 403 })
       }
     }
-    // If origin is null/missing, allow through (API calls from same origin may not send Origin header)
+
+    // If Referer is present (and Origin was missing), verify it matches host
+    if (!origin && referer && host) {
+      try {
+        const refererHost = new URL(referer).host
+        if (refererHost !== host) {
+          return NextResponse.json({ error: 'CSRF check failed', detail: `Referer ${refererHost} != Host ${host}` }, { status: 403 })
+        }
+      } catch {
+        return NextResponse.json({ error: 'Invalid referer header' }, { status: 403 })
+      }
+    }
   }
 
   return res

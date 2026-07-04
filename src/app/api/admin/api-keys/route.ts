@@ -170,16 +170,8 @@ export async function POST(req: NextRequest) {
       }, { status: 400 })
     }
 
-    // Validate partner exists (if partnerId provided)
-    if (partnerId) {
-      const partner = await withTimeout(
-        db.partner.findUnique({ where: { id: partnerId }, select: { id: true } }),
-        5000
-      ).catch(() => null)
-      if (!partner) {
-        return NextResponse.json({ error: 'Partner not found' }, { status: 404 })
-      }
-    }
+    // 🔒 AUDIT FIX: Partner model was deleted (lending pipeline removed).
+    // Skip partner validation — partnerId is now optional/decorative.
 
     // Generate the key
     const { rawKey, keyHash, keyPrefix } = generateApiKey()

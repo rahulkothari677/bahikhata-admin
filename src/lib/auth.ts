@@ -12,6 +12,7 @@ import { isFounderEmail } from './founders'
  *   2. Uses the AdminUser table (separate from main app User table)
  *   3. Session expires in 1 hour (vs 30 days for main app)
  *   4. 2FA (TOTP) is mandatory after password verification
+ *   5. 🔒 AUDIT FIX N4: Rate limiting on login (5 attempts per 15 min per email+IP)
  *
  * Flow:
  *   1. User enters email + password at /login
@@ -20,6 +21,32 @@ import { isFounderEmail } from './founders'
  *   4. If 2FA enabled: user enters TOTP code
  *   5. Session created with 1-hour expiry
  */
+
+// 🔒 AUDIT FIX N4: In-memory rate limiter for admin login.
+// 5 attempts per 15 minutes per email+IP combo. In-memory is fine here
+// because the admin panel has very few users (just admins).
+interface RateBucket { count: number; resetAt: number }
+const loginAttempts = new Map<string, RateBucket>()
+const RATE_LIMIT_MAX = 5
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000 // 15 minutes
+
+function checkLoginRateLimit(key: string): { allowed: boolean; retryAfterSec: number } {
+  const now = Date.now()
+  let bucket = loginAttempts.get(key)
+
+  if (!bucket || bucket.resetAt < now) {
+    bucket = { count: 0, resetAt: now + RATE_LIMIT_WINDOW_MS }
+    loginAttempts.set(key, bucket)
+  }
+
+  if (bucket.count >= RATE_LIMIT_MAX) {
+    return { allowed: false, retryAfterSec: Math.ceil((bucket.resetAt - now) / 1000) }
+  }
+
+  bucket.count++
+  return { allowed: true, retryAfterSec: 0 }
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
@@ -29,12 +56,23 @@ export const authOptions: NextAuthOptions = {
         password: { label: 'Password', type: 'password' },
         totpCode: { label: '2FA Code', type: 'text' },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) {
           return null
         }
 
         const email = credentials.email.trim().toLowerCase()
+
+        // 🔒 AUDIT FIX N4: Rate limit admin login — 5 attempts per 15 min per email+IP
+        // Prevents brute-force attacks on admin accounts.
+        const forwarded = (req as any)?.headers?.['x-forwarded-for']
+        const ip = (typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : null) || 'unknown'
+        const rateKey = `admin-login:${email}:${ip}`
+        const rateCheck = checkLoginRateLimit(rateKey)
+        if (!rateCheck.allowed) {
+          console.warn(`[admin-auth] Rate limit exceeded for ${email} from ${ip}`)
+          throw new Error(`Too many login attempts. Please wait ${Math.ceil(rateCheck.retryAfterSec / 60)} minutes.`)
+        }
 
         // Step 1: Check if email is in founder whitelist
         if (!isFounderEmail(email)) {
@@ -88,6 +126,8 @@ export const authOptions: NextAuthOptions = {
         })
 
         // Return user object (stored in JWT)
+        // 🔒 AUDIT FIX N4: Clear rate limit bucket on successful login
+        loginAttempts.delete(rateKey)
         return {
           id: adminUser.id,
           email: adminUser.email,

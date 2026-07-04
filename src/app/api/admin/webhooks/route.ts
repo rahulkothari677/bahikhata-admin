@@ -138,14 +138,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 })
     }
 
-    // Validate partner exists
-    const partner = await withTimeout(
-      db.partner.findUnique({ where: { id: partnerId }, select: { id: true } }),
-      5000
-    ).catch(() => null)
-    if (!partner) {
-      return NextResponse.json({ error: 'Partner not found' }, { status: 404 })
-    }
+    // 🔒 AUDIT FIX: Partner model was deleted (lending pipeline removed).
+    // Skip partner validation — partnerId is now optional/decorative.
+    // Webhook endpoints can exist without being tied to a Partner record.
 
     // Generate HMAC secret if requested
     const secret = generateSecret ? crypto.randomBytes(32).toString('hex') : null

@@ -557,27 +557,14 @@ model UserSegmentCache {
 }
 
 // ==================== CREDIT SCORE CACHE ====================
-// Instead of computing credit scores on-the-fly (N+1 queries), a
-// background job computes them daily and caches here.
-model CreditScoreCache {
-  id              String   @id @default(cuid())
-  userId          String   @unique
-  score           Int      // 300-900
-  band            String   // excellent | good | fair | poor
-  avgMonthlySales Float    @default(0)
-  totalSales6Mo   Float    @default(0)
-  activeMonths    Int      @default(0)
-  collectionRate  Float    @default(0)
-  businessAgeDays Int      @default(0)
-  productCount    Int      @default(0)
-  partyCount      Int      @default(0)
-  hasGstData      Boolean  @default(false)
-  recommendation  String?
-  computedAt      DateTime @default(now())
-
-  @@index([score])
-  @@index([band])
-}
+// 🔒 AUDIT FIX: CreditScoreCache model removed — part of the dormant lending
+// pipeline that was flagged as a regulatory risk (DPDP + RBI Digital Lending
+// Directions). The lending pipeline code was also deleted (lib/lending-pipeline.ts,
+// lib/credit-score.ts, api/admin/lending-pipeline/, api/admin/data-monetization/).
+// If lending is ever built in the future, it MUST be built with explicit
+// merchant consent + NBFC RE contract + fintech lawyer review.
+//
+// model CreditScoreCache { ... }  ← removed 2026-07-04
 
 // ==================== NOTIFICATION TEMPLATES ====================
 // Reusable templates for SMS, Email, and Push notifications.
@@ -879,56 +866,11 @@ model FraudAlert {
 }
 
 // ==================== PARTNER MANAGEMENT ====================
-// Directory of business partners (NBFCs, FMCG companies, fintechs) for
-// the lending and data-monetization pipeline.
+// 🔒 AUDIT FIX: Partner model removed — was part of the dormant lending/data-
+// monetization pipeline. Removed alongside CreditScoreCache and the lending
+// pipeline code. See the comment above CreditScoreCache for the full rationale.
 //
-// Partner types:
-//   - nbfc: Non-Banking Financial Company (lending — receives credit-scored leads)
-//   - fmcg: Fast-Moving Consumer Goods (receives supplier intelligence data)
-//   - fintech: Other fintech integrations (payments, accounting, etc.)
-//   - other: Other partner types
-//
-// Revenue model:
-//   - NBFC: ₹200/₹150/₹100 per lead by credit band (excellent/good/fair)
-//   - FMCG: ₹50K-₹5L per intelligence report
-//   - Fintech: Revenue share % (revenueSharePct field)
-model Partner {
-  id                  String   @id @default(cuid())
-  name                String
-  type                String   @default("nbfc")     // nbfc | fmcg | fintech | other
-  status              String   @default("onboarding") // onboarding | active | inactive | terminated
-
-  // Contact info
-  contactName         String?
-  contactEmail        String?
-  contactPhone        String?
-  website             String?
-
-  // Integration
-  apiBaseUrl          String?                          // e.g. https://api.partner.com
-  webhookUrl          String?                          // where we send lead notifications
-  revenueSharePct     Float    @default(0)             // 0-100, for fintech revenue share
-
-  // Stats (updated when leads are sent)
-  totalLeadsSent      Int      @default(0)
-  totalRevenueShared  Float    @default(0)             // in INR
-
-  // Contract
-  contractStartAt     DateTime?
-  contractEndAt       DateTime?
-  notes               String?  @db.Text
-
-  // Metadata
-  createdBy           String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-
-  apiKeys             ApiKey[]
-  webhookEndpoints    WebhookEndpoint[]
-
-  @@index([type, status])
-  @@index([status])
-}
+// model Partner { ... }  ← removed 2026-07-04
 
 // ==================== API KEYS (Partner Authentication) ====================
 // API keys issued to partners for programmatic access to our API.

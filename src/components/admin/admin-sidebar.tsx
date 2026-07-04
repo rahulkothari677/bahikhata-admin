@@ -115,12 +115,14 @@ const NAV_STRUCTURE: NavGroup[] = [
     color: 'text-orange-500',
     items: [
       { label: 'AI Usage & Cost', href: '/ai-usage', icon: Coins },
-      { label: 'Data Monetization', href: '/data', icon: Database },
+      // 🔒 AUDIT FIX: Removed Data Monetization, Lending Pipeline, Partners
+      // — these were part of the dormant lending pipeline that was flagged
+      // as a regulatory risk (DPDP + RBI Digital Lending Directions).
+      // The code, models, pages, and API routes were all deleted.
+      // Re-add only after building lending properly with consent + NBFC contract.
       { label: 'Supplier Intelligence', href: '/supplier-intelligence', icon: Package },
-      { label: 'Lending Pipeline', href: '/lending-pipeline', icon: Banknote },
       { label: 'Account Aggregator', href: '/account-aggregator', icon: Landmark },
       { label: 'Anomaly Detection', href: '/anomalies', icon: Activity },
-      { label: 'Partners', href: '/partners', icon: Handshake },
       { label: 'API Keys', href: '/api-keys', icon: Key },
       { label: 'Webhooks', href: '/webhooks', icon: Webhook },
     ],
