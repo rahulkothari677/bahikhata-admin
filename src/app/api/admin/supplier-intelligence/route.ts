@@ -48,10 +48,15 @@ export async function GET(req: NextRequest) {
     const where: any = {}
     if (status !== 'all') where.status = status
 
+    // 🔒 V6 SC2: Add take cap to prevent loading the entire SupplierReport
+    // table as it grows. Reports are append-only (one per generation), so at
+    // scale this table grows unbounded. 500 is a sane upper bound for an
+    // admin list view — if there are more, paginate via cursor.
     const reports = await withNeonRetry(() =>
       db.supplierReport.findMany({
         where,
         orderBy: { createdAt: 'desc' },
+        take: 500,
       })
     ).catch(() => [])
 

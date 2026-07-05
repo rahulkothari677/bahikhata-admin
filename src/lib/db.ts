@@ -45,7 +45,7 @@ export const db =
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
 
 /**
- * 🔒 AUDIT FIX C5 (V6): Read-only Prisma client for the SQL runner.
+ * 🔒 AUDIT FIX C5 (V6) + V6 SC4: Read-only Prisma client for the SQL runner.
  *
  * If READONLY_DATABASE_URL is set, this creates a SEPARATE Prisma client
  * that connects using a database user with ONLY SELECT grants. The SQL
@@ -53,9 +53,21 @@ if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
  * the DATABASE ITSELF enforces read-only — no matter what the regex
  * validation misses.
  *
- * If READONLY_DATABASE_URL is NOT set, falls back to the main db client
- * (which still has the whitelist + blocklist validation, but the DB
- * doesn't enforce read-only). This is less safe — set the env var in prod.
+ * 🔒 V6 SC4 (auditor): In production, if READONLY_DATABASE_URL is NOT set,
+ * the SQL console endpoint now FAILS CLOSED (returns 503) instead of
+ * silently falling back to the read-write connection. The previous
+ * fallback was a defense-in-depth gap — the whitelist can be probed, and
+ * an endpoint that can read every user's financial data should never run
+ * on a read-write connection without explicit configuration.
+ *
+ * In development (NODE_ENV !== 'production'), the fallback to the main db
+ * client is still allowed for convenience — developers don't need to set
+ * up a read-only role on their local SQLite/test DB.
+ *
+ * Statement timeout: the read-only client sets a 10s statement_timeout
+ * via the connection string (if supported) so a runaway query can't hog
+ * the connection. The SQL console endpoint also enforces a JS-side timeout
+ * via withTimeout() as a belt-and-suspenders measure.
  *
  * To create the read-only user in Neon:
  *   CREATE ROLE admin_readonly WITH LOGIN PASSWORD '...';
@@ -65,8 +77,21 @@ if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
  *   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO admin_readonly;
  *
  * Then set READONLY_DATABASE_URL in Vercel to the connection string using
- * this role.
+ * this role. Append &statement_timeout=10000 to the URL for a 10s timeout.
  */
+
+/**
+ * Returns true if the read-only client is properly configured (READONLY_DATABASE_URL
+ * is set OR we're in development mode). The SQL console endpoint uses this to
+ * decide whether to serve requests or return 503.
+ */
+export function isReadonlyClientConfigured(): boolean {
+  // In development, we allow the fallback to the main db client for convenience.
+  if (process.env.NODE_ENV !== 'production') return true
+  // In production, require READONLY_DATABASE_URL to be set.
+  return !!process.env.READONLY_DATABASE_URL
+}
+
 export const dbReadonly: PrismaClient =
   globalForPrisma.prismaReadonly ??
   (process.env.READONLY_DATABASE_URL
@@ -74,6 +99,6 @@ export const dbReadonly: PrismaClient =
         datasources: { db: { url: process.env.READONLY_DATABASE_URL } },
         log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
       })
-    : db)  // Fallback to main db if READONLY_DATABASE_URL not set
+    : db)  // Fallback to main db — only used in dev (production checks isReadonlyClientConfigured first)
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prismaReadonly = dbReadonly

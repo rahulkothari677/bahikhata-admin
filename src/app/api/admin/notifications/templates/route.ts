@@ -29,6 +29,7 @@ export async function GET(req: Request) {
       db.notificationTemplate.findMany({
         where,
         orderBy: { name: 'asc' },
+        take: 500,  // 🔒 V6 SC2: defensive cap (config table, stays small)
         select: {
           id: true,
           name: true,

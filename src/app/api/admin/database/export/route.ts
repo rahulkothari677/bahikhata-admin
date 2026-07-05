@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { validateQuery, executeSafeQuery, exportToCsv } from '@/lib/database-admin'
 import { logAdminAction } from '@/lib/audit'
+import { isReadonlyClientConfigured } from '@/lib/db'
 
 /**
  * POST /api/admin/database/export
@@ -13,11 +14,22 @@ import { logAdminAction } from '@/lib/audit'
  * Body:
  *   - sql: string (required)
  *   - filename: string (optional — default: export.csv)
+ *
+ * 🔒 AUDIT FIX V6 SC4: Same fail-closed behavior as /query endpoint.
+ * In production, returns 503 if READONLY_DATABASE_URL is not set.
  */
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    // 🔒 V6 SC4: Fail closed in production if READONLY_DATABASE_URL is not set.
+    if (!isReadonlyClientConfigured()) {
+      return NextResponse.json({
+        error: 'SQL export disabled — read-only database not configured',
+        detail: 'READONLY_DATABASE_URL is not set. See /api/admin/database/query for setup instructions.',
+      }, { status: 503 })
+    }
 
     const body = await req.json()
     const { sql, filename } = body

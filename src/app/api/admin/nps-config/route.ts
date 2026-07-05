@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
     }
 
     const configs = await withNeonRetry(() =>
-      db.npsSurveyConfig.findMany({ orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }] })
+      db.npsSurveyConfig.findMany({ orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }], take: 500 })  // 🔒 V6 SC2: defensive cap
     ).catch(() => [])
 
     return NextResponse.json({

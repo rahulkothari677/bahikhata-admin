@@ -34,6 +34,7 @@ export async function GET(req: NextRequest) {
             where: { status: 'active' },
             select: { id: true, name: true, freePrice: true, proPrice: true, elitePrice: true, website: true },
             orderBy: { name: 'asc' },
+            take: 500,  // 🔒 V6 SC2: defensive cap (config table, stays small)
           })
         ).catch(() => []),
       ])
@@ -61,6 +62,7 @@ export async function GET(req: NextRequest) {
       db.competitor.findMany({
         where,
         orderBy: { createdAt: 'desc' },
+        take: 500,  // 🔒 V6 SC2: defensive cap (config table, stays small)
         include: {
           _count: { select: { updates: true } },
         },

@@ -61,6 +61,7 @@ export async function GET(req: NextRequest) {
     const rules = await withTimeout(
       db.fraudRule.findMany({
         orderBy: { createdAt: 'desc' },
+        take: 500,  // 🔒 V6 SC2: defensive cap (config table, stays small)
         include: {
           _count: {
             select: { alerts: { where: { status: 'open' } } },
