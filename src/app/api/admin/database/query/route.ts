@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { requireAdmin } from '@/lib/admin-auth'
 import { validateQuery, executeSafeQuery } from '@/lib/database-admin'
 import { logAdminAction } from '@/lib/audit'
 import { isReadonlyClientConfigured } from '@/lib/db'
@@ -25,8 +26,8 @@ import { isReadonlyClientConfigured } from '@/lib/db'
  */
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const auth = await requireAdmin()
+    if (!auth.ok) return auth.error
 
     // 🔒 V6 SC4: Fail closed in production if READONLY_DATABASE_URL is not set.
     // This is the single most sensitive endpoint in the admin panel — it can
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
 
     // Log to audit trail
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: (auth.session.user as any).id,
       action: 'database_query',
       description: `Executed SELECT query (${result.rowCount} rows, ${result.durationMs}ms)`,
       targetType: 'database',
