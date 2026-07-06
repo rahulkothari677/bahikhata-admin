@@ -75,23 +75,28 @@ export const authOptions: NextAuthOptions = {
           return null
         }
 
-        // Step 4: Verify 2FA if enabled
-        if (adminUser.totpEnabled && adminUser.totpSecret) {
-          if (!credentials.totpCode) {
-            // Return a special error that tells the frontend to show 2FA input
-            throw new Error('2FA_REQUIRED')
-          }
+        // Step 4: Verify 2FA — MANDATORY for all admin users.
+        // 🔒 V9 2.4 (auditor): Was: only checked IF totpEnabled. Now: mandatory.
+        // If 2FA is not set up yet, reject login with a clear message.
+        if (!adminUser.totpEnabled || !adminUser.totpSecret) {
+          console.error(`[admin-auth] 2FA not set up for: ${email} — login rejected`)
+          throw new Error('2FA_SETUP_REQUIRED: You must set up 2FA before logging in. Contact the founder to reset your account.')
+        }
 
-          const { authenticator } = await import('otplib')
-          const isValid = authenticator.verify({
-            token: credentials.totpCode,
-            secret: adminUser.totpSecret,
-          })
+        if (!credentials.totpCode) {
+          // Return a special error that tells the frontend to show 2FA input
+          throw new Error('2FA_REQUIRED')
+        }
 
-          if (!isValid) {
-            console.warn(`[admin-auth] Invalid 2FA code for: ${email}`)
-            return null
-          }
+        const { authenticator } = await import('otplib')
+        const isValid = authenticator.verify({
+          token: credentials.totpCode,
+          secret: adminUser.totpSecret,
+        })
+
+        if (!isValid) {
+          console.warn(`[admin-auth] Invalid 2FA code for: ${email}`)
+          return null
         }
 
         // Step 5: Update last login info
