@@ -3,6 +3,7 @@ import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import { db } from './db'
 import { isFounderEmail } from './founders'
+import { checkAdminLoginRate, resetAdminLoginRate } from './admin-rate-limit'
 
 /**
  * NextAuth configuration for the admin panel.
@@ -12,7 +13,10 @@ import { isFounderEmail } from './founders'
  *   2. Uses the AdminUser table (separate from main app User table)
  *   3. Session expires in 1 hour (vs 30 days for main app)
  *   4. 2FA (TOTP) is mandatory after password verification
- *   5. 🔒 AUDIT FIX N4: Rate limiting on login (5 attempts per 15 min per email+IP)
+ *   5. 🔒 V9 2.4: Rate limiting on login — Redis-backed (5 attempts per 15 min
+ *      per email+IP). Was: in-memory Map → each serverless instance had its
+ *      own Map → effective limit was 5 × N instances. Now: shared across all
+ *      instances via Upstash Redis (same as the main app).
  *
  * Flow:
  *   1. User enters email + password at /login
@@ -21,31 +25,6 @@ import { isFounderEmail } from './founders'
  *   4. If 2FA enabled: user enters TOTP code
  *   5. Session created with 1-hour expiry
  */
-
-// 🔒 AUDIT FIX N4: In-memory rate limiter for admin login.
-// 5 attempts per 15 minutes per email+IP combo. In-memory is fine here
-// because the admin panel has very few users (just admins).
-interface RateBucket { count: number; resetAt: number }
-const loginAttempts = new Map<string, RateBucket>()
-const RATE_LIMIT_MAX = 5
-const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000 // 15 minutes
-
-function checkLoginRateLimit(key: string): { allowed: boolean; retryAfterSec: number } {
-  const now = Date.now()
-  let bucket = loginAttempts.get(key)
-
-  if (!bucket || bucket.resetAt < now) {
-    bucket = { count: 0, resetAt: now + RATE_LIMIT_WINDOW_MS }
-    loginAttempts.set(key, bucket)
-  }
-
-  if (bucket.count >= RATE_LIMIT_MAX) {
-    return { allowed: false, retryAfterSec: Math.ceil((bucket.resetAt - now) / 1000) }
-  }
-
-  bucket.count++
-  return { allowed: true, retryAfterSec: 0 }
-}
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -63,13 +42,12 @@ export const authOptions: NextAuthOptions = {
 
         const email = credentials.email.trim().toLowerCase()
 
-        // 🔒 AUDIT FIX N4: Rate limit admin login — 5 attempts per 15 min per email+IP
-        // Prevents brute-force attacks on admin accounts.
+        // 🔒 V9 2.4: Redis-backed rate limit (was: in-memory Map).
+        // 5 attempts per 15 min per email+IP, shared across all serverless instances.
         const forwarded = (req as any)?.headers?.['x-forwarded-for']
         const ip = (typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : null) || 'unknown'
-        const rateKey = `admin-login:${email}:${ip}`
-        const rateCheck = checkLoginRateLimit(rateKey)
-        if (!rateCheck.allowed) {
+        const rateCheck = await checkAdminLoginRate(email, ip)
+        if (!rateCheck.success) {
           console.warn(`[admin-auth] Rate limit exceeded for ${email} from ${ip}`)
           throw new Error(`Too many login attempts. Please wait ${Math.ceil(rateCheck.retryAfterSec / 60)} minutes.`)
         }
@@ -127,8 +105,8 @@ export const authOptions: NextAuthOptions = {
         })
 
         // Return user object (stored in JWT)
-        // 🔒 AUDIT FIX N4: Clear rate limit bucket on successful login
-        loginAttempts.delete(rateKey)
+        // 🔒 V9 2.4: Reset rate limit on successful login (Redis-backed)
+        await resetAdminLoginRate(email, ip)
         return {
           id: adminUser.id,
           email: adminUser.email,
