@@ -15,6 +15,30 @@ This admin panel is **completely separate** from the main app for security:
 - **IP allowlisting** (optional — restrict to your IPs)
 - **Full audit trail** (every admin action logged permanently)
 
+## ⚠️ CRITICAL: Database Migration Policy
+
+**This app shares a production database with the main app (`bahikhata-pro`).**
+
+The main app **owns all database migrations** — it runs `prisma migrate` on
+every deploy via `migrate-with-retry.sh`. This admin app's `schema.prisma` is
+a **read-model mirror** kept in sync FROM the main app's schema, used only for
+Prisma client type generation (`prisma generate`).
+
+### DO NOT run `prisma db push` from this repo.
+
+`prisma db push` reconciles the database to THIS app's schema view. Because
+the two schemas are maintained separately and will drift, a `db push` from
+here can **drop or alter columns** the main app's migrations added but this
+schema doesn't know about — causing **silent data loss** on the shared
+production database.
+
+### How to add/change a shared-table column:
+1. Add the field to the **main app's** `prisma/schema.prisma`
+2. Create a migration in the **main app** (`prisma migrate dev --name ...`)
+3. Mirror the field in this admin app's `prisma/schema.prisma` (for types)
+4. Run `npx prisma generate` here (client types only — NO `db push`)
+5. The main app's deploy will apply the migration to the shared DB
+
 ## 🚀 Deployment Guide
 
 ### Step 1: Install Dependencies

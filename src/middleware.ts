@@ -154,12 +154,16 @@ export async function middleware(req: NextRequest) {
     '/api/admin/database/',       // raw SQL console
     '/api/admin/impersonate',     // impersonate a shopkeeper
     '/api/admin/bulk',            // bulk jobs
+    // 🔒 V26 N2 FIX: data-exports moved from MUTATION_RESTRICTED to FOUNDER_ONLY.
+    // Was: only blocked viewers — a non-founder "admin" could still POST
+    // data-exports/generate?type=all_users and exfiltrate every shopkeeper's
+    // email/name/phone. Now: founder-only, matching database/export.
+    '/api/admin/data-exports',    // mass export of user data (all_users mode)
   ]
 
   // Mutation-restricted path prefixes (viewer can GET but not mutate)
   const MUTATION_RESTRICTED_PREFIXES = [
     '/api/admin/users/',          // modify shopkeeper accounts (PATCH /api/admin/users/[id])
-    '/api/admin/data-exports',    // export user data
     '/api/admin/database/export', // CSV export
     '/api/admin/notifications',   // send notifications
     '/api/admin/webhooks',        // configure/deliver webhooks

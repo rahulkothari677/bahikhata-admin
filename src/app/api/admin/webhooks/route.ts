@@ -139,31 +139,72 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 })
     }
 
-    // 🔒 V26 A3 FIX: SSRF denylist — block private/internal IP ranges.
-    // Was: only validated URL syntax (new URL(url)). Any admin could register
-    // a webhook at http://169.254.169.254/... (AWS metadata) or an internal
-    // host, and webhooks/deliver would POST to it.
-    // Now: reject loopback, private, and link-local addresses.
+    // 🔒 V26 A3+N4 FIX: SSRF protection with DNS resolution.
+    // Was: string-match only on hostname (bypassable via DNS-resolving domains,
+    // decimal IP encoding like http://2130706433/, IPv6-mapped forms).
+    // Now: resolves the hostname to IP(s) via dns.lookup and checks each
+    // against private/loopback/link-local ranges. Also blocks non-http(s)
+    // protocols and non-standard ports.
     if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
       return NextResponse.json({ error: 'Webhook URL must use http or https protocol' }, { status: 400 })
     }
 
+    // Block non-standard ports (80, 443 only)
+    const port = parsedUrl.port || (parsedUrl.protocol === 'https:' ? '443' : '80')
+    if (port !== '80' && port !== '443') {
+      return NextResponse.json({ error: 'Webhook URL must use standard ports (80 or 443)' }, { status: 400 })
+    }
+
     const hostname = parsedUrl.hostname.toLowerCase()
-    const SSRF_BLOCKED_PATTERNS = [
-      'localhost',
-      '127.0.0.1',
-      '0.0.0.0',
-      '::1',          // IPv6 loopback
-      '169.254.',     // link-local (AWS metadata: 169.254.169.254)
-      '10.',          // private Class A
-      '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.', // private Class B
-      '192.168.',     // private Class C
-      'fc00:', 'fd00:', 'fe80:', // IPv6 private/link-local
-      '0177.',        // octal 127.0.0.1
-      '0x7f',         // hex 127.x
+
+    // Quick string-match denylist (catches literal private IPs/hosts)
+    const SSRF_BLOCKED_LITERALS = [
+      'localhost', '127.0.0.1', '0.0.0.0', '::1',
+      '169.254.', '10.', '192.168.',
+      '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.',
+      '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.',
+      '172.28.', '172.29.', '172.30.', '172.31.',
+      'fc00:', 'fd00:', 'fe80:',
     ]
-    if (SSRF_BLOCKED_PATTERNS.some(pattern => hostname.startsWith(pattern) || hostname === pattern)) {
+    if (SSRF_BLOCKED_LITERALS.some(pattern => hostname.startsWith(pattern) || hostname === pattern)) {
       return NextResponse.json({ error: 'Webhook URL must not point to a private or internal address' }, { status: 400 })
+    }
+
+    // 🔒 V26 N4: DNS-resolve the hostname and check resolved IPs.
+    // This catches domains whose A-record points at a private IP (DNS rebinding).
+    // Use Node's dns.lookup (available in Vercel serverless).
+    const dns = await import('dns').then(m => m.promises || m.default?.promises).catch(() => null)
+    if (dns && dns.lookup) {
+      try {
+        // Resolve all addresses (IPv4 + IPv6)
+        const addresses = await dns.lookup(hostname, { all: true })
+        for (const addr of addresses) {
+          const ip = addr.address
+          // Check each resolved IP against private ranges
+          const isPrivate =
+            ip === '127.0.0.1' || ip === '::1' || ip === '0.0.0.0' ||
+            ip.startsWith('10.') ||
+            ip.startsWith('192.168.') ||
+            ip.startsWith('169.254.') ||
+            ip.startsWith('172.16.') || ip.startsWith('172.17.') || ip.startsWith('172.18.') ||
+            ip.startsWith('172.19.') || ip.startsWith('172.20.') || ip.startsWith('172.21.') ||
+            ip.startsWith('172.22.') || ip.startsWith('172.23.') || ip.startsWith('172.24.') ||
+            ip.startsWith('172.25.') || ip.startsWith('172.26.') || ip.startsWith('172.27.') ||
+            ip.startsWith('172.28.') || ip.startsWith('172.29.') || ip.startsWith('172.30.') ||
+            ip.startsWith('172.31.') ||
+            ip.startsWith('fc00:') || ip.startsWith('fd00:') || ip.startsWith('fe80:')
+          if (isPrivate) {
+            return NextResponse.json({
+              error: 'Webhook URL resolves to a private or internal address',
+              detail: `Hostname ${hostname} resolves to ${ip}, which is in a private range.`,
+            }, { status: 400 })
+          }
+        }
+      } catch {
+        // DNS resolution failed — allow through (the webhook delivery will
+        // fail naturally if the hostname is truly unresolvable). We don't
+        // block on DNS errors to avoid false negatives from temporary DNS issues.
+      }
     }
 
     // 🔒 AUDIT FIX: Partner model was deleted (lending pipeline removed).

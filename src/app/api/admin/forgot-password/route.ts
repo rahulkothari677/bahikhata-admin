@@ -5,6 +5,39 @@ import { db } from '@/lib/db'
 import { isFounderEmail } from '@/lib/founders'
 
 /**
+ * 🔒 V26 N5: Simple IP-based rate limiter for the forgot-password endpoint.
+ * Uses the same in-memory fallback pattern as admin-rate-limit.ts.
+ * In production with Redis configured, this could use Upstash — for now,
+ * the in-memory fallback is sufficient (the endpoint is low-volume + the
+ * token is 256-bit validated).
+ */
+const resetRateBuckets = new Map<string, { count: number; resetAt: number }>()
+const RESET_RATE_MAX = 5  // 5 requests per 15 minutes per IP
+const RESET_RATE_WINDOW_MS = 15 * 60 * 1000
+
+function checkResetRate(ip: string): { success: boolean; retryAfterSec: number } {
+  const now = Date.now()
+  let bucket = resetRateBuckets.get(ip)
+  if (!bucket || bucket.resetAt < now) {
+    bucket = { count: 0, resetAt: now + RESET_RATE_WINDOW_MS }
+    resetRateBuckets.set(ip, bucket)
+  }
+  if (bucket.count >= RESET_RATE_MAX) {
+    return { success: false, retryAfterSec: Math.ceil((bucket.resetAt - now) / 1000) }
+  }
+  bucket.count++
+  return { success: true, retryAfterSec: 0 }
+}
+
+function getClientIP(req: NextRequest): string {
+  const forwarded = req.headers.get('x-forwarded-for')
+  if (forwarded) return forwarded.split(',')[0].trim()
+  const realIP = req.headers.get('x-real-ip')
+  if (realIP) return realIP
+  return 'unknown'
+}
+
+/**
  * POST /api/admin/forgot-password
  * Generates a reset token for the given email.
  *
@@ -13,10 +46,22 @@ import { isFounderEmail } from '@/lib/founders'
  * token"). Now: stores SHA-256 hash + 15-min expiry in the DB, never returns
  * the token in production, and PATCH validates the hash with timingSafeEqual.
  *
+ * 🔒 V26 N5: Added rate limiting (5/15min/IP) for parity with S4.
+ *
  * Security: only works for emails in the FOUNDER_EMAILS whitelist.
  */
 export async function POST(req: NextRequest) {
   try {
+    // 🔒 V26 N5: Rate limit
+    const ip = getClientIP(req)
+    const rl = checkResetRate(ip)
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'Too many reset requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } },
+      )
+    }
+
     const { email } = await req.json()
 
     if (!email) {
