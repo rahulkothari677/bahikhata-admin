@@ -131,11 +131,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Invalid events: ${invalidEvents.join(', ')}` }, { status: 400 })
     }
 
-    // Validate URL format
+    // Validate URL format + SSRF protection
+    let parsedUrl: URL
     try {
-      new URL(url)
+      parsedUrl = new URL(url)
     } catch {
       return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 })
+    }
+
+    // 🔒 V26 A3 FIX: SSRF denylist — block private/internal IP ranges.
+    // Was: only validated URL syntax (new URL(url)). Any admin could register
+    // a webhook at http://169.254.169.254/... (AWS metadata) or an internal
+    // host, and webhooks/deliver would POST to it.
+    // Now: reject loopback, private, and link-local addresses.
+    if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+      return NextResponse.json({ error: 'Webhook URL must use http or https protocol' }, { status: 400 })
+    }
+
+    const hostname = parsedUrl.hostname.toLowerCase()
+    const SSRF_BLOCKED_PATTERNS = [
+      'localhost',
+      '127.0.0.1',
+      '0.0.0.0',
+      '::1',          // IPv6 loopback
+      '169.254.',     // link-local (AWS metadata: 169.254.169.254)
+      '10.',          // private Class A
+      '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.', // private Class B
+      '192.168.',     // private Class C
+      'fc00:', 'fd00:', 'fe80:', // IPv6 private/link-local
+      '0177.',        // octal 127.0.0.1
+      '0x7f',         // hex 127.x
+    ]
+    if (SSRF_BLOCKED_PATTERNS.some(pattern => hostname.startsWith(pattern) || hostname === pattern)) {
+      return NextResponse.json({ error: 'Webhook URL must not point to a private or internal address' }, { status: 400 })
     }
 
     // 🔒 AUDIT FIX: Partner model was deleted (lending pipeline removed).

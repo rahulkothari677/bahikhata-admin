@@ -134,6 +134,62 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
+  // 🔒 V26 A2 FIX: Role hierarchy enforcement.
+  // Was: middleware only checked "a valid admin token exists" — not WHICH role.
+  // A "viewer" (read-only) could export the entire user database, modify user
+  // accounts, send notifications, configure webhooks, and run bulk jobs.
+  // Now: enforce role centrally via a path-prefix policy map.
+  //
+  // Role hierarchy: founder > admin > viewer
+  // - viewer: read-only (GET only, no mutations)
+  // - admin: most operations except founder-only
+  // - founder: everything (including admin-users, database/query, impersonate)
+  const role = token.role as string | undefined
+  const method = req.method.toUpperCase()
+  const isMutationForRole = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)
+
+  // Founder-only path prefixes (mutations AND reads on these paths)
+  const FOUNDER_ONLY_PREFIXES = [
+    '/api/admin/admin-users',     // manage admin accounts
+    '/api/admin/database/',       // raw SQL console
+    '/api/admin/impersonate',     // impersonate a shopkeeper
+    '/api/admin/bulk',            // bulk jobs
+  ]
+
+  // Mutation-restricted path prefixes (viewer can GET but not mutate)
+  const MUTATION_RESTRICTED_PREFIXES = [
+    '/api/admin/users/',          // modify shopkeeper accounts (PATCH /api/admin/users/[id])
+    '/api/admin/data-exports',    // export user data
+    '/api/admin/database/export', // CSV export
+    '/api/admin/notifications',   // send notifications
+    '/api/admin/webhooks',        // configure/deliver webhooks
+    '/api/admin/coupons',         // manage coupons
+    '/api/admin/feature-flags',   // manage feature flags
+    '/api/admin/campaigns',       // manage campaigns
+    '/api/admin/fraud-rules',     // manage fraud rules
+    '/api/admin/api-keys',        // manage API keys
+  ]
+
+  // Check founder-only paths
+  if (FOUNDER_ONLY_PREFIXES.some(prefix => pathname.startsWith(prefix))) {
+    if (role !== 'founder') {
+      return NextResponse.json(
+        { error: 'Forbidden', message: 'This action requires founder role.' },
+        { status: 403 },
+      )
+    }
+  }
+
+  // Check mutation-restricted paths: viewer cannot mutate
+  if (isMutationForRole && MUTATION_RESTRICTED_PREFIXES.some(prefix => pathname.startsWith(prefix))) {
+    if (role === 'viewer') {
+      return NextResponse.json(
+        { error: 'Forbidden', message: 'Viewers cannot perform mutations. Contact a founder.' },
+        { status: 403 },
+      )
+    }
+  }
+
   // ===== CSRF PROTECTION ON MUTATIONS =====
   // 🔒 AUDIT FIX: Block mutations where BOTH Origin AND Referer are missing.
   // Was: allowed through if Origin was missing (CSRF bypass).

@@ -405,6 +405,11 @@ model AdminUser {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  // 🔒 V26 A1 FIX: Dedicated password-reset fields (was: no reset token
+  // storage — the PATCH endpoint accepted ANY token without validation).
+  passwordResetTokenHash String?  // SHA-256 hash of the reset token
+  passwordResetExpiresAt DateTime? // 15-minute expiry
+
   adminActions  AdminAction[]
 
   @@index([email])
