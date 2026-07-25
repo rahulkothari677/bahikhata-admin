@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { db } from '@/lib/db'
 import { isFounderEmail } from '@/lib/founders'
 import { checkAdminLoginRate } from '@/lib/admin-rate-limit'
+import { withNeonRetry } from '@/lib/resilience'
 
 /**
  * POST /api/admin/login-probe
@@ -124,16 +125,20 @@ export async function POST(req: NextRequest) {
     }
 
     // Step 2: Find admin user.
-    const adminUser = await db.adminUser.findUnique({
-      where: { email },
-      select: {
-        id: true,
-        password: true,
-        isActive: true,
-        totpEnabled: true,
-        totpSecret: true,
-      },
-    })
+    // 🐛 FIX (admin-login-fix-phase-1-followup-2): wrap with withNeonRetry
+    // so Neon cold-start doesn't surface as a raw Prisma error.
+    const adminUser = await withNeonRetry(() =>
+      db.adminUser.findUnique({
+        where: { email },
+        select: {
+          id: true,
+          password: true,
+          isActive: true,
+          totpEnabled: true,
+          totpSecret: true,
+        },
+      })
+    )
 
     // Step 3: Verify password. If user doesn't exist OR password is wrong,
     // return INVALID_CREDENTIALS (same response — no enumeration).
@@ -158,7 +163,32 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ reason: '2FA_SETUP_REQUIRED' }, { status: 200 })
   } catch (error) {
     console.error('[login-probe] error:', error)
-    // Don't leak internal errors — return generic.
+
+    // 🐛 FIX (admin-login-fix-phase-1-followup-2): If withNeonRetry exhausted
+    // its retries (DB still waking up or truly down), return DB_UNAVAILABLE
+    // so the login page can show "Service temporarily unavailable" instead
+    // of "Invalid email or password" (which would mislead the user into
+    // thinking their credentials are wrong).
+    const errMsg = error instanceof Error ? error.message : String(error)
+    const isDbError =
+      errMsg.includes('reach database server') ||
+      errMsg.includes('Connection terminated') ||
+      errMsg.includes('kind: Close') ||
+      errMsg.includes('Connection refused') ||
+      errMsg.includes('Query timeout') ||
+      errMsg.includes('Timed out fetching')
+
+    if (isDbError) {
+      return NextResponse.json(
+        {
+          reason: 'DB_UNAVAILABLE',
+          message: 'Our database is waking up. Please wait 10 seconds and try again.',
+        },
+        { status: 503 },
+      )
+    }
+
+    // Don't leak other internal errors — return generic.
     return NextResponse.json(
       { reason: 'INVALID_CREDENTIALS' },
       { status: 200 },

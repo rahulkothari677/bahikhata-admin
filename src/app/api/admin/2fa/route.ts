@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { authenticator } from 'otplib'
 import { logAdminAction } from '@/lib/audit'
+import { withNeonRetry } from '@/lib/resilience'
 
 /**
  * GET /api/admin/2fa
@@ -23,10 +24,12 @@ export async function GET() {
     const session = await getServerSession(authOptions)
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const admin = await db.adminUser.findUnique({
-      where: { id: (session.user as any).id },
-      select: { totpEnabled: true, totpSecret: true, email: true },
-    })
+    const admin = await withNeonRetry(() =>
+      db.adminUser.findUnique({
+        where: { id: (session.user as any).id },
+        select: { totpEnabled: true, totpSecret: true, email: true },
+      })
+    )
 
     if (!admin) {
       return NextResponse.json({ error: 'Admin not found' }, { status: 404 })
@@ -45,10 +48,13 @@ export async function GET() {
     const otpauthUrl = authenticator.keyuri(admin.email, 'BahiKhata Admin', secret)
 
     // Store the secret temporarily (not enabled yet — only enabled after verification)
-    await db.adminUser.update({
-      where: { id: (session.user as any).id },
-      data: { totpSecret: secret },
-    })
+    // 🐛 FIX (admin-login-fix-phase-1-followup-2): wrap with withNeonRetry
+    await withNeonRetry(() =>
+      db.adminUser.update({
+        where: { id: (session.user as any).id },
+        data: { totpSecret: secret },
+      })
+    )
 
     return NextResponse.json({
       success: true,
@@ -87,10 +93,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid code. Enter the 6-digit code from your authenticator app.' }, { status: 400 })
     }
 
-    const admin = await db.adminUser.findUnique({
-      where: { id: (session.user as any).id },
-      select: { totpSecret: true, totpEnabled: true, email: true },
-    })
+    const admin = await withNeonRetry(() =>
+      db.adminUser.findUnique({
+        where: { id: (session.user as any).id },
+        select: { totpSecret: true, totpEnabled: true, email: true },
+      })
+    )
 
     if (!admin) {
       return NextResponse.json({ error: 'Admin not found' }, { status: 404 })
@@ -115,10 +123,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Enable 2FA
-    await db.adminUser.update({
-      where: { id: (session.user as any).id },
-      data: { totpEnabled: true },
-    })
+    // 🐛 FIX (admin-login-fix-phase-1-followup-2): wrap with withNeonRetry
+    await withNeonRetry(() =>
+      db.adminUser.update({
+        where: { id: (session.user as any).id },
+        data: { totpEnabled: true },
+      })
+    )
 
     await logAdminAction({
       adminId: (session.user as any).id,
@@ -153,10 +164,12 @@ export async function DELETE(req: NextRequest) {
     const body = await req.json()
     const { code } = body
 
-    const admin = await db.adminUser.findUnique({
-      where: { id: (session.user as any).id },
-      select: { totpSecret: true, totpEnabled: true },
-    })
+    const admin = await withNeonRetry(() =>
+      db.adminUser.findUnique({
+        where: { id: (session.user as any).id },
+        select: { totpSecret: true, totpEnabled: true },
+      })
+    )
 
     if (!admin?.totpEnabled) {
       return NextResponse.json({ error: '2FA is not enabled' }, { status: 400 })
@@ -171,10 +184,12 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid code. Cannot disable 2FA without verification.' }, { status: 400 })
     }
 
-    await db.adminUser.update({
-      where: { id: (session.user as any).id },
-      data: { totpEnabled: false, totpSecret: null },
-    })
+    await withNeonRetry(() =>
+      db.adminUser.update({
+        where: { id: (session.user as any).id },
+        data: { totpEnabled: false, totpSecret: null },
+      })
+    )
 
     await logAdminAction({
       adminId: (session.user as any).id,

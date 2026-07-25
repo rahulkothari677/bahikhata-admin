@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { db } from '@/lib/db'
 import { isFounderEmail } from '@/lib/founders'
 import { z } from 'zod'
+import { withNeonRetry } from '@/lib/resilience'
 
 /**
  * POST /api/admin/setup
@@ -31,7 +32,8 @@ const SetupSchema = z.object({
 export async function POST(req: NextRequest) {
   try {
     // SECURITY: Only allow if no admin users exist
-    const adminCount = await db.adminUser.count()
+    // 🐛 FIX (admin-login-fix-phase-1-followup-2): wrap with withNeonRetry
+    const adminCount = await withNeonRetry(() => db.adminUser.count())
     if (adminCount > 0) {
       return NextResponse.json({
         error: 'Setup already complete',
@@ -54,15 +56,18 @@ export async function POST(req: NextRequest) {
     const hashedPassword = await bcrypt.hash(password, 12)
 
     // Create the first admin user
-    const admin = await db.adminUser.create({
-      data: {
-        email: email.toLowerCase(),
-        name,
-        password: hashedPassword,
-        role: 'founder', // first admin is always founder
-      },
-      select: { id: true, email: true, name: true, role: true },
-    })
+    // 🐛 FIX (admin-login-fix-phase-1-followup-2): wrap with withNeonRetry
+    const admin = await withNeonRetry(() =>
+      db.adminUser.create({
+        data: {
+          email: email.toLowerCase(),
+          name,
+          password: hashedPassword,
+          role: 'founder', // first admin is always founder
+        },
+        select: { id: true, email: true, name: true, role: true },
+      })
+    )
 
     return NextResponse.json({
       success: true,
@@ -83,7 +88,8 @@ export async function POST(req: NextRequest) {
  * Returns whether setup is needed (no admin users exist yet).
  */
 export async function GET() {
-  const adminCount = await db.adminUser.count()
+  // 🐛 FIX (admin-login-fix-phase-1-followup-2): wrap with withNeonRetry
+  const adminCount = await withNeonRetry(() => db.adminUser.count())
   return NextResponse.json({
     setupRequired: adminCount === 0,
     adminCount,

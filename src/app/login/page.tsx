@@ -78,6 +78,12 @@ function LoginForm() {
 
             if (probeRes.status === 429 && probeData.reason === 'RATE_LIMITED') {
               setError(probeData.message || 'Too many login attempts. Please try again later.')
+            } else if (probeRes.status === 503 && probeData.reason === 'DB_UNAVAILABLE') {
+              // 🐛 FIX (admin-login-fix-phase-1-followup-2): Neon cold-start
+              // — the DB is waking up. Show a friendly message instead of
+              // "Invalid credentials" so the user doesn't think their
+              // password is wrong.
+              setError(probeData.message || 'Our database is waking up. Please wait 10 seconds and try again.')
             } else if (probeData.reason === '2FA_REQUIRED') {
               // Email + password are valid — user just needs to enter TOTP.
               setShow2FA(true)
