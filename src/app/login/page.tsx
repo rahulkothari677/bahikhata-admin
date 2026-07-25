@@ -37,17 +37,65 @@ function LoginForm() {
 
     if (result?.error) {
       if (result.error === '2FA_REQUIRED') {
+        // This branch is kept for safety but NextAuth's CredentialsProvider
+        // with `redirect: false` actually wraps ALL authorize() throws into
+        // 'CredentialsSignin' — so this case is handled in the
+        // CredentialsSignin branch via the /api/admin/login-probe endpoint.
         setShow2FA(true)
         setError('Enter your 2FA code from Google Authenticator')
       } else if (result.error === 'CredentialsSignin') {
-        // 🐛 FIX (admin-login-fix-phase-1): The previous code called a
-        // /api/admin/login-debug endpoint that was DELETED in the V26 audit
-        // (security: it was an unauthenticated info-leak oracle that told
-        // attackers WHY a login failed — "wrong password" vs "email not in
-        // whitelist"). We now show a single generic message — same security
-        // posture as the rest of the codebase. The specific reason is still
-        // logged server-side in src/lib/auth.ts for admin debugging.
-        setError('Invalid email or password. Only founder emails can access.')
+        // 🐛 FIX (admin-login-fix-phase-1-followup): NextAuth wraps ALL
+        // authorize() throws into 'CredentialsSignin' when redirect:false
+        // is used. We can't tell from this single error whether:
+        //   (a) the user's password is wrong, OR
+        //   (b) the password is correct but 2FA is required (the case after
+        //       the user has just set up 2FA via /setup-2fa and is logging
+        //       in again), OR
+        //   (c) the user is rate-limited, OR
+        //   (d) the email is not in the founder whitelist, OR
+        //   (e) the user entered a wrong TOTP code (show2FA already true).
+        //
+        // Case (e) is special: if we already showed the 2FA input, the
+        // failed submit means the TOTP was wrong — we don't need to probe.
+        //
+        // For cases (a)-(d), we call /api/admin/login-probe. That endpoint
+        // does the same checks as authorize() but returns a structured
+        // reason. It ONLY reveals 2FA_REQUIRED after the user has proven
+        // they know email+password, so it can't be used to enumerate
+        // accounts.
+        if (show2FA) {
+          // Already showed 2FA input — the TOTP code was wrong.
+          setError('Invalid 2FA code. Please try again.')
+          setTotpCode('')
+        } else {
+          try {
+            const probeRes = await fetch('/api/admin/login-probe', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email, password }),
+            })
+            const probeData = await probeRes.json().catch(() => ({}))
+
+            if (probeRes.status === 429 && probeData.reason === 'RATE_LIMITED') {
+              setError(probeData.message || 'Too many login attempts. Please try again later.')
+            } else if (probeData.reason === '2FA_REQUIRED') {
+              // Email + password are valid — user just needs to enter TOTP.
+              setShow2FA(true)
+              setError('Enter your 2FA code from Google Authenticator')
+            } else if (probeData.reason === '2FA_SETUP_REQUIRED') {
+              // Edge case: 2FA somehow got disabled. Bounce to /setup-2fa —
+              // the next login attempt will issue a fresh grace session.
+              router.push('/setup-2fa')
+              return
+            } else {
+              // INVALID_CREDENTIALS or unknown — generic message.
+              setError('Invalid email or password. Only founder emails can access.')
+            }
+          } catch {
+            // Network error calling probe — fall back to generic message.
+            setError('Invalid email or password. Only founder emails can access.')
+          }
+        }
       } else {
         setError(result.error)
       }

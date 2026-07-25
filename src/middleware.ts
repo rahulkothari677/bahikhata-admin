@@ -19,7 +19,19 @@ import { getToken } from 'next-auth/jwt'
 const PUBLIC_PATHS = ['/login', '/setup', '/forgot-password', '/status']
 // 🔒 AUDIT FIX: Removed '/api/admin/login-debug' and '/api/admin/cron-debug' from bypass list
 // — these endpoints were deleted (security: login-debug was an unauthenticated info-leak oracle)
-const AUTH_PATHS = ['/api/auth', '/api/admin/setup', '/api/admin/forgot-password', '/api/status']
+//
+// 🐛 FIX (admin-login-fix-phase-1-followup): /api/admin/login-probe is a NEW, tightly-scoped
+// endpoint that lets the login page distinguish 2FA_REQUIRED from INVALID_CREDENTIALS after
+// NextAuth's CredentialsSignin wrapping. It is NOT an info-leak oracle — see the route file
+// for the security analysis. It is allowlisted here because it must be callable BEFORE the
+// user has a session.
+const AUTH_PATHS = [
+  '/api/auth',
+  '/api/admin/setup',
+  '/api/admin/forgot-password',
+  '/api/admin/login-probe',  // 🐛 FIX: post-2FA-setup login flow
+  '/api/status',
+]
 
 // 🐛 FIX (admin-login-fix-phase-1): Paths accessible to a GRACE session
 // (a session with requires2FASetup=true — i.e. user has valid email+password
