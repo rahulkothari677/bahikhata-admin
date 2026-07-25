@@ -1323,3 +1323,39 @@ model SupplierReport {
   @@index([type, status])
   @@index([partnerId, status])
 }
+
+// ==================== IMPERSONATION TOKENS ====================
+// 🐛 INTEGRATION PHASE D.3 (2026-07-25): Impersonation flow (admin app side).
+//
+// This model is a MIRROR of the same model in the main app's schema
+// (bahikhata-pro/prisma/schema.prisma). The main app OWNS the migration
+// (20260725000001_impersonation_token); this admin schema entry exists
+// only so the admin app's Prisma client has types for the table.
+//
+// DO NOT create a migration for this model in the admin repo — the main
+// app's migrate-deploy on Vercel will create the table. The admin app's
+// prisma generate will pick up the types from this schema entry.
+//
+// Flow:
+//   Admin app (creates token)  →  INSERT row with tokenHash + adminId + targetUserId + expiresAt
+//   Admin's browser (navigates)  →  GET ${MAIN_APP_URL}/api/auth/impersonate?token=<raw>
+//   Main app (validates)       →  SELECT WHERE tokenHash = sha256(token) AND usedAt IS NULL
+//   Main app (redeems)         →  UPDATE SET usedAt = now(), create session for targetUserId
+//
+// The admin app writes the row; the main app reads + updates it. Both apps
+// have independent audit trails (admin app's AdminAction + main app's
+// AuditLog) that can be correlated via the tokenHash.
+model ImpersonationToken {
+  id            String    @id @default(cuid())
+  tokenHash     String    @unique
+  adminId       String
+  adminEmail    String
+  targetUserId  String
+  expiresAt     DateTime
+  usedAt        DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([targetUserId])
+  @@index([adminId])
+  @@index([expiresAt])
+}
