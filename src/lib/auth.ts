@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs'
 import { db } from './db'
 import { isFounderEmail } from './founders'
 import { checkAdminLoginRate, resetAdminLoginRate } from './admin-rate-limit'
+import { withNeonRetry } from './resilience'
 
 /**
  * NextAuth configuration for the admin panel.
@@ -59,9 +60,17 @@ export const authOptions: NextAuthOptions = {
         }
 
         // Step 2: Find admin user in AdminUser table
-        const adminUser = await db.adminUser.findUnique({
-          where: { email },
-        })
+        // 🐛 FIX (admin-login-fix-phase-1-followup-2): Wrap with withNeonRetry
+        // so Neon free-tier cold-start doesn't surface as a raw Prisma error
+        // to the user. Neon auto-suspends after ~5 min of inactivity; the
+        // first query after suspension fails with "Can't reach database
+        // server" — withNeonRetry waits 500ms and retries once, giving
+        // Neon time to wake up.
+        const adminUser = await withNeonRetry(() =>
+          db.adminUser.findUnique({
+            where: { email },
+          })
+        )
 
         if (!adminUser || !adminUser.isActive) {
           console.warn(`[admin-auth] Admin user not found or inactive: ${email}`)
@@ -126,13 +135,16 @@ export const authOptions: NextAuthOptions = {
 
         // Step 5: Update last login info
         // 🔒 AUDIT FIX V5: Actually save the IP (was: undefined)
-        await db.adminUser.update({
-          where: { id: adminUser.id },
-          data: {
-            lastLoginAt: new Date(),
-            lastLoginIp: ip,  // 🔒 V5: save the IP we already have from line 69
-          },
-        })
+        // 🐛 FIX (admin-login-fix-phase-1-followup-2): wrap with withNeonRetry
+        await withNeonRetry(() =>
+          db.adminUser.update({
+            where: { id: adminUser.id },
+            data: {
+              lastLoginAt: new Date(),
+              lastLoginIp: ip,  // 🔒 V5: save the IP we already have from line 69
+            },
+          })
+        )
 
         // Return user object (stored in JWT)
         // 🔒 V9 2.4: Reset rate limit on successful login (Redis-backed)
