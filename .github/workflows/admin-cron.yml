@@ -15,8 +15,10 @@ on:
     - cron: '0 2 * * *'
     # 5:00 AM UTC (10:30 AM IST) — Anomaly Detection
     - cron: '0 5 * * *'
-    # 10:30 PM UTC (4:00 AM IST) — Credit Scores (heavy)
-    - cron: '30 22 * * *'
+    # 🐛 FIX (integration-phase-D.1): REMOVED '30 22 * * *' cron entry.
+    # It triggered the dead run-credit-scores job (below), which called
+    # /api/admin/data-monetization/compute — an endpoint deleted when the
+    # lending pipeline was removed for DPDP/RBI regulatory reasons.
     # 12:30 AM UTC (6:00 AM IST) — Churn Predictions (heavy)
     - cron: '30 0 * * *'
     # ===== FREQUENT JOBS =====
@@ -37,7 +39,8 @@ on:
         options:
           - daily-stats
           - anomaly-detection
-          - credit-scores
+          # 🐛 FIX (integration-phase-D.1): REMOVED 'credit-scores' option —
+          # the job was deleted (called a non-existent endpoint).
           - churn-predictions
           - fraud-rules
           - bulk-jobs
@@ -95,28 +98,12 @@ jobs:
 
   # ===== HEAVY JOBS (run once per day, need >10s) =====
 
-  run-credit-scores:
-    name: Compute Credit Scores
-    if: github.event.inputs.job == 'credit-scores' || github.event.inputs.job == 'all' || (github.event_name == 'schedule' && github.event.schedule == '30 22 * * *')
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Trigger credit score compute
-        run: |
-          echo "🔄 Triggering credit score computation..."
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            "${{ secrets.ADMIN_URL }}/api/admin/data-monetization/compute" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            -H "Content-Type: application/json")
-          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-          BODY=$(echo "$RESPONSE" | head -n -1)
-          echo "HTTP Status: $HTTP_CODE"
-          echo "Response: $BODY"
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "❌ Failed with HTTP $HTTP_CODE"
-            exit 1
-          fi
-          echo "✅ Credit scores computed successfully"
+  # 🐛 FIX (integration-phase-D.1): REMOVED run-credit-scores job.
+  # It called /api/admin/data-monetization/compute, which was deleted when
+  # the lending pipeline was removed (DPDP/RBI regulatory risk). The job
+  # was firing daily at 10:30 PM UTC, hitting a 404, and wasting GHA minutes.
+  # If credit-scoring is ever re-introduced, it should use a NEW endpoint
+  # with a NEW cron entry — do not resurrect this dead reference.
 
   run-churn-predictions:
     name: Compute Churn Predictions

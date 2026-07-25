@@ -471,25 +471,21 @@ model SupportTicket {
   @@index([assignedTo, status])
 }
 
-// ==================== FEATURE FLAG RULES ====================
-// Advanced feature flag targeting rules. Instead of just on/off,
-// you can target specific users, plans, or percentages.
-// Examples:
-//   - "Enable AI scanner for 50% of Pro users"
-//   - "Enable new dashboard for users in Maharashtra"
-//   - "Disable voice entry for users on Android < 10"
-model FeatureFlagRule {
-  id            String   @id @default(cuid())
-  flagKey       String   // references FeatureFlag.key
-  ruleType      String   // all | plan | percentage | user_list | location
-  ruleValue     String   // JSON: { plans: ["pro"], percentage: 50, userIds: [], states: [] }
-  enabled       Boolean  @default(true)
-  priority      Int      @default(0) // higher = evaluated first
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  @@index([flagKey, enabled, priority])
-}
+// 🐛 FIX (integration-phase-D.1): REMOVED `FeatureFlagRule` model.
+//
+// This model was defined in the admin schema but:
+//   1. NEVER queried by any route in either app (verified via grep)
+//   2. NOT present in the main app's schema (main app owns all migrations)
+//   3. NO migration ever created the table in the DB
+//
+// It was a ticking data-loss bomb: if the main app ever ran `prisma db push`
+// (e.g., during a hotfix), Prisma would have dropped the table. Since the
+// table never existed in the DB and the model was dead code, removing it
+// from the admin schema is safe and resolves the schema-drift risk.
+//
+// If advanced feature-flag targeting is needed in the future, it should be
+// designed properly: add the model to BOTH schemas simultaneously, with the
+// main app owning the migration. See INTEGRATION-CONTRACT.md (Phase D.6).
 
 // ==================== NPS FEEDBACK ====================
 model NpsFeedback {
