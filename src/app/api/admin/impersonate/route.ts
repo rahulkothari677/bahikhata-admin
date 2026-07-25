@@ -128,13 +128,22 @@ export async function POST(req: NextRequest) {
     })
 
     // Build the impersonation URL for the main app.
+    //
+    // 🐛 INTEGRATION PHASE D.3 FIX: The URL is at /api/impersonate (NOT
+    // /api/auth/impersonate). The /api/auth/[...nextauth] catch-all in the
+    // main app captures ALL /api/auth/* paths, so a route at
+    // /api/auth/impersonate would be intercepted by NextAuth and never
+    // reach our custom handler. Moving to /api/impersonate avoids the
+    // catch-all. The token-in-URL approach is still safe (single-use,
+    // 5-min expiry, 256-bit unguessable, HTTPS-only).
+    //
     // The URL contains ONLY the raw token — the main app looks up all
     // context (adminId, targetUserId, adminEmail) from the ImpersonationToken
     // row. This prevents an attacker who intercepts the URL from learning
     // the target user, and binds the token to the target (no replay for
     // a different user).
     const mainAppUrl = process.env.MAIN_APP_URL || 'https://bahikhata-pro.vercel.app'
-    const impersonateUrl = `${mainAppUrl}/api/auth/impersonate?token=${token}`
+    const impersonateUrl = `${mainAppUrl}/api/impersonate?token=${token}`
 
     return NextResponse.json({
       success: true,
