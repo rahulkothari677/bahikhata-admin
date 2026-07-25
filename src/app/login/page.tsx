@@ -9,6 +9,11 @@ function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const callbackUrl = searchParams.get('callbackUrl') || '/'
+  // 🐛 FIX (admin-login-fix-phase-1): Show a success banner when bounced back
+  // from /setup-2fa after a successful 2FA enrollment, OR a notice when the
+  // grace session expired.
+  const message = searchParams.get('message')
+  const graceExpired = searchParams.get('error') === 'grace_expired'
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -35,27 +40,26 @@ function LoginForm() {
         setShow2FA(true)
         setError('Enter your 2FA code from Google Authenticator')
       } else if (result.error === 'CredentialsSignin') {
-        // Try to figure out WHY it failed by calling a debug endpoint
-        try {
-          const debugRes = await fetch('/api/admin/login-debug', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password }),
-          })
-          const debugData = await debugRes.json()
-          if (debugData.reason) {
-            setError(debugData.reason)
-          } else {
-            setError('Invalid email or password. Check that your email is in the founder whitelist and your password is correct.')
-          }
-        } catch {
-          setError('Invalid email or password. Only founder emails can access.')
-        }
+        // 🐛 FIX (admin-login-fix-phase-1): The previous code called a
+        // /api/admin/login-debug endpoint that was DELETED in the V26 audit
+        // (security: it was an unauthenticated info-leak oracle that told
+        // attackers WHY a login failed — "wrong password" vs "email not in
+        // whitelist"). We now show a single generic message — same security
+        // posture as the rest of the codebase. The specific reason is still
+        // logged server-side in src/lib/auth.ts for admin debugging.
+        setError('Invalid email or password. Only founder emails can access.')
       } else {
         setError(result.error)
       }
       setLoading(false)
     } else if (result?.ok) {
+      // 🐛 FIX (admin-login-fix-phase-1): After a grace login (no 2FA set up
+      // yet), the server returns ok=true with a session that has
+      // requires2FASetup=true. We can't read that flag here from the signIn
+      // result, so we let the normal callbackUrl redirect happen — the
+      // middleware will intercept the request to /  and bounce the user to
+      // /setup-2fa. So we just push to callbackUrl and let middleware route
+      // them correctly.
       router.push(callbackUrl)
       router.refresh()
     } else {
@@ -82,6 +86,27 @@ function LoginForm() {
             🔒 Authorized personnel only. All access is logged.
           </p>
         </div>
+
+        {/* 🐛 FIX (admin-login-fix-phase-1): Success banner after 2FA enrollment */}
+        {message === '2fa_enabled' && (
+          <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 mb-4 flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-emerald-200">
+              <strong>2FA enabled!</strong> Log in again with your email, password, and the 6-digit
+              code from your authenticator app.
+            </p>
+          </div>
+        )}
+
+        {/* 🐛 FIX (admin-login-fix-phase-1): Notice when grace session expired */}
+        {graceExpired && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 mb-4 flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-200">
+              Your 2FA-setup window expired (10-minute limit). Please log in again to resume.
+            </p>
+          </div>
+        )}
 
         {/* Login form */}
         <form onSubmit={handleSubmit} className="bg-white/5 backdrop-blur border border-white/10 rounded-xl p-6 space-y-4">

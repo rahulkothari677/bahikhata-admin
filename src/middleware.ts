@@ -21,6 +21,30 @@ const PUBLIC_PATHS = ['/login', '/setup', '/forgot-password', '/status']
 // — these endpoints were deleted (security: login-debug was an unauthenticated info-leak oracle)
 const AUTH_PATHS = ['/api/auth', '/api/admin/setup', '/api/admin/forgot-password', '/api/status']
 
+// 🐛 FIX (admin-login-fix-phase-1): Paths accessible to a GRACE session
+// (a session with requires2FASetup=true — i.e. user has valid email+password
+// but hasn't set up 2FA yet). This list is intentionally tiny: the grace
+// session's ONLY purpose is to set up 2FA, then sign out and re-login.
+//
+// NOTE: /setup-2fa is NOT in PUBLIC_PATHS — it requires a session. The
+// middleware will let grace sessions through (because they're in this list),
+// bounce unauthenticated users to /login, and let already-set-up users
+// through (the page itself does a client-side redirect to / in that case).
+//
+// - /setup-2fa            → the guided 2FA-setup page (client component)
+// - /api/admin/2fa        → GET (generate secret + QR), POST (verify + enable)
+// - /api/auth/signout     → so the user can abandon the grace session
+//
+// Anything else (any admin page, any other admin API) is redirected to
+// /setup-2fa for page requests, or 403 for API requests.
+const GRACE_ALLOWED_PATHS = ['/setup-2fa', '/api/admin/2fa', '/api/auth/signout']
+
+// 10-minute wall-clock TTL for grace sessions, enforced in middleware.
+// Why middleware (not just JWT maxAge): we want normal sessions to keep
+// their 1-hour maxAge. The grace TTL is enforced separately via the
+// graceIssuedAt timestamp stamped in the JWT callback.
+const GRACE_SESSION_TTL_MS = 10 * 60 * 1000
+
 // Cron endpoints that accept CRON_SECRET as alternative to session auth
 // 🔒 AUDIT FIX: Removed '/api/admin/data-monetization/compute' — endpoint deleted
 const CRON_PATHS = [
@@ -132,6 +156,53 @@ export async function middleware(req: NextRequest) {
     const loginUrl = new URL('/login', req.url)
     loginUrl.searchParams.set('callbackUrl', pathname)
     return NextResponse.redirect(loginUrl)
+  }
+
+  // 🐛 FIX (admin-login-fix-phase-1): Grace-session gating.
+  // If requires2FASetup is true, the user has valid email+password but
+  // hasn't set up 2FA yet. Their session can ONLY access /setup-2fa,
+  // /api/admin/2fa, and /api/auth/signout. Everything else is blocked.
+  //
+  // We also enforce a 10-minute wall-clock TTL via the graceIssuedAt
+  // timestamp — after that, the user must re-authenticate. This is
+  // tighter than the 1-hour JWT maxAge (which we keep for normal
+  // sessions).
+  if (token.requires2FASetup === true) {
+    // TTL check
+    const graceIssuedAt = typeof token.graceIssuedAt === 'number' ? token.graceIssuedAt : 0
+    const ageMs = Date.now() - graceIssuedAt
+    if (ageMs > GRACE_SESSION_TTL_MS) {
+      // Grace session expired — force re-authentication.
+      const loginUrl = new URL('/login', req.url)
+      loginUrl.searchParams.set('error', 'grace_expired')
+      if (pathname.startsWith('/api/')) {
+        return NextResponse.json(
+          { error: '2FA setup grace period expired. Please log in again.' },
+          { status: 401 },
+        )
+      }
+      // For page requests, sign-out is handled client-side via the /setup-2fa
+      // page's expired banner. A simple redirect to /login is enough here.
+      return NextResponse.redirect(loginUrl)
+    }
+
+    // Path allowlist check
+    const isGraceAllowed = GRACE_ALLOWED_PATHS.some(p => pathname === p || pathname.startsWith(p + '/') || pathname.startsWith(p))
+    if (!isGraceAllowed) {
+      if (pathname.startsWith('/api/')) {
+        return NextResponse.json(
+          { error: '2FA setup required', message: 'You must set up 2FA before accessing this resource.' },
+          { status: 403 },
+        )
+      }
+      const setupUrl = new URL('/setup-2fa', req.url)
+      return NextResponse.redirect(setupUrl)
+    }
+
+    // Grace session on an allowed path — let it through, skip the role/CSRF
+    // checks below (they're irrelevant during 2FA setup; the /api/admin/2fa
+    // endpoint does its own session verification).
+    return res
   }
 
   // 🔒 V26 A2 FIX: Role hierarchy enforcement.
