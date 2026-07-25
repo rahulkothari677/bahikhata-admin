@@ -75,16 +75,41 @@ export const authOptions: NextAuthOptions = {
           return null
         }
 
-        // Step 4: Verify 2FA — MANDATORY for all admin users.
-        // 🔒 V9 2.4 (auditor): Was: only checked IF totpEnabled. Now: mandatory.
-        // If 2FA is not set up yet, reject login with a clear message.
+        // Step 4: 2FA verification — MANDATORY for all admin users.
+        //
+        // 🔒 V9 2.4 (auditor): 2FA is mandatory for every admin account.
+        //
+        // 🐛 FIX (admin-login-fix-phase-1): The original V9 Phase B enforcement
+        // rejected login outright when 2FA wasn't set up yet — creating a
+        // chicken-and-egg lockout (user can't log in to set up 2FA, can't set
+        // up 2FA without logging in). The proper pattern (used by Google,
+        // GitHub, etc. when enforcing 2FA org-wide) is a GRACE LOGIN: a
+        // restricted session whose ONLY capability is to set up 2FA.
+        //
+        // Two branches below:
+        //   (A) 2FA NOT yet set up → issue a 10-minute grace session with
+        //       `requires2FASetup: true`. Middleware gates this session to
+        //       /setup-2fa + /api/admin/2fa + /api/auth/signout only.
+        //   (B) 2FA already set up → require a valid TOTP code (unchanged).
         if (!adminUser.totpEnabled || !adminUser.totpSecret) {
-          console.error(`[admin-auth] 2FA not set up for: ${email} — login rejected`)
-          throw new Error('2FA_SETUP_REQUIRED: You must set up 2FA before logging in. Contact the founder to reset your account.')
+          // Branch A — Grace login for first-time 2FA setup.
+          // Email + password + rate-limit have ALL already been verified above,
+          // so the user is who they claim to be. We just refuse to let them
+          // DO anything until 2FA is configured.
+          console.warn(`[admin-auth] Grace login issued for ${email} — 2FA setup required`)
+          await resetAdminLoginRate(email, ip)
+          return {
+            id: adminUser.id,
+            email: adminUser.email,
+            name: adminUser.name,
+            role: adminUser.role,
+            requires2FASetup: true,
+          } as any
         }
 
+        // Branch B — 2FA already configured; require a valid TOTP code.
         if (!credentials.totpCode) {
-          // Return a special error that tells the frontend to show 2FA input
+          // Tell the frontend to show the 2FA input.
           throw new Error('2FA_REQUIRED')
         }
 
@@ -137,6 +162,17 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = (user as any).id as string
         token.role = (user as any).role as string
+        // 🐛 FIX (admin-login-fix-phase-1): Propagate grace-session flag.
+        // If true, middleware will gate this session to /setup-2fa + /api/admin/2fa
+        // only, with a 10-minute TTL enforced by the short maxAge below.
+        const requires2FASetup = (user as any).requires2FASetup === true
+        token.requires2FASetup = requires2FASetup
+        // Stamp the grace-session issue time so middleware can enforce a
+        // 10-minute wall clock (independent of the JWT maxAge, which we keep
+        // at 1 hour for normal sessions).
+        if (requires2FASetup) {
+          token.graceIssuedAt = Date.now()
+        }
       }
       return token
     },
@@ -144,6 +180,7 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         (session.user as any).id = token.id as string
         (session.user as any).role = token.role as string
+        ;(session.user as any).requires2FASetup = token.requires2FASetup === true
       }
       return session
     },

@@ -8,6 +8,15 @@ import { logAdminAction } from '@/lib/audit'
 /**
  * GET /api/admin/2fa
  * Returns 2FA status + generates a new secret + QR code if not enabled.
+ *
+ * 🐛 FIX (admin-login-fix-phase-1): This endpoint is now ALSO the entry point
+ * for the grace-session 2FA-setup flow. When a user logs in with valid
+ * email+password but hasn't set up 2FA yet, they get a grace session
+ * (requires2FASetup=true) that can ONLY access /setup-2fa + this endpoint
+ * + /api/auth/signout (enforced in middleware.ts). The session.user.id is
+ * present in both grace and normal sessions, so no code changes were needed
+ * here — the existing logic "if not enabled, generate a new secret" already
+ * does the right thing for grace sessions.
  */
 export async function GET() {
   try {
