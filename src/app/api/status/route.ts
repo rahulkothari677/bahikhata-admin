@@ -21,8 +21,44 @@ import { withTimeout, checkDbHealth } from '@/lib/resilience'
 // Disable auth middleware for this route (already handled in middleware.ts PUBLIC_PATHS)
 export const dynamic = 'force-dynamic'
 
+type ServiceStatus = 'operational' | 'degraded' | 'down' | 'unknown'
+
+/**
+ * Derives a service's status from activity it left in the shared database,
+ * rather than from whether a credential happens to be present in this app's
+ * environment.
+ *
+ * Returns `unknown` when there is no recent activity to judge by. That is the
+ * honest answer for a pre-launch or quiet period, and — critically — `unknown`
+ * must NOT be reported as an outage on a public status page.
+ */
+async function evaluateFromRecentActivity(opts: {
+  lookbackMinutes: number
+  countRecent: () => Promise<number>
+  countRecentFailures: () => Promise<number>
+}): Promise<{ status: ServiceStatus }> {
+  try {
+    const [recent, failures] = await Promise.all([
+      withTimeout(opts.countRecent(), 4000),
+      withTimeout(opts.countRecentFailures(), 4000),
+    ])
+    if (recent === 0) return { status: 'unknown' }
+    const failureRate = failures / recent
+    if (failureRate >= 0.5) return { status: 'down' }
+    if (failureRate >= 0.1) return { status: 'degraded' }
+    return { status: 'operational' }
+  } catch {
+    // We could not determine health. Say so — do not claim an outage, and do
+    // not claim everything is fine.
+    return { status: 'unknown' }
+  }
+}
+
 export async function GET() {
   const startTime = Date.now()
+  const now = Date.now()
+  const oneHourAgo = new Date(now - 60 * 60 * 1000)
+  const oneDayAgo = new Date(now - 24 * 60 * 60 * 1000)
 
   try {
     // ============ SERVICE HEALTH CHECKS ============
@@ -38,19 +74,45 @@ export async function GET() {
     const apiHealthy = true
     const apiResponseTime = Date.now() - startTime
 
-    // AI providers — check if any provider env var is set (lightweight check, no actual API call)
-    const aiProvidersConfigured = !!(
-      process.env.GEMINI_API_KEY ||
-      process.env.OPENAI_API_KEY ||
-      process.env.GROQ_API_KEY
-    )
-    // For public status, we say "operational" if configured, "degraded" if not
-    const aiHealthy = aiProvidersConfigured
-    const aiResponseTime = 0 // no actual call made
+    // ─── AI providers ────────────────────────────────────────────────────
+    // 🐛 FIX (audit 2026-07-26): this used to be
+    //     const aiProvidersConfigured = !!(process.env.GEMINI_API_KEY || ...)
+    // i.e. it checked whether the AI keys were present in THIS app's
+    // environment. Those keys belong to the MAIN app and are deliberately
+    // not here (blast-radius isolation — that's the whole point of the two
+    // Vercel accounts). So the check could never pass, and this PUBLIC status
+    // page — described in the header as being for "investors, users, and
+    // monitoring tools" — permanently reported AI and Payments as degraded.
+    //
+    // A health check must report OBSERVED health. The admin app cannot observe
+    // the AI providers directly, but it CAN see whether recent calls succeeded,
+    // because every call writes an AiUsageLog row into the shared database.
+    // No recent activity is not an outage — it reports `unknown`, which does
+    // not drag `overall` down.
+    const aiHealth = await evaluateFromRecentActivity({
+      lookbackMinutes: 60,
+      countRecent: () =>
+        db.aiUsageLog.count({ where: { createdAt: { gte: oneHourAgo } } }),
+      countRecentFailures: () =>
+        db.aiUsageLog.count({
+          where: { createdAt: { gte: oneHourAgo }, success: false },
+        }),
+    })
+    const aiStatus = aiHealth.status
+    const aiResponseTime = 0 // no synthetic call is made against the provider
 
-    // Payments — check if Razorpay key is set
-    const paymentsConfigured = !!(process.env.RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_SECRET)
-    const paymentsHealthy = paymentsConfigured
+    // ─── Payments ────────────────────────────────────────────────────────
+    // 🐛 FIX (audit 2026-07-26): same defect as AI above — this checked for
+    // RAZORPAY_KEY_ID in the admin app's env, where it has never existed.
+    // Evidence the admin app CAN see: subscriptions created recently. A
+    // subscription row only appears after Razorpay confirmed a payment.
+    const paymentsHealth = await evaluateFromRecentActivity({
+      lookbackMinutes: 24 * 60, // payments are lower-volume than AI calls
+      countRecent: () =>
+        db.subscription.count({ where: { createdAt: { gte: oneDayAgo } } }),
+      countRecentFailures: async () => 0, // no failed-payment table to read
+    })
+    const paymentsStatus = paymentsHealth.status
     const paymentsResponseTime = 0
 
     const services = {
@@ -65,12 +127,12 @@ export async function GET() {
         label: 'Database',
       },
       ai_providers: {
-        status: aiHealthy ? 'operational' : 'degraded',
+        status: aiStatus,
         responseTimeMs: aiResponseTime,
         label: 'AI Providers (Gemini/OpenAI/Groq)',
       },
       payments: {
-        status: paymentsHealthy ? 'operational' : 'degraded',
+        status: paymentsStatus,
         responseTimeMs: paymentsResponseTime,
         label: 'Payment Gateway (Razorpay)',
       },
