@@ -12,99 +12,146 @@ datasource db {
 }
 
 // ==================== USERS (Authentication) ====================
+// 🐛 INTEGRATION PHASE D.5 (2026-07-25): SCHEMA ALIGNMENT.
+//
+// This schema is a MIRROR of the main app's schema (bahikhata-pro/prisma/schema.prisma)
+// for DOMAIN models (User, Product, Transaction, etc.). The main app OWNS all
+// migrations — this admin schema exists ONLY so the admin app's Prisma client
+// has correct types for the shared tables.
+//
+// DO NOT run `prisma db push` from this repo. The main app's migrate-deploy on
+// Vercel creates/alters all tables.
+//
+// Phase D.5 aligned the DOMAIN models with the main app (they had drifted —
+// missing fields from paise migration, soft deletes, e-invoicing, bank recon,
+// document vault, etc.). The admin app's Prisma client now has correct types
+// for all domain tables.
+//
+// ADMIN-INTELLIGENCE models (WebhookEndpoint, Competitor, Experiment, etc.)
+// keep the ADMIN app's version because they have relations (deliveries, updates,
+// assignments) that the admin app's code uses but the main app's schema doesn't
+// define (the main app never queries these tables). This is a known design
+// asymmetry — if you add a field to an admin-intelligence model, add it to BOTH
+// schemas + create a migration in the main app.
+//
+// See: download/Integration-Plan-BahiKhata-Pro-Admin.md (Phase D.5)
+
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
   name          String?
-  password      String    // hashed with bcrypt
-  phone         String?   // for future phone OTP
+  password      String // hashed with bcrypt
+  phone         String? // for future phone OTP
   emailVerified DateTime? // for future email verification
-  image         String?   // profile picture URL
+  image         String? // profile picture URL
   role          String    @default("owner") // owner | staff
-  ownerId       String?   // if staff, links to the owner's account
+  ownerId       String? // if staff, links to the owner's account
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   // Staff permissions — JSON object controlling which modules staff can access.
-  permissions   Json?
+  permissions Json?
 
   // Subscription / plan
-  cancelledAt   DateTime?
-  plan          String    @default("free") // free | pro | elite
-  renewsAt      DateTime?
-  trialEndsAt   DateTime?
+  cancelledAt DateTime?
+  plan        String    @default("free") // free | pro | elite
+  renewsAt    DateTime?
+  trialEndsAt DateTime?
 
-  // 🐛 INTEGRATION PHASE D.4 (2026-07-25): tokenVersion for JWT revocation.
-  // The main app's NextAuth uses this to revoke sessions (password reset,
-  // logout-all, plan changes). When the admin app changes a user's plan
-  // or bans them, we bump tokenVersion so the user's existing JWT is
-  // invalidated on the next request (within ~5 seconds via Redis cache).
-  // Without this bump, a user whose plan was changed would keep their old
-  // plan's features for up to 7 days (JWT maxAge).
-  //
-  // This field is owned by the main app (migration 20260704000001_add_token_version).
-  // The admin app's prisma generate picks up the type from this schema entry.
-  tokenVersion  Int       @default(0)
+  // 🔒 SECURITY (Audit fix Phase 3.3): tokenVersion for JWT revocation.
+  // Incrementing this invalidates ALL existing JWTs for this user (logout all
+  // devices, force re-login after password change, kill stolen sessions).
+  // The JWT callback in auth.ts compares the token's tokenVersion claim
+  // against this DB value on every request — if they differ, the session
+  // is treated as invalid.
+  tokenVersion Int @default(0)
 
   // Relations
-  products      Product[]
-  parties       Party[]
-  transactions  Transaction[]
-  payments      Payment[]
-  settings      Setting[]
-  auditLogs     AuditLog[]
-  referralsMade Referral[] @relation("Referral_referrerIdToUser")
-  referralReceived Referral? @relation("Referral_referredIdToUser")
-  subscriptions Subscription[]
-  usageTracking  UsageTracking[]
-  shops         Shop[]
-  scanComparisons ScanComparison[]
-  aiUsageLogs    AiUsageLog[]
-  supportTickets SupportTicket[]
-  npsFeedback   NpsFeedback[]
-}
+  products         Product[]
+  parties          Party[]
+  transactions     Transaction[]
+  payments         Payment[]
+  settings         Setting[]
+  auditLogs        AuditLog[]
+  fieldChangeLogs  FieldChangeLog[]
+  gstReturns       GstReturn[]
+  gstr1Snapshots   Gstr1Snapshot[]
+  gstr2bImports    Gstr2bImport[]
+  bankStatements   BankStatement[]
+  bankTransactions BankTransaction[]
+  referralsMade    Referral[]       @relation("Referral_referrerIdToUser")
+  referralReceived Referral?        @relation("Referral_referredIdToUser")
+  subscriptions    Subscription[]
+  usageTracking    UsageTracking[]
+  shops            Shop[]
+  scanComparisons  ScanComparison[]
+  aiUsageLogs      AiUsageLog[]
+  supportTickets   SupportTicket[]
+  npsFeedback      NpsFeedback[]
+  invoiceCounter   InvoiceCounter?
+  // 🔒 V13 L4: Back-relation for createdByUserId on Transaction
+  transactionsCreated Transaction[] @relation("TransactionCreatedBy")
+  // 🔒 V22-14 (Batch D, Phase 7g): Document Vault
+  documents        Document[]
 
-// ==================== SHOPS (Multi-shop support) ====================
-// Each owner can have multiple shops. Products, transactions, parties
-// can be tagged with a shopId. When null, shows in all shops (backward compatible).
+  @@index([plan])
+  @@index([createdAt])
+  @@index([updatedAt])
+}
 model Shop {
-  id          String   @id @default(cuid())
-  userId      String   // owner of this shop
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name        String   // e.g. "Sharma Kirana Store"
-  gstin       String?
-  address     String?
-  phone       String?
-  state       String?
-  isDefault   Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  userId    String // owner of this shop
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String // e.g. "Sharma Kirana Store"
+  gstin     String?
+  address   String?
+  phone     String?
+  state     String?
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
 }
-
-// ==================== PRODUCTS / INVENTORY ====================
 model Product {
   id                String   @id @default(cuid())
-  userId            String   // owner of this product
+  userId            String // owner of this product
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  shopId            String?  // multi-shop: null = all shops (backward compatible)
+  shopId            String? // multi-shop: null = all shops (backward compatible)
   name              String
   sku               String?
-  hsn               String?  // HSN/SAC code for GST
+  hsn               String? // HSN/SAC code for GST
   category          String?
   unit              String   @default("pcs") // pcs, kg, ltr, m, box
-  purchasePrice     Float    @default(0)  // price at which shop owner buys
-  salePrice         Float    @default(0)  // price at which shop owner sells
-  mrp               Float?   // MRP printed on product
-  gstRate           Float    @default(0)  // 0, 5, 12, 18, 28
+  purchasePrice     Int    @default(0) // price at which shop owner buys
+  salePrice         Int    @default(0) // price at which shop owner sells
+  mrp               Int? // MRP printed on product
+  gstRate           Float    @default(0) // 0, 5, 12, 18, 28
+  // 🔒 V12: When true, salePrice/mrp are INCLUSIVE of GST (the Indian retail
+  // norm — MRP is legally GST-inclusive). The sale flow then back-calculates
+  // taxable value = price × 100/(100+rate) instead of adding GST on top.
+  // Default false = old behaviour (price is taxable value, GST added on top).
+  priceIncludesGst  Boolean  @default(false)
   openingStock      Float    @default(0)
+  // 🔒 AUDIT FIX H1: Authoritative stock count, maintained transactionally.
+  // Was: stock computed at read time (openingStock + purchases - sales) — no
+  // guard against overselling, no concurrency control.
+  // Now: currentStock is the cached running balance, updated atomically inside
+  // the same $transaction as the sale/purchase. On sale: decrement. On purchase:
+  // increment. The dashboard reads this directly (no JS recompute).
+  currentStock      Float    @default(0)
   lowStockThreshold Float    @default(5)
   notes             String?
+  // 🔒 V17 Audit §4.2: GST treatment — distinguishes nil-rated (0% GST but
+  // taxable supply), exempt (no GST, not taxable), non-GST (outside GST scope),
+  // and taxable (default). Used by GSTR-3B 3.1(c) to properly break out
+  // nil-rated vs exempt vs non-GST outward supplies. Before this, exemptValue
+  // was hardcoded to 0 because there was no way to mark a product as exempt.
+  gstTreatment      String   @default("taxable") // taxable | nil | exempt | nonGst
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  transactionItems  TransactionItem[]
+  transactionItems TransactionItem[]
 
   // Unique SKU per user (not globally)
   @@unique([userId, sku])
@@ -113,121 +160,293 @@ model Product {
   @@index([userId, category])
   @@index([userId, shopId])
 }
-
-// ==================== PARTIES (Customers & Suppliers) ====================
 model Party {
+  id             String    @id @default(cuid())
+  userId         String // owner of this party
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shopId         String? // multi-shop: null = all shops (backward compatible)
+  name           String
+  type           String    @default("customer") // customer | supplier | both
+  phone          String?
+  email          String?
+  gstin          String? // GST Identification Number
+  address        String?
+  state          String? // for intra/inter state GST
+  openingBalance Int     @default(0) // positive = they owe us; negative = we owe them
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  // 🔒 AUDIT FIX M7: Soft delete (same as Transaction)
+  deletedAt      DateTime?
+
+  transactions Transaction[]
+  payments     Payment[]
+
+  // 🔒 V11 §2.2: Indexes — was ZERO indexes, caused full-table scans on every
+  // Parties page load and every dashboard load (the receivable/payable query
+  // joins Party to Transaction with WHERE p."userId" = ...). At scale this
+  // gets linearly slower as the Party table grows across all tenants.
+  // Now: two composite indexes matching the actual query patterns.
+  @@index([userId, deletedAt]) // list page + join filter (most common query)
+  @@index([userId, name]) // list page orders by name
+  // V17-Ext Tier 3: GSTIN lookup for GSTR-2B reconciliation (fast supplier matching)
+  @@index([userId, gstin])
+}
+model Transaction {
   id              String   @id @default(cuid())
-  userId          String   // owner of this party
+  userId          String // owner of this transaction
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  shopId          String?  // multi-shop: null = all shops (backward compatible)
-  name            String
-  type            String   @default("customer") // customer | supplier | both
-  phone           String?
-  email           String?
-  gstin           String?  // GST Identification Number
-  address         String?
-  state           String?  // for intra/inter state GST
-  openingBalance  Float    @default(0) // positive = they owe us; negative = we owe them
+  shopId          String? // multi-shop: null = all shops (backward compatible)
+  invoiceNo       String? // bill/invoice number from bill (user-provided OR auto-generated)
+  // 🔒 AUDIT FIX M6: Sequential invoice number per user (GST compliance).
+  // Auto-generated when the user doesn't provide one. Unique per user so
+  // no two transactions share the same invoice number.
+  invoiceSequence Int? // auto-incremented per user (1, 2, 3, ...)
+  type            String // sale | purchase | income | expense
+  partyId         String? // customer for sale, supplier for purchase
+  party           Party?   @relation(fields: [partyId], references: [id])
+  date            DateTime @default(now())
+  subtotal        Int    @default(0) // before tax & discount
+  discountAmount  Int    @default(0)
+  cgst            Int    @default(0)
+  sgst            Int    @default(0)
+  igst            Int    @default(0)
+  totalAmount     Int    @default(0) // final payable (after round-off)
+  // 🔒 V12: Invoice round-off. Indian invoices customarily round the grand
+  // total to the nearest rupee with an explicit "Round off" line. This stores
+  // the adjustment (e.g. -0.40 or +0.30) so totalAmount == taxable + tax + roundOff
+  // and the printed invoice can show it. 0 when round-off is disabled.
+  roundOff        Int    @default(0)
+  paidAmount      Int    @default(0) // amount actually paid
+  paymentMode     String   @default("cash") // cash | upi | card | bank | credit
+  isInterState    Boolean  @default(false)
+  // V17-Ext Tier 3: Reverse Charge Mechanism (RCM). When true on a purchase,
+  // the buyer (shopkeeper) pays GST directly to the government instead of the
+  // supplier charging it. Common for: GTA (transport), legal services,
+  // unregistered purchases. Affects GSTR-3B sections 3.1(d) + 4(b).
+  isReverseCharge Boolean  @default(false)
+  notes           String?
+  // For income/expense (no items)
+  category        String? // e.g. rent, salary, electricity for expenses; commission etc for income
+  // Payee info for income/expense (who you paid or received from)
+  payeeName       String? // name of person you paid / received from
+  payeePhone      String? // mobile number of payee
+  // 🔒 V13 L4: Staff accountability — records which user (owner or staff)
+  // created this transaction. Null for transactions created before this
+  // field was added. Used for audit trail and fraud investigation in
+  // multi-user shops. Set automatically from the session in POST handler.
+  createdByUserId String?
+  createdBy       User?    @relation("TransactionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  transactions    Transaction[]
-  payments        Payment[]
-}
+  // 🔒 IDEMPOTENCY (Audit fix N1): client-generated UUID to prevent duplicate
+  // transactions from offline sync replays. When the offline queue replays a
+  // mutation that already went through, the server sees the same
+  // clientMutationId and returns the existing transaction instead of creating
+  // a duplicate. Same pattern as payment idempotency (Phase 1.4).
+  clientMutationId String? @unique
 
-// ==================== TRANSACTIONS (Sales, Purchases, Income, Expense) ====================
-model Transaction {
-  id             String   @id @default(cuid())
-  userId         String   // owner of this transaction
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  shopId         String?  // multi-shop: null = all shops (backward compatible)
-  invoiceNo      String?  // bill/invoice number from bill
-  type           String   // sale | purchase | income | expense
-  partyId        String?  // customer for sale, supplier for purchase
-  party          Party?   @relation(fields: [partyId], references: [id])
-  date           DateTime @default(now())
-  subtotal       Float    @default(0)  // before tax & discount
-  discountAmount Float    @default(0)
-  cgst           Float    @default(0)
-  sgst           Float    @default(0)
-  igst           Float    @default(0)
-  totalAmount    Float    @default(0)  // final payable
-  paidAmount     Float    @default(0)  // amount actually paid
-  paymentMode    String   @default("cash") // cash | upi | card | bank | credit
-  isInterState   Boolean  @default(false)
-  notes          String?
-  // For income/expense (no items)
-  category       String?  // e.g. rent, salary, electricity for expenses; commission etc for income
-  // Payee info for income/expense (who you paid or received from)
-  payeeName      String?  // name of person you paid / received from
-  payeePhone     String?  // mobile number of payee
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  items          TransactionItem[]
+  items TransactionItem[]
 
   // Auto-computed gross profit when type=sale
-  grossProfit    Float    @default(0)
+  grossProfit Int @default(0)
 
+  // 🔒 AUDIT FIX M7: Soft delete for ledger integrity. Was: hard DELETE
+  // (permanent, no audit trail). Now: set deletedAt = now() instead of
+  // deleting the row. Queries filter WHERE deletedAt IS NULL. This preserves
+  // the audit trail (required for GST/tax disputes) and allows "undo delete".
+  deletedAt DateTime?
+
+  // V17-Ext Tier 3: Credit/Debit Notes — link to original invoice
+  originalTransactionId String?
+  originalTransaction   Transaction?  @relation("TransactionReversal", fields: [originalTransactionId], references: [id], onDelete: SetNull)
+  reversalTransactions  Transaction[] @relation("TransactionReversal")
+  // 🔒 V17 Audit Phase 6: Bank reconciliation — matched bank transactions
+  matchedBankTransactions BankTransaction[] @relation("BankReconMatch")
+  noteType              String?       // 'C' (credit) or 'D' (debit) — only for credit-note/debit-note types
+  noteReason            String?       // GST reason: 'post-sale-discount' | 'deficiency' | 'return' | 'price-revision' | 'other'
+  affectsStock          Boolean       @default(false) // true only when goods are physically returned
+
+  // 🔒 V17 Audit Phase 5: e-Invoicing (IRN/QR) + e-Way Bill fields
+  // IRN = Invoice Reference Number (64-char hash, issued by NIC portal)
+  // signedQR = Signed QR code string (returned by NIC, contains invoice summary)
+  // ewayBillNo = e-Way Bill number (for inter-state movement of goods > ₹50,000)
+  // ewayBillExpiry = e-Way Bill expiry date (valid for ~3 days for <100km, 1 day per 200km)
+  // ewayBillDate = e-Way Bill generation date
+  // irnStatus = 'pending' | 'generated' | 'cancelled' (tracks IRN lifecycle)
+  // irnGeneratedAt = when the IRN was generated (for audit)
+  irn                   String?       // 64-char alphanumeric IRN from NIC
+  signedQR              String?       // signed QR code string from NIC
+  irnStatus             String?       // pending | generated | cancelled
+  irnGeneratedAt        DateTime?
+  ewayBillNo            String?       // 12-digit e-Way Bill number
+  ewayBillExpiry        DateTime?
+  ewayBillDate          DateTime?
+
+  // 🔒 V26 F1 FIX: Estimate conversion tracking. When an estimate is converted
+  // to a sale, this field stores the sale's transaction ID. Prevents unlimited
+  // re-conversion (double billing, double stock decrement). Null = not converted.
+  convertedToTransactionId String?
+  convertedAt              DateTime?
+
+  // 🔒 M6: Unique invoice number per user (GST compliance — no duplicates)
+  @@unique([userId, invoiceNo])
   // Performance: list transactions per user filtered by date and/or type
   // Used by: dashboard, ledger (sales/purchases), reports
   @@index([userId, date])
   @@index([userId, type, date])
   @@index([userId, partyId])
+  @@index([originalTransactionId])
 }
-
 model TransactionItem {
-  id             String   @id @default(cuid())
-  transactionId  String
-  transaction    Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  productId      String?
-  product        Product?  @relation(fields: [productId], references: [id])
-  productName    String   // snapshot of name at time of transaction
-  quantity       Float    @default(1)
-  unitPrice      Float    @default(0)  // price per unit (sale or purchase)
-  gstRate        Float    @default(0)
-  discountAmount Float    @default(0)
-  total          Float    @default(0)  // qty * unitPrice - discount + gst
+  id                  String      @id @default(cuid())
+  transactionId       String
+  transaction         Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  productId           String?
+  product             Product?    @relation(fields: [productId], references: [id])
+  productName         String // snapshot of name at time of transaction
+  quantity            Float       @default(1)
+  // 🔒 V12: Snapshot of the unit at time of transaction (kg, gm, ltr, pcs, ...).
+  // Was: unit was dropped on save — every historical line was ambiguous
+  // ("500 of Tomato" — grams? kilos?). For product-linked lines the server
+  // normalizes (quantity, unit) into the product's unit before saving, so
+  // quantity × unitPrice is always internally consistent.
+  unit                String      @default("pcs")
+  unitPrice           Int       @default(0) // price per `unit` (sale or purchase)
+  // 🔒 AUDIT FIX M4: Snapshot of purchasePrice at time of sale (COGS).
+  // Was: profit calculated from the product's CURRENT purchasePrice —
+  // changing it later distorted historical profit. Now: the purchase price
+  // is snapshotted here at sale time, so historical profit is immutable.
+  purchasePriceAtSale Int       @default(0) // cost at time of sale (for profit calc)
+  gstRate             Float       @default(0)
+  discountAmount      Int       @default(0) // 🔒 V10 §2.1: per-item discount (proportional share of order-level discount)
+  // 🔒 V10 §2.2: per-item GST components — SINGLE SOURCE OF TRUTH for GST.
+  // Was: only Transaction header stored cgst/sgst/igst; reports/GSTR recomputed
+  // in SQL using a different rounding path → drift between stored and report.
+  // Now: every code path (POST, PUT, reports, GSTR, dashboard, invoice PDF)
+  // aggregates these stored per-item values. The GST on a transaction is the
+  // sum of these three columns across all its items — never recomputed.
+  cgst                Int       @default(0)
+  sgst                Int       @default(0)
+  igst                Int       @default(0)
+  // 🔒 V17 Audit Phase 3 (GSTR-1): CESS amount (rare for kirana but portal requires the field).
+  csamt               Int       @default(0)
+  // 🔒 V17 Audit Phase 3 (GSTR-1): HSN snapshot at time of transaction.
+  // Was: only Product.hsn existed. But HSN can change when the user edits the product,
+  // and historical GSTR-1 returns must show the HSN that was in effect at sale time.
+  // Now: snapshot at write time (like purchasePriceAtSale). Backfilled from Product.hsn.
+  hsn                 String?
+  total               Int       @default(0) // taxable + cgst + sgst + igst + csamt
 
-  createdAt      DateTime @default(now())
+  // 🔒 V17 Audit Phase 10: Snapshot of the user's ORIGINAL entered quantity + unit
+  // (before normalization). The stored `quantity`/`unit` are the NORMALIZED values
+  // (e.g., 500ml → 0.5ltr). This snapshot preserves what the user actually typed
+  // so credit notes can load the original intent (500ml, not 0.5ltr).
+  enteredQuantity   Float?    // original quantity as entered by the user
+  enteredUnit       String?   // original unit as entered by the user (ml, gm, etc.)
+
+  createdAt DateTime @default(now())
+
+  // ⚡ PERFORMANCE (Audit fix Phase 5): Indexes on foreign keys.
+  // Without these, every `include: { items: true }` on Transaction does a
+  // FULL TABLE SCAN on TransactionItem. With the index, it's an instant
+  // index lookup. This is the #1 missing index in the schema.
+  @@index([transactionId])
+  @@index([productId])
 }
-
-// ==================== PAYMENTS (separate from transaction totals) ====================
 model Payment {
-  id          String   @id @default(cuid())
-  userId      String   // owner of this payment
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  partyId     String
-  party       Party    @relation(fields: [partyId], references: [id])
-  amount      Float
-  date        DateTime @default(now())
-  mode        String   @default("cash") // cash | upi | card | bank
-  type        String   @default("received") // received (from customer) | paid (to supplier)
-  notes       String?
-  createdAt   DateTime @default(now())
-}
-
-// ==================== APP SETTINGS (per user) ====================
-model Setting {
   id        String   @id @default(cuid())
-  userId    String   @unique // one setting per user
+  userId    String // owner of this payment
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  shopName  String   @default("My Shop")
-  ownerName String?
-  address   String?
-  phone     String?
-  gstin     String?
-  state     String?
-  email     String?
-  currency  String   @default("INR")
-  language  String   @default("en")
+  partyId   String
+  party     Party    @relation(fields: [partyId], references: [id])
+  amount    Int
+  date      DateTime @default(now())
+  mode      String   @default("cash") // cash | upi | card | bank
+  type      String   @default("received") // received (from customer) | paid (to supplier)
+  notes     String?
+  createdAt DateTime @default(now())
+  // 🔒 V15 M-3: Soft-delete so deleted receipts stay auditable (disputes / fraud).
+  // Hard-deleting a payment silently changes historical balances — exactly the
+  // kind of action that should leave an audit trail in a ledger app.
+  deletedAt DateTime?
+  // 🔒 V19-007: Idempotency — prevents duplicate payments from offline sync replays.
+  // Same pattern as Transaction.clientMutationId.
+  clientMutationId String? @unique
+
+  // 🔒 V17 Audit Phase 6: Bank reconciliation — matched bank transactions
+  bankTransactions BankTransaction[]
+
+  // ⚡ PERFORMANCE (Audit fix Phase 5): Indexes on foreign keys + hot query
+  // patterns. Without these, every payment query does a full table scan.
+  @@index([userId, date])
+  @@index([partyId, date])
+  // 🔒 V15 M-3: Partial index for the common "active payments for this party"
+  // query — smaller + faster than a full index because it excludes deleted rows.
+  @@index([userId, partyId, deletedAt])
+}
+model Setting {
+  id              String  @id @default(cuid())
+  userId          String  @unique // one setting per user
+  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shopName        String  @default("My Shop")
+  ownerName       String?
+  address         String?
+  phone           String?
+  gstin           String?
+  state           String?
+  email           String?
+  currency        String  @default("INR")
+  language        String  @default("en")
   // Privacy: when true, profit figures are hidden from all UI (dashboard,
   // ledger, transaction detail). Data is still calculated and stored —
   // only the display is hidden. Owner controls this; staff inherits.
-  hideProfit Boolean @default(false)
+  hideProfit      Boolean @default(false)
+  // 🔒 V12: When true, the sale grand total is rounded to the nearest rupee
+  // (Indian invoice norm) and the adjustment is stored in Transaction.roundOff.
+  roundOffEnabled Boolean @default(false)
+  // AI Bill Scanner output language: 'original' (keep bill language) | 'en' | 'hi' | 'ta' | 'gu' | 'mr' | 'bn' | 'te' | 'kn' | 'ml' | 'pa'
+  scanLang        String  @default("original")
+  // AI Voice Entry language: 'original' (keep spoken language, don't translate) | 'en' | 'hi' | 'ta' | 'gu' | 'mr' | 'bn' | 'te' | 'kn' | 'ml' | 'pa'
+  // Controls BOTH the speech-recognition locale (e.g. mr-IN) AND the parsed
+  // output language. 'original' listens in hi-IN (default) and keeps the
+  // spoken language in the parsed result (no English translation).
+  voiceLang       String  @default("original")
+  // 🔒 V11 STOCK POLICY: Controls whether sales can push stock below 0.
+  //   'block' (default) — sale is REJECTED if it would push stock negative.
+  //                       The user must record a purchase first or toggle to 'allow'.
+  //   'allow'            — sale goes through with a warning (kirana workflow:
+  //                       sell first, record purchase later). The warning shows
+  //                       in the UI but does NOT block.
+  // This field is per-shop (lives on Setting, one per user). The user can
+  // toggle it in Settings → "Allow overselling (kirana mode)".
+  stockPolicy     String  @default("block")
+  // V17-Ext 5.4: Shopkeeper's UPI VPA for udhaar collection links.
+  // Used to generate upi://pay?pa=... deep-links in WhatsApp reminders.
+  // null = no UPI ID configured (the reminder sends without a pay link).
+  upiId           String?
+  // 🔒 V17-Ext §5.1: Period lock (financial-year lock). When set, NO writes
+  // (create/edit/delete/restore) are allowed to transactions or payments dated
+  // on or before this date. Protects filed GST returns from silent alteration.
+  // null = no lock (the default — every shop starts unlocked).
+  lockedUntil      DateTime?
+  // 🔒 V26 R3 (Phase 5): Resume marker for interrupted restores.
+  // When a restore starts, this is set to the incoming restoreSessionId (uuid
+  // from the client). On completion (success or fail), it is cleared.
+  // If a restore is interrupted (timeout, network drop, function kill), the
+  // next retry sees a non-empty shop BUT a matching restoreSessionId → resume
+  // (skip rows whose invoiceNo+date+totalAmount already exist) instead of the
+  // old behavior (assertShopIsEmpty fails → user stuck with partial books and
+  // no way forward except destructive account-reset).
+  // null = no restore in progress (the default).
+  lastRestoreSessionId String?
+  // 🔒 PDF Redesign Spec Part 3 §2: Shop logo URL (Cloudinary secure_url).
+  // Rendered at 18×18 mm in the brand band of every invoice PDF. null = no
+  // logo uploaded (the brand band shows just the shop name + details). The
+  // logo is uploaded via /api/settings/logo (which uses uploadBillImage) and
+  // stored here so it appears on every invoice without re-uploading.
+  logoUrl          String?
 }
-
-// ==================== ANNOUNCEMENTS (broadcast messages) ====================
 model Announcement {
   id        String    @id
   title     String
@@ -242,23 +461,19 @@ model Announcement {
 
   @@index([isActive, startsAt, endsAt])
 }
-
-// ==================== FEATURE FLAGS (remote kill switches) ====================
 model FeatureFlag {
-  id          String   @id
+  id          String   @id @default(cuid())
   key         String   @unique
   enabled     Boolean  @default(true)
   label       String
   description String?
-  updatedAt   DateTime
+  updatedAt   DateTime @updatedAt
   updatedBy   String?
 
   @@index([enabled])
 }
-
-// ==================== REFERRALS (refer 3 = 1 year free Pro) ====================
 model Referral {
-  id          String    @id
+  id          String    @id @default(cuid())
   referrerId  String
   referredId  String?   @unique
   code        String    @unique
@@ -267,21 +482,19 @@ model Referral {
   createdAt   DateTime  @default(now())
   completedAt DateTime?
   referrer    User      @relation("Referral_referrerIdToUser", fields: [referrerId], references: [id], onDelete: Cascade)
-  referred    User?     @relation("Referral_referredIdToUser", fields: [referredId], references: [id])
+  referred    User?     @relation("Referral_referredIdToUser", fields: [referredId], references: [id], onDelete: SetNull)
 
   @@index([referredId])
   @@index([referrerId, status])
 }
-
-// ==================== SUBSCRIPTIONS (Razorpay payments) ====================
 model Subscription {
   id             String   @id
   userId         String
-  plan           String   // pro | elite
+  plan           String // pro | elite
   status         String   @default("active") // active | cancelled | expired
-  amount         Float
+  amount         Int
   paymentMode    String   @default("razorpay")
-  paymentId      String?
+  paymentId      String?  @unique // 🔒 IDEMPOTENCY: unique constraint prevents duplicate subscriptions from double-submitted payment verifications (Audit fix Phase 1.4)
   subscriptionId String?
   startDate      DateTime @default(now())
   endDate        DateTime
@@ -291,118 +504,311 @@ model Subscription {
   @@index([status, createdAt])
   @@index([userId, status])
 }
-
-// ==================== USAGE TRACKING (plan limits) ====================
 model UsageTracking {
-  id           String   @id
+  id           String   @id @default(cuid())
   userId       String
-  month        String   // YYYY-MM format
+  month        String // YYYY-MM format
   transactions Int      @default(0)
   aiScans      Int      @default(0)
   voiceParses  Int      @default(0)
   products     Int      @default(0)
-  updatedAt    DateTime
+  updatedAt    DateTime @updatedAt
   User         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, month])
   @@index([userId, month])
 }
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  email     String // the user's email (lowercased)
+  tokenHash String    @unique // SHA-256 hash of the raw token (never store raw)
+  expiresAt DateTime // 1 hour from creation
+  usedAt    DateTime? // null = not yet used; set when consumed (single-use)
+  createdAt DateTime  @default(now())
 
-// ==================== AUDIT LOG (security & compliance) ====================
-// Track every important action: logins, data exports, deletes, role changes.
-// Used for: security forensics, compliance (DPDP Act), dispute resolution.
+  @@index([email, expiresAt])
+  @@index([tokenHash])
+}
 model AuditLog {
   id         String   @id @default(cuid())
-  userId     String?  // user who performed the action (null = unauthenticated attempt)
+  userId     String? // user who performed the action (null = unauthenticated attempt)
   user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  action     String   // login_success | login_failure | logout | data_export | data_delete | role_change | settings_update | etc.
-  entityType String?  // product | party | transaction | setting | user | staff
-  entityId   String?  // ID of the affected entity
-  ip         String?  // IP address of the actor
-  userAgent  String?  // browser/device info
-  metadata   Json?    // any extra context (what changed, what was exported, etc.)
+  action     String // login_success | login_failure | logout | data_export | data_delete | role_change | settings_update | etc.
+  entityType String? // product | party | transaction | setting | user | staff
+  entityId   String? // ID of the affected entity
+  ip         String? // IP address of the actor
+  userAgent  String? // browser/device info
+  metadata   Json? // any extra context (what changed, what was exported, etc.)
   createdAt  DateTime @default(now())
 
   @@index([userId, createdAt])
   @@index([action, createdAt])
 }
+model FieldChangeLog {
+  id              String   @id @default(cuid())
+  userId          String // shop owner (tenant scope)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entityType      String // transaction | payment
+  entityId        String
+  fieldName       String // e.g. totalAmount, paidAmount, date
+  oldValue        String? // JSON-serialized old value (null = was empty)
+  newValue        String? // JSON-serialized new value (null = set to null)
+  changedByUserId String? // who made the change (owner or staff). No FK to avoid modifying User model.
+  createdAt       DateTime @default(now())
 
-// ==================== AI SCAN COMPARISONS ====================
-// Stores results of side-by-side AI provider tests. Each record is one
-// bill image scanned by 1-3 providers (Gemini, OpenAI, Groq). Admins use
-// the /settings/ai-comparison page to compare accuracy and pick the best.
-model ScanComparison {
-  id            String   @id @default(cuid())
+  @@index([userId, entityType, entityId, createdAt])
+  @@index([entityId, createdAt])
+}
+model GstReturn {
+  id                          String   @id @default(cuid())
+  userId                      String
+  user                        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  monthYear                   String // "072026" (MMYYYY) — matches GSTR-1 fp format
+  periodStart                 DateTime // IST first day of month
+  periodEnd                   DateTime // IST last day of month
+  filingStatus                String   @default("draft") // draft | filed
+  filedAt                     DateTime?
+  filedByUserId               String? // who marked it as filed
+
+  // Section 3.1(a): Outward taxable supplies (regular sales)
+  outwardTaxableValue         Int    @default(0)
+  outwardCgst                 Int    @default(0)
+  outwardSgst                 Int    @default(0)
+  outwardIgst                 Int    @default(0)
+
+  // Section 3.1(d): RCM (reverse charge) outward liability
+  rcmTaxableValue             Int    @default(0)
+  rcmCgst                     Int    @default(0)
+  rcmSgst                     Int    @default(0)
+  rcmIgst                     Int    @default(0)
+
+  // Section 3.1(c): Nil-rated + exempt + non-GST outward
+  nilRatedValue               Int    @default(0)
+  exemptValue                 Int    @default(0)
+  nonGstValue                 Int    @default(0)
+
+  // Section 4(a): ITC (input tax credit) from purchases
+  itcTaxableValue             Int    @default(0)
+  itcCgst                     Int    @default(0)
+  itcSgst                     Int    @default(0)
+  itcIgst                     Int    @default(0)
+
+  // 🔒 V17 Audit §4.3: Credit/Debit Note breakdown (computed but not stored before).
+  // Storing these helps audit/dispute resolution — the filed snapshot now has
+  // the full CDN adjustment, not just the net tax payable.
+  creditNoteTaxableValue      Int    @default(0)
+  creditNoteCgst              Int    @default(0)
+  creditNoteSgst              Int    @default(0)
+  creditNoteIgst              Int    @default(0)
+  debitNoteTaxableValue       Int    @default(0)
+  debitNoteCgst               Int    @default(0)
+  debitNoteSgst               Int    @default(0)
+  debitNoteIgst               Int    @default(0)
+
+  // Section 5: Exempt inward supplies
+  exemptInwardValue           Int    @default(0)
+
+  // Section 3.2: Inter-state B2C supplies (unregistered, any amount)
+  interstateB2cTaxableValue   Int    @default(0)
+  interstateB2cIgst           Int    @default(0)
+
+  // Section 6.1: Net tax payable (output + RCM - ITC)
+  netTaxPayable               Int    @default(0)
+
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  @@unique([userId, monthYear])
+  @@index([userId, periodStart])
+}
+model Gstr1Snapshot {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  monthYear       String   // "072026" (MMYYYY) — matches GSTR-1 fp format
+  periodStart     DateTime // IST first day of month
+  periodEnd       DateTime // IST last day of month
+  filingStatus    String   @default("draft") // draft | filed
+  filedAt         DateTime?
+  filedByUserId   String?  // who marked it as filed
+
+  // The portal-ready JSON (all 8 sections: B2B, B2CL, B2CS, CDNR, CDNUR, HSN, NIL, DOC)
+  // Stored as Json so the exact filed return can be reproduced for audit/dispute.
+  rawJson         Json?
+
+  // Summary totals (for quick display without parsing rawJson)
+  totalTaxableValue   Int @default(0)
+  totalOutputTax      Int @default(0)  // CGST + SGST + IGST
+  totalInvoiceCount   Int   @default(0)
+  totalCreditNotes    Int   @default(0)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, monthYear])
+  @@index([userId, periodStart])
+}
+model BankStatement {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bankName        String   // e.g. "HDFC", "SBI", "ICICI"
+  accountNumber   String?  // last 4 digits (for display)
+  statementPeriod String?  // e.g. "Jul 2026"
+  importedAt      DateTime @default(now())
+  totalCredits    Int    @default(0)  // money in
+  totalDebits     Int    @default(0)  // money out
+  txnCount        Int      @default(0)
+  matchedCount    Int      @default(0)  // auto-matched on import
+  rawCsv          String?  // original CSV (for audit/re-import)
+  // 🔒 V26 R6 (Phase 5): sha256 of the trimmed CSV. Unique per user → catches
+  // exact-duplicate imports (double-click, concurrent tab, queue replay) via
+  // a database constraint, not check-then-act. Was: 200-char prefix match
+  // (false positives on banks with fixed header blocks; false negatives on
+  // overlapping date ranges — every overlapping row imported twice).
+  csvHash         String   @default("")
+
+  transactions    BankTransaction[]
+
+  @@unique([userId, csvHash])
+  @@index([userId, importedAt])
+}
+model BankTransaction {
+  id              String   @id @default(cuid())
+  bankStatementId String
+  bankStatement   BankStatement @relation(fields: [bankStatementId], references: [id], onDelete: Cascade)
+  userId          String   // denormalized for direct querying
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  date            DateTime // transaction date (as shown in bank statement)
+  description     String   // bank description (e.g. "UPI/Rahul Traders/1234")
+  amount          Int    // positive = credit (money in), negative = debit (money out)
+  balance         Int?   // running balance (if provided by bank)
+
+  // 🔒 V26 R6 (Phase 5): sha256 of `${userId}|${date.toISOString().slice(0,10)}|${description.trim()}|${amount}`.
+  // Unique per user → catches per-row duplicates (overlapping statements
+  // imported twice = same row hash → skipDuplicates). Was: NO per-row dedup
+  // at all → "last 3 months" downloaded in March, then again in April:
+  // different first row → both statements import → every overlapping row
+  // imported twice, doubling the recon workload and producing bogus unmatched rows.
+  rowHash         String   @default("")
+
+  // Matching status
+  matchStatus     String   @default("unmatched") // unmatched | matched | ignored
+  matchedPaymentId String? // FK to Payment (if matched)
+  matchedPayment  Payment? @relation(fields: [matchedPaymentId], references: [id], onDelete: SetNull)
+  matchedTransactionId String? // FK to Transaction (if matched to a sale/purchase)
+  matchedTransaction Transaction? @relation("BankReconMatch", fields: [matchedTransactionId], references: [id], onDelete: SetNull)
+  matchMethod     String?  // auto | manual (how the match was made)
+  matchConfidence Float?   // 0-1 (auto-match confidence score)
+
+  createdAt       DateTime @default(now())
+
+  @@unique([userId, rowHash])
+  @@index([userId, date])
+  @@index([bankStatementId])
+  @@index([matchStatus])
+}
+model Gstr2bImport {
+  id            String          @id @default(cuid())
   userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  monthYear     String          // "072026" (MMYYYY)
+  filingPeriod  String?         // GST portal's fp field
+  supplierGstin String?         // taxpayer's own GSTIN (from the 2B file)
+  importedAt    DateTime        @default(now())
+  rawJson       Json?           // full 2B JSON from portal (for audit/re-import)
+  invoiceCount  Int             @default(0)
+  taxableTotal  Int           @default(0)
+  igstTotal     Int           @default(0)
+  cgstTotal     Int           @default(0)
+  sgstTotal     Int           @default(0)
+  invoices      Gstr2bInvoice[]
+
+  @@unique([userId, monthYear])
+  @@index([userId, monthYear])
+}
+model Gstr2bInvoice {
+  id              String       @id @default(cuid())
+  gstr2bImportId  String
+  gstr2bImport    Gstr2bImport @relation(fields: [gstr2bImportId], references: [id], onDelete: Cascade)
+  userId          String       // denormalized for tenant-scoped queries without join
+  supplierGstin   String       // ctin from 2B (supplier's GSTIN)
+  invoiceNumber   String       // inum from 2B (supplier's invoice number)
+  invoiceDate     String?      // idt from 2B (invoice date, raw string from portal)
+  taxableValue    Int        @default(0)
+  igst            Int        @default(0)
+  cgst            Int        @default(0)
+  sgst            Int        @default(0)
+  totalAmount     Int        @default(0)
+  isReverseCharge Boolean      @default(false)
+  createdAt       DateTime     @default(now())
+
+  @@index([gstr2bImportId])
+  @@index([userId, supplierGstin, invoiceNumber])
+  @@index([userId])
+}
+model ScanComparison {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // The bill image that was scanned
-  imageName     String?  // filename or label, if user provided one
-  imagePreview  String   // base64 thumbnail (max ~50KB) for display in history
+  imageName    String? // filename or label, if user provided one
+  imagePreview String // base64 thumbnail (max ~50KB) for display in history
 
   // Bill type the user said it was
-  billType      String   @default("purchase") // sale | purchase
+  billType String @default("purchase") // sale | purchase
 
   // Results from each provider (null if that provider wasn't tested)
-  geminiResult  Json?    // { success, parsed, error, durationMs, tokensUsed }
-  openaiResult  Json?
-  groqResult    Json?
+  geminiResult Json? // { success, parsed, error, durationMs, tokensUsed }
+  openaiResult Json?
+  groqResult   Json?
 
   // Ground truth (what the user manually entered as the correct answer)
-  groundTruth   Json?    // { sellerName, totalAmount, itemsCount, items: [...] }
+  groundTruth Json? // { sellerName, totalAmount, itemsCount, items: [...] }
 
   // Computed scores per provider (0-100, null if not tested or no ground truth)
-  geminiScore   Float?
-  openaiScore   Float?
-  groqScore     Float?
+  geminiScore Float?
+  openaiScore Float?
+  groqScore   Float?
 
-  createdAt     DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
   @@index([createdAt])
 }
-
-// ==================== AI USAGE LOG (cost tracking) ====================
-// Every AI call (scan-bill, voice-parse) gets logged here with exact token
-// counts and calculated cost. Used by the /settings/ai-usage dashboard to
-// show the founder exactly how much each feature costs to run.
 model AiUsageLog {
-  id            String   @id @default(cuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  feature       String   // 'scan-bill' | 'voice-parse' | 'scan-compare'
-  provider      String   // 'gemini' | 'openai' | 'groq' | 'vlm' | 'zai-sdk'
-  model         String   // e.g. 'gemini-2.5-flash', 'llama-4-scout-17b-16e-instruct'
+  feature  String // 'scan-bill' | 'voice-parse' | 'scan-compare'
+  provider String // 'gemini' | 'openai' | 'groq' | 'vlm' | 'zai-sdk'
+  model    String // e.g. 'gemini-2.5-flash', 'llama-4-scout-17b-16e-instruct'
 
   // Token counts from the AI provider's response
-  inputTokens   Int      @default(0)
-  outputTokens  Int      @default(0)
-  totalTokens   Int      @default(0)
+  inputTokens  Int @default(0)
+  outputTokens Int @default(0)
+  totalTokens  Int @default(0)
 
   // Cost in INR (calculated at time of call using current pricing)
   // Stored per-call so historical costs are preserved even if prices change
-  costInr       Float    @default(0)
+  costInr Int @default(0)
 
   // Performance + result
-  durationMs    Int      @default(0)
-  success       Boolean  @default(true)
-  errorMessage  String?  // null if success, error text if failed
+  durationMs   Int     @default(0)
+  success      Boolean @default(true)
+  errorMessage String? // null if success, error text if failed
 
-  createdAt     DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
   @@index([feature, createdAt])
   @@index([provider, createdAt])
+  @@index([createdAt])
+  @@index([feature, provider, createdAt])
 }
-
-
-// ==================== ADMIN USERS (admin panel auth) ====================
-// SEPARATE from main app users. Admin accounts have their own credentials,
-// 2FA secrets, and audit trail. This table is ONLY used by the admin app.
-//
-// Security: Admin accounts are created MANUALLY (no public signup).
-// Only founder emails are allowed. 2FA is mandatory.
 model AdminUser {
   id            String    @id @default(cuid())
   email         String    @unique
@@ -427,12 +833,6 @@ model AdminUser {
   @@index([email])
   @@index([isActive])
 }
-
-// ==================== ADMIN ACTIONS (audit trail) ====================
-// Every action performed in the admin panel is logged here.
-// Used for: security forensics, compliance, dispute resolution.
-// This is SEPARATE from the main app's AuditLog table — admin actions
-// are more sensitive and need their own audit trail.
 model AdminAction {
   id            String   @id @default(cuid())
   adminId       String
@@ -450,76 +850,41 @@ model AdminAction {
   @@index([action, createdAt])
   @@index([targetType, targetId])
 }
-
-// ==================== SUPPORT TICKETS ====================
-// Users report issues from the main app → admin resolves them here.
-// Priority levels: low, medium, high, urgent.
-// Status flow: open → in_progress → resolved → closed.
 model SupportTicket {
-  id          String    @id @default(cuid())
-  userId      String    // user who submitted the ticket
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  subject     String
-  message     String
-  category    String    @default("general") // general | bug | billing | feature_request | account
-  priority    String    @default("medium") // low | medium | high | urgent
-  status      String    @default("open") // open | in_progress | resolved | closed
-  assignedTo  String?   // admin email who's handling it
-
-  // Admin response
-  response    String?
-  resolvedAt  DateTime?
-  resolvedBy  String?   // admin email who resolved it
-
-  // Metadata
-  userEmail   String?
-  userAgent   String?
-  appVersion  String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject    String
+  message    String
+  category   String    @default("general")
+  priority   String    @default("medium")
+  status     String    @default("open")
+  assignedTo String?
+  response   String?
+  resolvedAt DateTime?
+  resolvedBy String?
+  userEmail  String?
+  userAgent  String?
+  appVersion String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@index([status, priority, createdAt])
   @@index([userId, createdAt])
   @@index([assignedTo, status])
 }
-
-// 🐛 FIX (integration-phase-D.1): REMOVED `FeatureFlagRule` model.
-//
-// This model was defined in the admin schema but:
-//   1. NEVER queried by any route in either app (verified via grep)
-//   2. NOT present in the main app's schema (main app owns all migrations)
-//   3. NO migration ever created the table in the DB
-//
-// It was a ticking data-loss bomb: if the main app ever ran `prisma db push`
-// (e.g., during a hotfix), Prisma would have dropped the table. Since the
-// table never existed in the DB and the model was dead code, removing it
-// from the admin schema is safe and resolves the schema-drift risk.
-//
-// If advanced feature-flag targeting is needed in the future, it should be
-// designed properly: add the model to BOTH schemas simultaneously, with the
-// main app owning the migration. See INTEGRATION-CONTRACT.md (Phase D.6).
-
-// ==================== NPS FEEDBACK ====================
 model NpsFeedback {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  score       Int      // 0-10 (0=worst, 10=best)
-  feedback    String?  // optional text feedback
-  category    String?  // auto-categorized: promoter | passive | detractor
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  score     Int
+  feedback  String?
+  category  String?
+  createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
   @@index([score])
 }
-
-// ==================== DAILY STATS (pre-computed KPIs) ====================
-// Instead of running count()/aggregate() on millions of rows on every
-// dashboard load, a background job computes these once per day and stores
-// them here. The dashboard reads 1 row per day = instant load.
-//
-// This is THE most important table for scalability. Without it, the
-// dashboard would timeout at 100K+ users.
 model DailyStats {
   id              String   @id @default(cuid())
   date            DateTime @unique  // the day this record represents (midnight UTC)
@@ -553,11 +918,6 @@ model DailyStats {
 
   @@index([date])
 }
-
-// ==================== USER SEGMENTS (pre-computed) ====================
-// Instead of calculating segments on-the-fly (N+1 queries), a background
-// job computes segment membership and stores it here. The segments page
-// reads from this table = instant load, scales to millions.
 model UserSegmentCache {
   id          String   @id @default(cuid())
   userId      String
@@ -568,22 +928,6 @@ model UserSegmentCache {
   @@index([segmentId])
   @@index([userId])
 }
-
-// ==================== CREDIT SCORE CACHE ====================
-// 🔒 AUDIT FIX: CreditScoreCache model removed — part of the dormant lending
-// pipeline that was flagged as a regulatory risk (DPDP + RBI Digital Lending
-// Directions). The lending pipeline code was also deleted (lib/lending-pipeline.ts,
-// lib/credit-score.ts, api/admin/lending-pipeline/, api/admin/data-monetization/).
-// If lending is ever built in the future, it MUST be built with explicit
-// merchant consent + NBFC RE contract + fintech lawyer review.
-//
-// model CreditScoreCache { ... }  ← removed 2026-07-04
-
-// ==================== NOTIFICATION TEMPLATES ====================
-// Reusable templates for SMS, Email, and Push notifications.
-// Variables use {{double_curly_brace}} syntax (e.g. {{userName}}, {{amount}}).
-// Used by: Campaign Management, Multi-channel Notifications, transactional sends.
-// Created by admin, versioned (version field), with category for organization.
 model NotificationTemplate {
   id          String   @id @default(cuid())
   name        String                          // human-readable name (e.g. "Payment Reminder")
@@ -603,12 +947,6 @@ model NotificationTemplate {
   @@index([category, status])
   @@index([status])
 }
-
-// ==================== NOTIFICATION LOG ====================
-// Logs every notification send attempt (SMS/Email/Push).
-// Used for: audit trail, delivery analytics, retry logic, compliance.
-// A notification can be: sent (delivered), failed (provider error),
-// pending (queued), or skipped (dry-run mode / user opted out).
 model NotificationLog {
   id            String   @id @default(cuid())
   // Recipient
@@ -637,22 +975,6 @@ model NotificationLog {
   @@index([status, sentAt])
   @@index([sentAt])
 }
-
-// ==================== CAMPAIGNS ====================
-// A campaign = a sequence of scheduled notifications sent to a target audience
-// over time. Each campaign has 1+ steps, each step uses a notification template.
-//
-// Example: "Onboarding Drip"
-//   Step 1: Day 0  → Welcome SMS (template: welcome_sms)
-//   Step 2: Day 3  → Tips Email (template: tips_email)
-//   Step 3: Day 7  → Discount Push (template: discount_push)
-//   Step 4: Day 14 → Win-back SMS (template: winback_sms)
-//
-// Target audience can be:
-//   - A segment ID (uses pre-computed UserSegmentCache)
-//   - A manual list of user IDs (JSON array)
-//
-// Status lifecycle: draft → scheduled → running → completed | cancelled | paused
 model Campaign {
   id              String   @id @default(cuid())
   name            String
@@ -686,7 +1008,6 @@ model Campaign {
   @@index([status, startAt])
   @@index([createdBy])
 }
-
 model CampaignStep {
   id              String   @id @default(cuid())
   campaignId      String
@@ -718,18 +1039,6 @@ model CampaignStep {
   @@index([campaignId, stepNumber])
   @@index([status, scheduledAt])
 }
-
-// ==================== STATUS PAGE / INCIDENTS ====================
-// Public-facing status page data. NO AUTH REQUIRED to read.
-// Used by /status page (investor + user trust signal).
-//
-// An incident has:
-//   - A title (e.g. "Database connectivity issues")
-//   - A severity (minor | major | critical | maintenance)
-//   - A status (investigating | identified | monitoring | resolved)
-//   - A service affected (api | database | ai_providers | payments | all)
-//   - A timeline of updates (IncidentUpdate[])
-//   - startedAt + resolvedAt timestamps
 model Incident {
   id          String   @id @default(cuid())
   title       String
@@ -750,7 +1059,6 @@ model Incident {
   @@index([status, startedAt])
   @@index([service, status])
 }
-
 model IncidentUpdate {
   id          String   @id @default(cuid())
   incidentId  String
@@ -763,14 +1071,6 @@ model IncidentUpdate {
 
   @@index([incidentId, createdAt])
 }
-
-// ==================== ANOMALY DETECTION ====================
-// Auto-detected anomalies from metric analysis (z-score based).
-// A background job (or manual trigger) compares recent metric values
-// to a 30-day baseline. If the z-score exceeds a threshold, an anomaly
-// is created here for admin review.
-//
-// Lifecycle: open → acknowledged → resolved (admin marks false-positive or fixed)
 model Anomaly {
   id            String   @id @default(cuid())
   metric        String                          // new_signups | revenue | ai_cost | failed_logins | etc.
@@ -805,17 +1105,6 @@ model Anomaly {
   @@index([metric, detectedAt])
   @@index([detectedAt])
 }
-
-// ==================== CONFIGURABLE FRAUD RULES ====================
-// Admin-defined rules that auto-detect suspicious activity.
-// Each rule has a metric, condition, threshold, and time window.
-// When a user's activity matches a rule, a FraudAlert is created.
-//
-// Example rules:
-//   - "Flag users with > 50 transactions in 1 hour"
-//   - "Flag users with > ₹1,00,000 total sales in 24 hours"
-//   - "Flag users with > 20 AI calls in 1 hour"
-//   - "Flag users who created account < 1 hour ago AND have > 10 transactions"
 model FraudRule {
   id              String   @id @default(cuid())
   name            String
@@ -847,7 +1136,6 @@ model FraudRule {
 
   @@index([enabled, metric])
 }
-
 model FraudAlert {
   id              String   @id @default(cuid())
   ruleId          String
@@ -877,26 +1165,6 @@ model FraudAlert {
   @@index([ruleId, detectedAt])
   @@index([userId, detectedAt])
 }
-
-// ==================== PARTNER MANAGEMENT ====================
-// 🔒 AUDIT FIX: Partner model removed — was part of the dormant lending/data-
-// monetization pipeline. Removed alongside CreditScoreCache and the lending
-// pipeline code. See the comment above CreditScoreCache for the full rationale.
-//
-// model Partner { ... }  ← removed 2026-07-04
-
-// ==================== API KEYS (Partner Authentication) ====================
-// API keys issued to partners for programmatic access to our API.
-// SECURITY: We store only the SHA-256 hash of the key, never the raw key.
-// The raw key is shown ONCE on creation — admin must save it securely.
-//
-// Scopes define what the key can access:
-//   - read_leads: GET lead data (credit scores for lending)
-//   - write_leads: POST lead status updates (approved/rejected)
-//   - read_analytics: GET aggregate analytics (market intelligence)
-//   - read_users: GET user data (anonymized)
-//   - read_revenue: GET revenue/share data
-//   - admin: full access (use sparingly)
 model ApiKey {
   id            String    @id @default(cuid())
   partnerId     String?                            // null = internal/admin key (kept for backward compat, Partner model removed
@@ -923,18 +1191,6 @@ model ApiKey {
   @@index([status])
   @@index([keyHash])
 }
-
-// ==================== WEBHOOK ENDPOINTS ====================
-// Partner webhook endpoints where we POST event notifications.
-// Each endpoint is tied to a partner and subscribed to specific events.
-//
-// Event types:
-//   - lead.created: New credit-scored lead available for lending
-//   - lead.updated: Lead status changed (e.g. user's score improved)
-//   - payment.received: Subscription payment received from a user
-//   - user.churned: User cancelled subscription
-//   - campaign.completed: Campaign finished sending all steps
-//   - anomaly.detected: Anomaly detected (optional — high-priority partners only)
 model WebhookEndpoint {
   id            String   @id @default(cuid())
   partnerId     String?  // 🔒 AUDIT FIX: Made nullable + removed Partner relation (model deleted)
@@ -963,7 +1219,6 @@ model WebhookEndpoint {
   @@index([partnerId, status])
   @@index([status])
 }
-
 model WebhookDelivery {
   id              String   @id @default(cuid())
   endpointId      String
@@ -994,22 +1249,6 @@ model WebhookDelivery {
   @@index([status, nextRetryAt])
   @@index([createdAt])
 }
-
-// ==================== REVENUE RECOGNITION (Accrual Accounting) ====================
-// Splits each subscription payment into monthly recognition entries.
-//
-// ACCRUAL ACCOUNTING PRINCIPLE:
-//   - Cash received upfront (e.g. ₹2,988 for yearly Pro on Jan 1)
-//   - But revenue is "earned" over the subscription period (₹249/month for 12 months)
-//   - On Jan 1: Cash=₹2,988, Deferred Revenue=₹2,988 (liability), Recognized=₹0
-//   - On Feb 1: Recognized=₹249, Deferred=₹2,739
-//   - On Dec 31: Recognized=₹2,988, Deferred=₹0
-//
-// This table stores one row per subscription per month:
-//   - subscriptionId → which subscription this is for
-//   - periodStart/End → the month this entry covers
-//   - amount → how much revenue is recognized in this period
-//   - status → pending (future) | recognized (past) | current (this month)
 model RevenueSchedule {
   id              String   @id @default(cuid())
   subscriptionId  String                             // FK to Subscription (not enforced — cross-relation)
@@ -1029,22 +1268,6 @@ model RevenueSchedule {
   @@index([subscriptionId])
   @@index([periodStart])
 }
-
-// ==================== A/B TESTING (Experiments) ====================
-// Create experiments to test variations (e.g. different pricing, UI, features).
-// Users are assigned to variants deterministically (same user always gets same variant).
-//
-// Experiment lifecycle:
-//   draft → running → completed | cancelled
-//
-// Variants:
-//   - control: the current/default experience (always 1 control)
-//   - treatment: the new experience being tested (1+ treatments)
-//
-// Metrics tracked:
-//   - Conversion: did the user complete a goal? (signup, payment, etc.)
-//   - Revenue: how much revenue did the user generate?
-//   - Retention: did the user come back after N days?
 model Experiment {
   id              String   @id @default(cuid())
   name            String
@@ -1079,7 +1302,6 @@ model Experiment {
 
   @@index([status, startAt])
 }
-
 model ExperimentAssignment {
   id              String   @id @default(cuid())
   experimentId    String
@@ -1098,11 +1320,6 @@ model ExperimentAssignment {
   @@index([userId, experimentId])
   @@index([convertedAt])
 }
-
-// ==================== COMPETITOR MONITORING ====================
-// Track competing apps' pricing, features, and market positioning.
-// Admin manually adds competitors and updates their pricing/features periodically.
-// Each update is logged as a CompetitorUpdate (timeline of changes).
 model Competitor {
   id              String   @id @default(cuid())
   name            String
@@ -1132,7 +1349,6 @@ model Competitor {
 
   @@index([status])
 }
-
 model CompetitorUpdate {
   id              String   @id @default(cuid())
   competitorId    String
@@ -1149,13 +1365,6 @@ model CompetitorUpdate {
 
   @@index([competitorId, createdAt])
 }
-
-// ==================== BULK OPERATIONS v2 (Scheduled) ====================
-// Extends existing bulk operations with scheduling.
-// Admin can schedule bulk actions (plan change, message, ban, delete) for
-// future execution — e.g. "Upgrade all free users to Pro on Jan 1".
-//
-// Lifecycle: scheduled → running → completed | failed | cancelled
 model BulkJob {
   id              String   @id @default(cuid())
   name            String
@@ -1183,18 +1392,6 @@ model BulkJob {
   @@index([status, scheduledAt])
   @@index([action, status])
 }
-
-// ==================== NPS SURVEY CONFIG ====================
-// Configurable triggers for when NPS surveys appear in the main app.
-// Multiple trigger rules can be active simultaneously.
-// The main app checks these rules and shows the survey when any match.
-//
-// Trigger types:
-//   - days_after_signup: show X days after user created (e.g. 7 days)
-//   - transaction_count: show after X transactions (e.g. 10th transaction)
-//   - days_since_last_survey: show if last survey was > X days ago (e.g. 90 days)
-//   - plan_upgrade: show when user upgrades plan (immediate)
-//   - manual: only show when admin triggers manually
 model NpsSurveyConfig {
   id              String   @id @default(cuid())
   name            String
@@ -1222,18 +1419,6 @@ model NpsSurveyConfig {
 
   @@index([enabled, triggerType])
 }
-
-// ==================== DATA EXPORT CENTER (GDPR/DPDP) ====================
-// Tracks data export requests for compliance (GDPR Article 20 / DPDP Act).
-// Users can request their data → admin approves → system generates export.
-//
-// Export types:
-//   - user_data: single user's complete data (for DPDP data portability request)
-//   - all_users: all users (for admin analysis/migration)
-//   - transactions: transaction data (for accounting/audit)
-//   - subscriptions: subscription history (for revenue analysis)
-//   - ai_usage: AI usage logs (for cost analysis)
-//   - custom: custom SQL query export (uses Database Admin query runner)
 model DataExportRequest {
   id              String   @id @default(cuid())
   type            String                            // user_data | all_users | transactions | subscriptions | ai_usage | custom
@@ -1254,20 +1439,6 @@ model DataExportRequest {
   @@index([status, createdAt])
   @@index([type, status])
 }
-
-// ==================== PREDICTIVE CHURN MODEL ====================
-// Pre-computed churn risk scores per user.
-// A background job (or manual trigger) runs the churn scoring algorithm,
-// which analyzes user behavior signals and assigns a 0-100 risk score.
-//
-// Risk factors (higher = more likely to churn):
-//   - Days since last login (inactivity)
-//   - Days since last transaction (engagement drop)
-//   - AI usage decline (comparing last 7 days vs previous 7 days)
-//   - Plan tier (free users churn more than paid)
-//   - Account age (very new or very old accounts churn more)
-//   - Support tickets (frustrated users churn more)
-//   - Failed payments (payment issues = churn signal)
 model ChurnPrediction {
   id              String   @id @default(cuid())
   userId          String   @unique
@@ -1296,20 +1467,6 @@ model ChurnPrediction {
   @@index([riskLevel, riskScore])
   @@index([userPlan, riskLevel])
 }
-
-// ==================== SUPPLIER INTELLIGENCE ====================
-// Anonymized market intelligence reports generated from aggregate user data.
-// Sold to FMCG partners (HUL, ITC, etc.) for market research.
-//
-// Report types:
-//   - product_trends: top-selling products across all users (anonymized)
-//   - transaction_volume: monthly transaction volumes by category
-//   - payment_patterns: payment method distribution (UPI/cash/card)
-//   - regional_insights: transaction volume by state/region
-//   - category_analysis: category-wise sales trends
-//
-// PRIVACY: All data is AGGREGATED — no individual user data exposed.
-// Minimum aggregation threshold: at least 10 users per data point.
 model SupplierReport {
   id              String   @id @default(cuid())
   name            String
@@ -1335,35 +1492,61 @@ model SupplierReport {
   @@index([type, status])
   @@index([partnerId, status])
 }
+model InvoiceCounter {
+  userId        String @id
+  user          User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  seq           Int    @default(0)
+  // V17-Ext Tier 3: Separate counters for credit/debit notes
+  creditNoteSeq Int    @default(0)
+  debitNoteSeq  Int    @default(0)
+  // 🔒 V26 Phase 8 DI-1: Separate counter for purchases (was: shared with
+  // sales seq → purchases numbered INV-XXXX, eating gaps in the sales series).
+  purchaseSeq   Int    @default(0)
+}
+model Document {
+  id                String   @id @default(cuid())
+  userId            String // owner of this document
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shopId            String? // multi-shop: null = all shops
+  name              String // user-provided filename or description
+  category          String   @default("other") // bill | invoice | gst-certificate | bank-statement | id-proof | other
+  fileType          String // mime type: image/jpeg, application/pdf, etc.
+  fileSize          Int    @default(0) // in bytes
+  // Cloudinary storage
+  cloudinaryUrl     String // secure_url from Cloudinary
+  cloudinaryPublicId String // public_id for deletion
+  // Optional metadata
+  notes             String?
+  tags              String[] @default([]) // free-form tags for search
+  uploadedAt        DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  // Soft delete for audit trail
+  deletedAt         DateTime?
 
-// ==================== IMPERSONATION TOKENS ====================
-// 🐛 INTEGRATION PHASE D.3 (2026-07-25): Impersonation flow (admin app side).
-//
-// This model is a MIRROR of the same model in the main app's schema
-// (bahikhata-pro/prisma/schema.prisma). The main app OWNS the migration
-// (20260725000001_impersonation_token); this admin schema entry exists
-// only so the admin app's Prisma client has types for the table.
-//
-// DO NOT create a migration for this model in the admin repo — the main
-// app's migrate-deploy on Vercel will create the table. The admin app's
-// prisma generate will pick up the types from this schema entry.
-//
-// Flow:
-//   Admin app (creates token)  →  INSERT row with tokenHash + adminId + targetUserId + expiresAt
-//   Admin's browser (navigates)  →  GET ${MAIN_APP_URL}/api/auth/impersonate?token=<raw>
-//   Main app (validates)       →  SELECT WHERE tokenHash = sha256(token) AND usedAt IS NULL
-//   Main app (redeems)         →  UPDATE SET usedAt = now(), create session for targetUserId
-//
-// The admin app writes the row; the main app reads + updates it. Both apps
-// have independent audit trails (admin app's AdminAction + main app's
-// AuditLog) that can be correlated via the tokenHash.
+  @@index([userId, deletedAt])
+  @@index([userId, category])
+  @@index([userId, uploadedAt])
+}
 model ImpersonationToken {
   id            String    @id @default(cuid())
+  // SHA-256 hash of the raw 32-byte token. The raw token is NEVER stored —
+  // only the hash. Lookup is by tokenHash (unique).
   tokenHash     String    @unique
+  // The admin who created this token (AdminUser.id from the admin app).
+  // Stored as a plain string (no FK) because AdminUser lives in the admin
+  // app's auth domain — the main app doesn't query AdminUser directly.
   adminId       String
+  // Denormalized admin email for audit display (so the main app can show
+  // "Impersonating as {adminEmail}" without a cross-DB join).
   adminEmail    String
+  // The shopkeeper being impersonated (User.id). The main app's consumer
+  // endpoint creates a NextAuth session bound to this userId.
   targetUserId  String
+  // 5-minute expiry. The admin app sets this when creating the token; the
+  // main app checks expiresAt > now() on redemption.
   expiresAt     DateTime
+  // Single-use enforcement. NULL = unused (valid for redemption).
+  // Non-NULL = already redeemed (token can't be replayed).
   usedAt        DateTime?
   createdAt     DateTime  @default(now())
 
@@ -1371,3 +1554,20 @@ model ImpersonationToken {
   @@index([adminId])
   @@index([expiresAt])
 }
+
+// 🐛 FIX (integration-phase-D.1): REMOVED `FeatureFlagRule` model.
+//
+// This model was defined in the admin schema but:
+//   1. NEVER queried by any route in either app (verified via grep)
+//   2. NOT present in the main app's schema (main app owns all migrations)
+//   3. NO migration ever created the table in the DB
+//
+// It was a ticking data-loss bomb: if the main app ever ran `prisma db push`
+// (e.g., during a hotfix), Prisma would have dropped the table. Since the
+// table never existed in the DB and the model was dead code, removing it
+// from the admin schema is safe and resolves the schema-drift risk.
+//
+// If advanced feature-flag targeting is needed in the future, it should be
+// designed properly: add the model to BOTH schemas simultaneously, with the
+// main app owning the migration. See INTEGRATION-CONTRACT.md (Phase D.6).
+
