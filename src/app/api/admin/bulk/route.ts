@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { logAdminAction } from '@/lib/audit'
+import { invalidateTokenVersionCacheBulk } from '@/lib/token-version-cache'
+import { withNeonRetry } from '@/lib/resilience'
 
 /**
  * POST /api/admin/bulk
@@ -78,26 +80,36 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
         }
 
-        const updated = await db.user.updateMany({
-          where: { id: { in: userIds } },
-          data: {
-            plan: params.plan,
-            renewsAt: params.plan === 'free' ? null : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-          },
-        })
+        // 🐛 INTEGRATION PHASE D.4: Bump tokenVersion for all affected users
+        // so their existing JWTs are invalidated on the next request.
+        const updated = await withNeonRetry(() =>
+          db.user.updateMany({
+            where: { id: { in: userIds } },
+            data: {
+              plan: params.plan,
+              renewsAt: params.plan === 'free' ? null : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+              // 🐛 D.4: increment tokenVersion to revoke existing JWTs
+              tokenVersion: { increment: 1 },
+            },
+          })
+        )
+
+        // 🐛 D.4: Invalidate the main app's Redis cache for all affected users
+        // (pipeline — one round-trip). Non-critical (5s TTL handles it).
+        await invalidateTokenVersionCacheBulk(userIds)
 
         await logAdminAction({
           adminId: (session.user as any).id,
           action: 'bulk_plan_change',
-          description: `Bulk changed ${updated.count} users to ${params.plan}`,
+          description: `Bulk changed ${updated.count} users to ${params.plan} (tokenVersion bumped for all)`,
           targetType: 'user',
           targetId: 'bulk',
-          metadata: { userIds: userIds.slice(0, 50), count: updated.count, newPlan: params.plan },
+          metadata: { userIds: userIds.slice(0, 50), count: updated.count, newPlan: params.plan, tokenVersionBumped: true },
           ip: req.headers.get('x-forwarded-for')?.split(',')[0].trim() || undefined,
           userAgent: req.headers.get('user-agent') || undefined,
         })
 
-        result = { action: 'change_plan', count: updated.count, plan: params.plan }
+        result = { action: 'change_plan', count: updated.count, plan: params.plan, tokenVersionBumped: true }
         break
       }
 
@@ -134,27 +146,37 @@ export async function POST(req: NextRequest) {
       }
 
       case 'ban': {
-        const banned = await db.user.updateMany({
-          where: { id: { in: userIds } },
-          data: {
-            plan: 'free',
-            cancelledAt: new Date(),
-            renewsAt: null,
-          },
-        })
+        // 🐛 INTEGRATION PHASE D.4: Bump tokenVersion so banned users' existing
+        // JWTs are invalidated on the next request (they lose access instantly
+        // instead of keeping their old plan's features for up to 7 days).
+        const banned = await withNeonRetry(() =>
+          db.user.updateMany({
+            where: { id: { in: userIds } },
+            data: {
+              plan: 'free',
+              cancelledAt: new Date(),
+              renewsAt: null,
+              // 🐛 D.4: increment tokenVersion to revoke existing JWTs
+              tokenVersion: { increment: 1 },
+            },
+          })
+        )
+
+        // 🐛 D.4: Invalidate the main app's Redis cache for all banned users.
+        await invalidateTokenVersionCacheBulk(userIds)
 
         await logAdminAction({
           adminId: (session.user as any).id,
           action: 'bulk_ban',
-          description: `Banned ${banned.count} users (set to free + cancelled)`,
+          description: `Banned ${banned.count} users (set to free + cancelled, tokenVersion bumped)`,
           targetType: 'user',
           targetId: 'bulk',
-          metadata: { userIds: userIds.slice(0, 50), count: banned.count },
+          metadata: { userIds: userIds.slice(0, 50), count: banned.count, tokenVersionBumped: true },
           ip: req.headers.get('x-forwarded-for')?.split(',')[0].trim() || undefined,
           userAgent: req.headers.get('user-agent') || undefined,
         })
 
-        result = { action: 'ban', count: banned.count }
+        result = { action: 'ban', count: banned.count, tokenVersionBumped: true }
         break
       }
 
@@ -172,9 +194,18 @@ export async function POST(req: NextRequest) {
           }, { status: 400 })
         }
 
-        const deleted = await db.user.deleteMany({
-          where: { id: { in: userIds } },
-        })
+        const deleted = await withNeonRetry(() =>
+          db.user.deleteMany({
+            where: { id: { in: userIds } },
+          })
+        )
+
+        // 🐛 D.4: Invalidate the main app's Redis cache for deleted users.
+        // The main app's tokenVersion check returns null for non-existent
+        // users (treated as "revoke"), but the Redis cache might still hold
+        // an old non-null value for up to 5 seconds. Deleting the cache
+        // ensures the next request sees the deletion immediately.
+        await invalidateTokenVersionCacheBulk(userIds)
 
         await logAdminAction({
           adminId: (session.user as any).id,

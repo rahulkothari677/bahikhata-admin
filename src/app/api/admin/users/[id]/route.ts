@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { logAdminAction } from '@/lib/audit'
+import { invalidateTokenVersionCache } from '@/lib/token-version-cache'
+import { withNeonRetry } from '@/lib/resilience'
 
 /**
  * GET /api/admin/users/[id]
@@ -156,24 +158,40 @@ export async function PATCH(
     }
 
     const oldPlan = user.plan
-    const updated = await db.user.update({
-      where: { id },
-      data: {
-        plan,
-        renewsAt: renewsAt ? new Date(renewsAt) : plan === 'free' ? null : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        cancelledAt: null,
-      },
-      select: { id: true, email: true, plan: true, renewsAt: true },
-    })
+    // 🐛 INTEGRATION PHASE D.4: Bump tokenVersion so the user's existing JWT
+    // is invalidated on the next request (within ~5 seconds via Redis cache,
+    // or instantly if we successfully invalidate the cache below).
+    // Without this bump, the user would keep their old plan's features for
+    // up to 7 days (JWT maxAge) after the admin changes their plan.
+    const updated = await withNeonRetry(() =>
+      db.user.update({
+        where: { id },
+        data: {
+          plan,
+          renewsAt: renewsAt ? new Date(renewsAt) : plan === 'free' ? null : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          cancelledAt: null,
+          // 🐛 D.4: increment tokenVersion to revoke existing JWTs
+          tokenVersion: { increment: 1 },
+        },
+        select: { id: true, email: true, plan: true, renewsAt: true, tokenVersion: true },
+      })
+    )
+
+    // 🐛 INTEGRATION PHASE D.4: Invalidate the main app's Redis cache for
+    // this user's tokenVersion. The main app caches tokenVersion with a
+    // 5-second TTL; deleting the cache entry makes the revocation instant
+    // instead of waiting up to 5 seconds. Non-critical (5s TTL handles it
+    // if Redis is down).
+    await invalidateTokenVersionCache(id)
 
     // Log the admin action
     await logAdminAction({
       adminId: (session.user as any).id,
       action: 'user_plan_change',
-      description: `Changed ${user.email} plan from ${oldPlan} to ${plan}`,
+      description: `Changed ${user.email} plan from ${oldPlan} to ${plan} (tokenVersion bumped to ${updated.tokenVersion})`,
       targetType: 'user',
       targetId: id,
-      metadata: { oldPlan, newPlan: plan, renewsAt: updated.renewsAt },
+      metadata: { oldPlan, newPlan: plan, renewsAt: updated.renewsAt, tokenVersion: updated.tokenVersion },
       ip: req.headers.get('x-forwarded-for')?.split(',')[0].trim() || undefined,
       userAgent: req.headers.get('user-agent') || undefined,
     })
