@@ -1,10 +1,20 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // TypeScript — ignore build errors (pre-existing withTimeout type inference issues)
-  // TODO: Fix withTimeout generic types properly in a future phase
-  typescript: { ignoreBuildErrors: true },
-  eslint: { ignoreDuringBuilds: true },
+  // Type errors and lint errors FAIL the build. They are not suppressed.
+  //
+  // WHY (audit 2026-07-26): this config previously carried
+  //   typescript: { ignoreBuildErrors: true }
+  //   eslint:     { ignoreDuringBuilds: true }
+  // justified as "pre-existing withTimeout type inference issues". That was
+  // not the real cause — 476 of the 481 reported errors were a STALE generated
+  // Prisma client (fixed by `prisma generate`, which `npm run build` now does).
+  // The 5 genuine errors it hid included 4 routes that queried a `partner`
+  // relation deleted from the schema in 0dc2f31. Combined with the .catch(() => [])
+  // pattern, those routes silently returned empty lists instead of failing —
+  // the API Keys and Webhooks pages showed no data at all, indefinitely.
+  //
+  // Do not reintroduce these flags. If the build is red, the app is broken.
   reactStrictMode: true,
   // Security: no source maps in production (don't expose code structure)
   productionBrowserSourceMaps: false,

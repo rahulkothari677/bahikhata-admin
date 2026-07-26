@@ -22,7 +22,7 @@ export async function GET(
     const apiKey = await withTimeout(
       db.apiKey.findUnique({
         where: { id },
-        include: { partner: { select: { id: true, name: true, type: true } } },
+        // NOTE: Partner model deleted with the lending pipeline — no relation to include.
       }),
       5000
     ).catch(() => null)

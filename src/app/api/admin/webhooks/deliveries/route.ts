@@ -37,8 +37,9 @@ export async function GET(req: NextRequest) {
           skip,
           take: pageSize,
           include: {
+            // NOTE: Partner model deleted with the lending pipeline — no partner relation.
             endpoint: {
-              select: { id: true, url: true, partner: { select: { name: true } } },
+              select: { id: true, url: true },
             },
           },
         }),

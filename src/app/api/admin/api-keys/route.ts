@@ -88,9 +88,9 @@ export async function GET(req: NextRequest) {
           orderBy: { createdAt: 'desc' },
           skip,
           take: pageSize,
-          include: {
-            partner: { select: { id: true, name: true, type: true } },
-          },
+          // NOTE: the Partner model was deleted with the lending pipeline.
+          // partnerId is retained on ApiKey for backward compat, but there is
+          // no relation to include. partnerName/partnerType below are always null.
         }),
         5000
       ).catch(() => []),

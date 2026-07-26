@@ -67,7 +67,8 @@ export async function GET(req: NextRequest) {
           orderBy: { createdAt: 'desc' },
           skip,
           take: pageSize,
-          include: { partner: { select: { id: true, name: true, type: true } } },
+          // NOTE: Partner model deleted with the lending pipeline — no relation to include.
+          // partnerName/partnerType below are always null.
         }),
         5000
       ).catch(() => []),
