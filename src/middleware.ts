@@ -79,10 +79,25 @@ const CRON_PATHS = [
   '/api/admin/revenue-recognition/recompute',
 ]
 
+/**
+ * 🐛 FIX (audit 2026-07-26): this used `pathname.startsWith(p)` over
+ * PUBLIC_PATHS, which contains '/setup'. `'/setup-2fa'.startsWith('/setup')`
+ * is TRUE, so /setup-2fa was served to anyone with no session at all — while
+ * the comment above GRACE_ALLOWED_PATHS asserted it "requires a session".
+ * Confirmed against production: GET /setup-2fa returned 200 unauthenticated.
+ *
+ * Public paths are now matched EXACTLY (or on a real path boundary), never on
+ * a bare string prefix. A security list that matches by prefix will eventually
+ * match something it was never meant to.
+ */
+function matchesPath(pathname: string, base: string): boolean {
+  return pathname === base || pathname.startsWith(base + '/')
+}
+
 function isPublicPath(pathname: string): boolean {
-  if (PUBLIC_PATHS.some(p => pathname.startsWith(p))) return true
-  if (AUTH_PATHS.some(p => pathname.startsWith(p))) return true
-  if (pathname.startsWith('/_next')) return true
+  if (PUBLIC_PATHS.some(p => matchesPath(pathname, p))) return true
+  if (AUTH_PATHS.some(p => matchesPath(pathname, p))) return true
+  if (pathname.startsWith('/_next/')) return true
   if (pathname.startsWith('/favicon')) return true
   return false
 }
@@ -161,8 +176,12 @@ export async function middleware(req: NextRequest) {
           { status: 403 }
         )
       }
-      // Has session — allow through (manual admin trigger)
-      return res
+      // 🐛 FIX (audit 2026-07-26): this used to `return res` here, BEFORE the
+      // FOUNDER_ONLY_PREFIXES check below. /api/admin/bulk-jobs/execute is both
+      // a cron path and a founder-only path, so with CRON_SECRET unset in
+      // production any logged-in viewer could execute bulk jobs. Fall through
+      // to the role checks instead of short-circuiting past them.
+      // (A request that presented a VALID CRON_SECRET already returned above.)
     }
 
     // In dev or when CRON_SECRET is set but doesn't match, fall through to

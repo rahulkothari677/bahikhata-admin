@@ -154,6 +154,9 @@ export const authOptions: NextAuthOptions = {
           email: adminUser.email,
           name: adminUser.name,
           role: adminUser.role,
+          // 🔒 Stamped so withAdmin() can compare against the live DB value and
+          // reject sessions issued before a revocation.
+          tokenVersion: adminUser.tokenVersion,
         } as any
       },
     }),
@@ -174,6 +177,7 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = (user as any).id as string
         token.role = (user as any).role as string
+        token.tokenVersion = ((user as any).tokenVersion ?? 0) as number
         // 🐛 FIX (admin-login-fix-phase-1): Propagate grace-session flag.
         // If true, middleware will gate this session to /setup-2fa + /api/admin/2fa
         // only, with a 10-minute TTL enforced by the short maxAge below.
@@ -192,6 +196,7 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         (session.user as any).id = token.id as string
         (session.user as any).role = token.role as string
+        ;(session.user as any).tokenVersion = (token.tokenVersion ?? 0) as number
         ;(session.user as any).requires2FASetup = token.requires2FASetup === true
       }
       return session

@@ -814,10 +814,21 @@ model AdminUser {
   email         String    @unique
   name          String
   password      String    // hashed with bcrypt
-  role          String    @default("admin") // founder | admin | viewer
+  role          String    @default("viewer") // founder | finance | analyst | support | viewer
   totpSecret    String?   // TOTP 2FA secret (encrypted at rest)
   totpEnabled   Boolean   @default(false)
   isActive      Boolean   @default(true)
+
+  // 🔒 SESSION REVOCATION (audit 2026-07-26). Stamped into the admin JWT at
+  // login and re-checked against this column on every request by withAdmin().
+  // Bump it to invalidate every existing session for this operator: on role
+  // change, deactivation, password reset, 2FA disable and delete.
+  //
+  // Without this, `role` lived only in a 1-hour JWT and was never re-read, so
+  // demoting or deactivating an admin left them with their old powers until the
+  // token happened to expire. The main app already solved this for shopkeepers
+  // via User.tokenVersion; it was simply never applied to admins themselves.
+  tokenVersion  Int       @default(0)
   lastLoginAt   DateTime?
   lastLoginIp   String?
   createdAt     DateTime  @default(now())

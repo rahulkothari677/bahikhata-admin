@@ -53,6 +53,16 @@ export async function PATCH(
     if (role !== undefined && role !== 'founder') updateData.role = role
     if (isActive !== undefined) updateData.isActive = isActive
 
+    // 🔒 SESSION REVOCATION (audit 2026-07-26). Bumping tokenVersion
+    // invalidates every session this operator currently holds. Without it,
+    // demoting or deactivating an admin left their existing browser tab with
+    // the OLD role for up to an hour, because `role` was read from the JWT and
+    // never re-checked. withAdmin() compares the JWT's tokenVersion against
+    // this column on every request.
+    if (Object.keys(updateData).length > 0) {
+      updateData.tokenVersion = { increment: 1 }
+    }
+
     const updated = await db.adminUser.update({
       where: { id },
       data: updateData,

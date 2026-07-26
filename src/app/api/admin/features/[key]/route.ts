@@ -1,49 +1,78 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { z } from 'zod'
 import { db } from '@/lib/db'
-import { logAdminAction } from '@/lib/audit'
+import { withAdmin } from '@/lib/with-admin'
 
 /**
- * PATCH /api/admin/features/[key]
- * Toggles a feature flag on/off with audit trail.
+ * Feature flags are the global kill-switches for the SHOPKEEPER app. Toggling
+ * one here changes behaviour for every user of bahikhata-pro.
+ *
+ * 🔴 THE PRIVILEGE-ESCALATION BUG (audit 2026-07-26, demonstrated live):
+ * these handlers checked only `getServerSession()` — "is someone logged in?" —
+ * and delegated authorisation to a prefix list in middleware.ts that guarded
+ * "/api/admin/feature-flags". The real path is "/api/admin/features", so the
+ * guard matched nothing. A read-only `viewer` account was able to run
+ *     PATCH /api/admin/features/ai_scanner { "enabled": false }
+ * and receive 200 OK, disabling the AI Bill Scanner for the entire app.
+ *
+ * Authorisation now comes from ROUTE_POLICY via withAdmin(), which resolves the
+ * policy for THIS route rather than pattern-matching a URL. The policy is
+ * verified against the filesystem by a CI test, so renaming this route breaks
+ * the build instead of silently removing its guard.
  */
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ key: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const { key } = await params
-    const body = await req.json()
-    const { enabled } = body
+const ToggleSchema = z.object({
+  enabled: z.boolean(),
+})
+
+const CreateSchema = z.object({
+  label: z.string().min(1).max(120),
+  description: z.string().max(500).optional(),
+  enabled: z.boolean().default(true),
+})
+
+export const PATCH = withAdmin(
+  'admin/features/[key]',
+  async (req: NextRequest, ctx, { params }) => {
+    const { key } = (await params) as { key: string }
+
+    // Validated, not destructured raw. `{"enabled":"yes"}` previously reached
+    // Prisma as a string and threw a 500.
+    const parsed = ToggleSchema.safeParse(await req.json().catch(() => null))
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          error: {
+            code: 'INVALID_BODY',
+            message: 'Body must be { "enabled": boolean }.',
+            requestId: ctx.requestId,
+          },
+        },
+        { status: 400 },
+      )
+    }
+    const { enabled } = parsed.data
 
     const flag = await db.featureFlag.findUnique({ where: { key } })
     if (!flag) {
-      return NextResponse.json({ error: 'Feature flag not found' }, { status: 404 })
+      return NextResponse.json(
+        { error: { code: 'NOT_FOUND', message: 'Feature flag not found.', requestId: ctx.requestId } },
+        { status: 404 },
+      )
     }
 
-    const oldValue = flag.enabled
+    const before = flag.enabled
     const updated = await db.featureFlag.update({
       where: { key },
-      data: {
-        enabled,
-        updatedAt: new Date(),
-        updatedBy: (session.user as any).email,
-      },
+      data: { enabled, updatedAt: new Date(), updatedBy: ctx.email },
     })
 
-    await logAdminAction({
-      adminId: (session.user as any).id,
+    await ctx.audit({
       action: 'feature_toggle',
-      description: `Toggled "${flag.label}" (${key}) from ${oldValue ? 'ON' : 'OFF'} to ${enabled ? 'ON' : 'OFF'}`,
+      description: `Toggled "${flag.label}" (${key}) from ${before ? 'ON' : 'OFF'} to ${enabled ? 'ON' : 'OFF'}`,
       targetType: 'feature_flag',
       targetId: key,
-      metadata: { before: { enabled: oldValue }, after: { enabled } },
-      ip: req.headers.get('x-forwarded-for')?.split(',')[0].trim() || undefined,
-      userAgent: req.headers.get('user-agent') || undefined,
+      metadata: { before: { enabled: before }, after: { enabled } },
     })
 
     return NextResponse.json({
@@ -51,27 +80,36 @@ export async function PATCH(
       flag: updated,
       message: `"${flag.label}" is now ${enabled ? 'ENABLED' : 'DISABLED'}`,
     })
-  } catch (error) {
-    console.error('Feature toggle error:', error)
-    return NextResponse.json({ error: 'Failed to toggle feature' }, { status: 500 })
-  }
-}
+  },
+)
 
-/**
- * POST /api/admin/features/[key]
- * Create a new feature flag
- */
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ key: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+export const POST = withAdmin(
+  'admin/features/[key]',
+  async (req: NextRequest, ctx, { params }) => {
+    const { key } = (await params) as { key: string }
 
-    const { key } = await params
-    const body = await req.json()
-    const { label, description, enabled = true } = body
+    const parsed = CreateSchema.safeParse(await req.json().catch(() => null))
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          error: {
+            code: 'INVALID_BODY',
+            message: 'Body must include a label; enabled must be boolean.',
+            requestId: ctx.requestId,
+          },
+        },
+        { status: 400 },
+      )
+    }
+    const { label, description, enabled } = parsed.data
+
+    const existing = await db.featureFlag.findUnique({ where: { key } })
+    if (existing) {
+      return NextResponse.json(
+        { error: { code: 'ALREADY_EXISTS', message: 'That flag already exists.', requestId: ctx.requestId } },
+        { status: 409 },
+      )
+    }
 
     const flag = await db.featureFlag.create({
       data: {
@@ -81,23 +119,18 @@ export async function POST(
         description,
         enabled,
         updatedAt: new Date(),
-        updatedBy: (session.user as any).email,
+        updatedBy: ctx.email,
       },
     })
 
-    await logAdminAction({
-      adminId: (session.user as any).id,
+    await ctx.audit({
       action: 'feature_create',
       description: `Created feature flag "${label}" (${key})`,
       targetType: 'feature_flag',
       targetId: key,
-      ip: req.headers.get('x-forwarded-for')?.split(',')[0].trim() || undefined,
-      userAgent: req.headers.get('user-agent') || undefined,
+      metadata: { enabled },
     })
 
     return NextResponse.json({ success: true, flag })
-  } catch (error) {
-    console.error('Feature create error:', error)
-    return NextResponse.json({ error: 'Failed to create feature flag' }, { status: 500 })
-  }
-}
+  },
+)

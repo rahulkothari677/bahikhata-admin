@@ -84,14 +84,19 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * GET /api/admin/setup
- * Returns whether setup is needed (no admin users exist yet).
+ * ⛔ GET /api/admin/setup — REMOVED (audit 2026-07-26).
+ *
+ * It returned { setupRequired, adminCount } with NO authentication. Confirmed
+ * live against production, which answered the open internet with:
+ *     {"setupRequired":false,"adminCount":1}
+ *
+ * That is an oracle. POST /api/admin/setup creates a FOUNDER account whenever
+ * the AdminUser table is empty, gated only by the email being in
+ * FOUNDER_EMAILS — and that list has a hardcoded fallback containing a real
+ * address. So any scanner could poll this endpoint and learn the exact moment
+ * the bootstrap window opened (after a restore, a migration accident, or a
+ * table being cleared) and claim founder.
+ *
+ * The setup page determines whether setup is needed by attempting POST and
+ * handling the 403, which reveals nothing to an unauthenticated caller.
  */
-export async function GET() {
-  // 🐛 FIX (admin-login-fix-phase-1-followup-2): wrap with withNeonRetry
-  const adminCount = await withNeonRetry(() => db.adminUser.count())
-  return NextResponse.json({
-    setupRequired: adminCount === 0,
-    adminCount,
-  })
-}
