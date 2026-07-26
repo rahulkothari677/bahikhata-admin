@@ -34,6 +34,18 @@ model User {
   renewsAt      DateTime?
   trialEndsAt   DateTime?
 
+  // 🐛 INTEGRATION PHASE D.4 (2026-07-25): tokenVersion for JWT revocation.
+  // The main app's NextAuth uses this to revoke sessions (password reset,
+  // logout-all, plan changes). When the admin app changes a user's plan
+  // or bans them, we bump tokenVersion so the user's existing JWT is
+  // invalidated on the next request (within ~5 seconds via Redis cache).
+  // Without this bump, a user whose plan was changed would keep their old
+  // plan's features for up to 7 days (JWT maxAge).
+  //
+  // This field is owned by the main app (migration 20260704000001_add_token_version).
+  // The admin app's prisma generate picks up the type from this schema entry.
+  tokenVersion  Int       @default(0)
+
   // Relations
   products      Product[]
   parties       Party[]
