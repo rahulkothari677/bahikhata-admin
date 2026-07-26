@@ -367,6 +367,22 @@ export async function getCashFlow(year: number, month?: number): Promise<CashFlo
 //
 // Scales with users: more users → more serverless function invocations
 
+/**
+ * Returns RUPEES.
+ *
+ * 💰 UNIT CONTRACT (audit 2026-07-26): every money value in this file is in
+ * RUPEES. Values read from `db` arrive as rupees because the client is wrapped
+ * in the money extension; this estimate is authored in rupees; so all the
+ * arithmetic below (grossProfit - totalOpex, margins) is unit-consistent.
+ *
+ * Before the extension was applied it was NOT. Revenue and AI costs came back
+ * as PAISE while this function returned RUPEES, so `operatingIncome` subtracted
+ * rupees from paise — understating costs 100x on top of overstating revenue
+ * 100x. The P&L reported a business far more profitable than it was.
+ *
+ * If you ever read money here WITHOUT the extension (e.g. $queryRaw), convert
+ * at the query with an explicit `/ 100.0` and a `_rupees` alias.
+ */
 function estimateOpex(userCount: number): number {
   const baseCost = 5000 // ₹5000/month base (Vercel + DB + domain + monitoring)
   const perUserCost = 0.5 // ₹0.50/user/month (serverless compute scaling)

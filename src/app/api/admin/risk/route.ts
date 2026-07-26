@@ -3,6 +3,20 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
+import { toPaise } from '@/lib/money'
+
+/**
+ * 🔴 MONEY (audit 2026-07-26): the money extension does NOT convert `where`
+ * clauses — only returned rows. This route previously filtered on
+ * `totalAmount: { gte: 100000 }` while the comment said "₹1L+". Because
+ * totalAmount is stored in PAISE, the real threshold was 100000 paise = ₹1,000.
+ *
+ * Every kirana invoice over ₹1,000 was flagged as a "high-value transaction",
+ * so the risk dashboard was noise and a genuine ₹1,00,000 invoice was
+ * indistinguishable from a routine one. Always wrap money thresholds in toPaise().
+ */
+const HIGH_VALUE_TXN_THRESHOLD_RUPEES = 100000 // ₹1,00,000
+const HIGH_VALUE_TXN_THRESHOLD_PAISE = toPaise(HIGH_VALUE_TXN_THRESHOLD_RUPEES)
 
 /**
  * GET /api/admin/risk
@@ -84,7 +98,7 @@ export async function GET(req: Request) {
         withTimeout(
           db.transaction.count({
             where: {
-              totalAmount: { gte: 100000 },
+              totalAmount: { gte: HIGH_VALUE_TXN_THRESHOLD_PAISE },
               createdAt: { gte: sevenDaysAgo },
             },
           }),
@@ -244,7 +258,7 @@ export async function GET(req: Request) {
         withTimeout(
           db.transaction.findMany({
             where: {
-              totalAmount: { gte: 100000 },
+              totalAmount: { gte: HIGH_VALUE_TXN_THRESHOLD_PAISE },
               createdAt: { gte: sevenDaysAgo },
             },
             select: {
@@ -262,7 +276,7 @@ export async function GET(req: Request) {
         withTimeout(
           db.transaction.count({
             where: {
-              totalAmount: { gte: 100000 },
+              totalAmount: { gte: HIGH_VALUE_TXN_THRESHOLD_PAISE },
               createdAt: { gte: sevenDaysAgo },
             },
           }),

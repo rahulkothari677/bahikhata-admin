@@ -112,6 +112,16 @@ async function evalTransactionCount(params: EvaluatorParams): Promise<UserMetric
 // =====================================================================
 // TRANSACTION AMOUNT (SUM)
 // =====================================================================
+/**
+ * 💰 UNITS (audit 2026-07-26): `_sum.totalAmount` comes back in RUPEES because
+ * `db` is wrapped in the money extension, and `FraudRule.threshold` is the
+ * rupee value the admin typed in the UI. Rupees vs rupees — correct.
+ *
+ * Before the extension was applied this compared PAISE against a RUPEE
+ * threshold, so every amount rule fired ~100x too eagerly: a "flag users above
+ * ₹50,000" rule matched anyone with ₹500 of activity. Do not "fix" this by
+ * multiplying the threshold — that would reintroduce the bug.
+ */
 async function evalTransactionAmount(params: EvaluatorParams): Promise<UserMetric[]> {
   const where: any = {
     ...buildTimeWhere(params.windowMinutes, 'createdAt'),

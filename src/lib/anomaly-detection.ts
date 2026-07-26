@@ -91,7 +91,9 @@ const METRICS: MetricConfig[] = [
       const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
       const result = await withTimeout(
         db.$queryRaw`
-          SELECT DATE("createdAt") as date, COALESCE(SUM("amount"), 0)::float as value
+          -- 💰 $queryRaw bypasses the money extension: "amount" is PAISE.
+          -- Divide here so the value column is RUPEES, matching the "Daily Revenue" label.
+          SELECT DATE("createdAt") as date, COALESCE(SUM("amount"), 0)::float / 100.0 as value
           FROM "Subscription"
           WHERE "createdAt" >= ${startDate}
           GROUP BY DATE("createdAt")
@@ -111,7 +113,9 @@ const METRICS: MetricConfig[] = [
       const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
       const result = await withTimeout(
         db.$queryRaw`
-          SELECT DATE("createdAt") as date, COALESCE(SUM("costInr"), 0)::float as value
+          -- 💰 $queryRaw bypasses the money extension: "costInr" is PAISE.
+          -- Divide here so the value column is RUPEES, matching the "AI Cost (₹)" label.
+          SELECT DATE("createdAt") as date, COALESCE(SUM("costInr"), 0)::float / 100.0 as value
           FROM "AiUsageLog"
           WHERE "createdAt" >= ${startDate}
           GROUP BY DATE("createdAt")

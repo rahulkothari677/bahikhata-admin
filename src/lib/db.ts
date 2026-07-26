@@ -1,7 +1,28 @@
 import { PrismaClient } from '@prisma/client'
+import { withMoneyConversion } from './prisma-money-extension'
 
 /**
  * Prisma client for the admin app.
+ *
+ * 🔴 MONEY (audit 2026-07-26): `db` is wrapped in the SAME money extension the
+ * main app uses. Money is stored in the shared database as integer PAISE; the
+ * extension converts paise -> rupees on read and rupees -> paise on write.
+ *
+ * Before this, the admin app used a bare PrismaClient against the same rows,
+ * so a ₹499 subscription read as 49900 and rendered as "₹49,900". Every
+ * revenue, MRR, ARR, GMV, P&L, subscription and GST figure in the panel was
+ * 100x too large. Stored data was never wrong — only what the admin app read.
+ *
+ * TWO THINGS THE EXTENSION DOES NOT DO — you must handle these by hand:
+ *   1. `where` clauses are NOT converted. `where: { totalAmount: { gte: 100000 } }`
+ *      compares against 100000 PAISE (₹1,000), not ₹1,00,000. Wrap every money
+ *      threshold in toPaise().
+ *   2. $queryRaw results are NOT converted. Divide in SQL and alias the column
+ *      (e.g. `total_amount / 100.0 AS total_rupees`) so the unit is visible.
+ *
+ * `dbReadonly` is deliberately NOT extended: it is used only for $queryRaw /
+ * $queryRawUnsafe by the SQL console, which the extension cannot intercept
+ * anyway. Keeping it a plain PrismaClient leaves that audited path unchanged.
  *
  * NEON DB CONNECTION FIX:
  * Neon (free tier) auto-suspends after inactivity. When a request comes in
@@ -17,29 +38,38 @@ import { PrismaClient } from '@prisma/client'
  * withNeonRetry() in resilience.ts, which catches these errors, waits 500ms
  * for Neon to wake up, retries once, and returns safe defaults if still failing.
  *
- * SECURITY: The DATABASE_URL env var should point to a READ-ONLY database user.
- * This means even if the admin app is compromised, the attacker cannot:
- *   - DELETE records
- *   - UPDATE user data
- *   - DROP tables
- *   - INSERT malicious data
+ * ⚠️ DATABASE_URL MUST BE A READ-WRITE ROLE.
  *
- * The only write operations (admin actions like plan changes) go through
- * the main app's API using ADMIN_API_SECRET — never direct DB writes.
+ * This block previously claimed DATABASE_URL "should point to a READ-ONLY
+ * database user" and that "the only write operations go through the main app's
+ * API using ADMIN_API_SECRET — never direct DB writes". That was false, and
+ * acting on it breaks the panel silently. The admin app writes directly to:
+ *   - AdminAction      (every audit entry — and logAdminAction swallows errors,
+ *                       so a read-only role produces a SILENT, EMPTY audit trail)
+ *   - ImpersonationToken, FeatureFlag, DataExport, AdminUser
+ *   - User             (plan changes, tokenVersion bumps)
  *
- * See DEPLOYMENT.md for creating the read-only database user.
+ * The correct control is a PURPOSE-SCOPED role, not a read-only one: grant the
+ * admin role SELECT on shopkeeper tables and INSERT/UPDATE only on the tables
+ * above. READONLY_DATABASE_URL (a genuinely SELECT-only role) is separate and
+ * is required by the SQL console, which fails closed without it.
  */
 
+function createExtendedClient() {
+  return withMoneyConversion(
+    new PrismaClient({
+      log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
+    }),
+  )
+}
+
 const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined
+  prisma: ReturnType<typeof createExtendedClient> | undefined
   prismaReadonly: PrismaClient | undefined
 }
 
-export const db =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
-  })
+/** Money-converting client. All Prisma model calls return RUPEES. */
+export const db = globalForPrisma.prisma ?? createExtendedClient()
 
 // Cache the client in dev to prevent connection exhaustion on hot reload
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
@@ -92,6 +122,11 @@ export function isReadonlyClientConfigured(): boolean {
   return !!process.env.READONLY_DATABASE_URL
 }
 
+// NOTE: deliberately a PLAIN PrismaClient (no money extension). It is used
+// only for $queryRaw / $queryRawUnsafe by the SQL console, which the extension
+// cannot intercept. In dev without READONLY_DATABASE_URL it gets its own plain
+// client rather than falling back to the extended `db` — falling back to `db`
+// would silently give the SQL console a different client type than production.
 export const dbReadonly: PrismaClient =
   globalForPrisma.prismaReadonly ??
   (process.env.READONLY_DATABASE_URL
@@ -99,6 +134,10 @@ export const dbReadonly: PrismaClient =
         datasources: { db: { url: process.env.READONLY_DATABASE_URL } },
         log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
       })
-    : db)  // Fallback to main db — only used in dev (production checks isReadonlyClientConfigured first)
+    : new PrismaClient({
+        // Dev-only fallback. Production returns 503 from the SQL console via
+        // isReadonlyClientConfigured() before this is ever reached.
+        log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
+      }))
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prismaReadonly = dbReadonly

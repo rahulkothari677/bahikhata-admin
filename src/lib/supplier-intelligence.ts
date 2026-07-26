@@ -70,8 +70,10 @@ async function generateTransactionVolume(): Promise<ReportResult> {
         SELECT
           DATE_TRUNC('month', "createdAt") as month,
           COUNT(*)::int as count,
-          COALESCE(SUM("totalAmount"), 0)::float as total_amount,
-          COALESCE(AVG("totalAmount"), 0)::float as avg_amount
+          -- 💰 $queryRaw bypasses the money extension: "totalAmount" is PAISE.
+          -- Divide here so both columns are RUPEES (they are rendered with ₹).
+          COALESCE(SUM("totalAmount"), 0)::float / 100.0 as total_amount,
+          COALESCE(AVG("totalAmount"), 0)::float / 100.0 as avg_amount
         FROM "Transaction"
         WHERE "createdAt" >= ${sixMonthsAgo}
         GROUP BY DATE_TRUNC('month', "createdAt")
