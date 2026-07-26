@@ -31,8 +31,15 @@ import { withTimeout } from '@/lib/resilience'
 export interface ProfitLossReport {
   period: { start: string; end: string; label: string }
   revenue: {
-    subscriptionRevenue: number      // recognized revenue from schedules
+    subscriptionRevenue: number      // recognized revenue from RevenueSchedule
     totalRevenue: number
+    cashReceived: number             // cash from Subscription — a DIFFERENT source
+    /**
+     * Non-empty when the report cannot be taken at face value — currently when
+     * cash arrived but nothing was recognised, meaning the recognition job has
+     * not run. Callers MUST surface these; a zero here is not a fact.
+     */
+    warnings: string[]
   }
   costs: {
     aiCosts: number                   // Gemini/OpenAI/Groq API costs (COGS)
@@ -109,7 +116,7 @@ export async function getProfitLoss(year: number, month?: number): Promise<Profi
   }
 
   // Parallel queries for revenue + costs
-  const [revenueAgg, aiCostAgg, subscriptionCashAgg] = await Promise.all([
+  const [revenueAgg, aiCostAgg, subscriptionCashAgg, scheduleRowCount] = await Promise.all([
     // Recognized revenue in this period
     withTimeout(
       db.revenueSchedule.aggregate({
@@ -139,6 +146,11 @@ export async function getProfitLoss(year: number, month?: number): Promise<Profi
       }),
       5000
     ).catch(() => ({ _sum: { amount: 0 } })),
+
+    // Has the recognition schedule been BUILT at all? Distinguishes
+    // "nobody ran the job" from "built, but nothing earned yet this period".
+    // Without this the two are indistinguishable and both read as Rs.0.
+    withTimeout(db.revenueSchedule.count(), 5000).catch(() => -1),
   ])
 
   const subscriptionRevenue = revenueAgg._sum.amount || 0
@@ -179,6 +191,17 @@ export async function getProfitLoss(year: number, month?: number): Promise<Profi
     revenue: {
       subscriptionRevenue,
       totalRevenue: subscriptionRevenue,
+      // 🐛 (audit 2026-07-26) Recognised revenue comes from RevenueSchedule;
+      // cash comes from Subscription. If cash arrived but nothing was
+      // recognised, the schedule has not been built — the report is not
+      // "Rs.0 revenue", it is "revenue not yet computed". Say so rather than
+      // letting a zero be read as fact.
+      cashReceived,
+      warnings: buildRevenueWarnings(
+        subscriptionRevenue,
+        cashReceived,
+        scheduleRowCount,
+      ),
     },
     costs: {
       aiCosts,
@@ -366,6 +389,54 @@ export async function getCashFlow(year: number, month?: number): Promise<CashFlo
 //   - Email (Resend): $0-20/month
 //
 // Scales with users: more users → more serverless function invocations
+
+/**
+ * Flags the case where cash was collected but no revenue was recognised —
+ * i.e. the revenue-recognition job has not run for this period.
+ *
+ * Without this the P&L renders a confident "Rs.0 revenue" next to real
+ * payment-gateway fees, which is how you end up showing an investor a
+ * financial report for a business that is actually collecting money.
+ */
+export function buildRevenueWarnings(
+  recognisedRevenue: number,
+  cashReceived: number,
+  scheduleRowCount: number,
+): string[] {
+  const warnings: string[] = []
+
+  if (scheduleRowCount === -1) {
+    warnings.push(
+      'Could not determine whether the revenue-recognition schedule exists ' +
+        '(the query failed). Revenue figures on this report are unverified.',
+    )
+    return warnings
+  }
+
+  if (cashReceived > 0 && recognisedRevenue === 0) {
+    if (scheduleRowCount === 0) {
+      // Nobody has ever run the job. Rs.0 here is NOT a fact about the business.
+      warnings.push(
+        'Cash was received but the revenue-recognition schedule has never ' +
+          'been built, so no revenue can be recognised. Run POST ' +
+          '/api/admin/revenue-recognition/recompute. Treat revenue on this ' +
+          'report as UNCOMPUTED, not as zero.',
+      )
+    } else {
+      // The schedule exists; the revenue is simply deferred. This is correct
+      // accrual accounting for subscriptions that started inside this period,
+      // and is informational rather than a defect.
+      warnings.push(
+        'Cash was received but no revenue is recognised yet in this period. ' +
+          'This is expected under accrual accounting when subscriptions ' +
+          'started recently — the revenue is deferred and will be recognised ' +
+          'as each service month elapses.',
+      )
+    }
+  }
+
+  return warnings
+}
 
 /**
  * Returns RUPEES.

@@ -21,6 +21,8 @@ on:
     # lending pipeline was removed for DPDP/RBI regulatory reasons.
     # 12:30 AM UTC (6:00 AM IST) — Churn Predictions (heavy)
     - cron: '30 0 * * *'
+    # 3:00 AM UTC (8:30 AM IST) — Revenue Recognition (after daily stats)
+    - cron: '0 3 * * *'
     # ===== FREQUENT JOBS =====
     # Every 15 minutes — Fraud Rules
     - cron: '*/15 * * * *'
@@ -127,6 +129,36 @@ jobs:
             exit 1
           fi
           echo "✅ Churn predictions computed successfully"
+
+  # 🐛 FIX (audit 2026-07-26): revenue recognition had no schedule at all.
+  # RevenueSchedule rows are written in exactly one place and were only ever
+  # reached by a human clicking "recompute" in the admin UI. The P&L reads
+  # RECOGNISED revenue from RevenueSchedule but cash from Subscription, so the
+  # financial report showed Rs.0 revenue while charging gateway fees on real
+  # cash. Runs after daily-stats. Idempotent: deleteMany per subscription then
+  # createMany, so a re-run produces the same rows.
+  run-revenue-recognition:
+    name: Recompute Revenue Recognition
+    if: github.event.inputs.job == 'revenue-recognition' || github.event.inputs.job == 'all' || (github.event_name == 'schedule' && github.event.schedule == '0 3 * * *')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Trigger revenue recognition recompute
+        run: |
+          echo "🔄 Triggering revenue recognition recompute..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ secrets.ADMIN_URL }}/api/admin/revenue-recognition/recompute" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo "✅ Revenue recognition recomputed successfully"
 
   # ===== FREQUENT JOBS (run every few minutes) =====
 

@@ -66,6 +66,17 @@ const CRON_PATHS = [
   '/api/admin/webhooks/deliver',
   '/api/admin/bulk-jobs/execute',
   '/api/admin/churn-predictions/compute',
+  // 🐛 FIX (audit 2026-07-26): revenue recognition was never scheduled.
+  // RevenueSchedule rows are written in exactly one place
+  // (lib/revenue-recognition.ts -> createMany), reached only by a human
+  // clicking "recompute" in the admin UI. The P&L reads RECOGNISED revenue
+  // from RevenueSchedule while reading cash from Subscription, so until
+  // someone clicked that button the financial report showed Rs.0 revenue
+  // while simultaneously charging payment-gateway fees on real cash.
+  // Verified locally: revenue Rs.0, gatewayFees Rs.109.96 (= 2% of Rs.5,498).
+  // The recompute is idempotent (deleteMany per subscription, then createMany),
+  // so running it daily is safe.
+  '/api/admin/revenue-recognition/recompute',
 ]
 
 function isPublicPath(pathname: string): boolean {
