@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { db } from '@/lib/db'
+import { maskEmail, maskName } from '@/lib/pii'
 
 /**
  * GET /api/admin/activity?range=today|7d|30d&type=all|signup|transaction|ai_call|subscription|admin_action&search=ram&page=1
@@ -106,32 +107,45 @@ export async function GET(req: NextRequest) {
           orderBy: { createdAt: 'desc' },
           take: fetchLimit,
         })
+        // Identifiers are MASKED by default (audit 2026-07-26). A signup is
+        // EkBook's own commercial relationship so the event itself is fine to
+        // show, but the operator does not need the raw address to read a feed.
+        // Unmasking is a separate, reason-logged action.
         addEvents(items, 'signup', '👤', 'text-blue-600',
           (u) => 'New User Signup',
-          (u) => `${u.name || u.email} joined (${u.plan})`,
+          (u) => `${maskName(u.name) || maskEmail(u.email)} joined (${u.plan})`,
           (u) => u.createdAt,
-          (u) => u.email
+          (u) => maskEmail(u.email) ?? undefined
         )
       } catch {}
     }
 
-    if (type === 'all' || type === 'transaction') {
-      try {
-        const items = await db.transaction.findMany({
-          where: { createdAt: { gte: rangeStart } },
-          select: { id: true, type: true, totalAmount: true, createdAt: true,
-            user: { select: { email: true, name: true } } },
-          orderBy: { createdAt: 'desc' },
-          take: fetchLimit,
-        })
-        addEvents(items, 'transaction', '💰', 'text-emerald-600',
-          (t) => t.type === 'sale' ? '💰 Sale' : t.type === 'purchase' ? '🛒 Purchase' : '📋 Transaction',
-          (t) => `₹${t.totalAmount.toFixed(0)} by ${t.user?.name || t.user?.email || 'unknown'}`,
-          (t) => t.createdAt,
-          (t) => t.user?.email
-        )
-      } catch {}
-    }
+    // ⛔ REMOVED (audit 2026-07-26): the per-transaction event feed.
+    //
+    // This block streamed every shopkeeper's individual sales and purchases
+    // into the admin UI, attributed by name and email:
+    //     "💰 Sale — ₹4,200 by ram@kirana.com"
+    //
+    // Two reasons it cannot exist, not one:
+    //
+    //  1. A shopkeeper's ledger is their commercial books. No purpose in the
+    //     consent notice covers an operator watching their trade in real time,
+    //     and DPDP s.6 requires processing to be tied to a specified purpose.
+    //
+    //  2. It exposes THIRD PARTIES. A transaction row identifies the
+    //     shopkeeper's own customer or supplier — people who have no
+    //     relationship with EkBook and never consented to anything. EkBook
+    //     processes their data as the shopkeeper's processor; browsing it is
+    //     not a purpose EkBook can claim on its own behalf.
+    //
+    // The `transaction` COUNT remains in the summary above, which is what a
+    // founder actually needs ("1,240 transactions today"). Aggregate volume is
+    // the useful signal; the identifiable stream was never the useful part.
+    //
+    // Fraud and risk investigation is a separate, lawful purpose — it is served
+    // by scores and alerts in /api/admin/risk and /api/admin/fraud-alerts, with
+    // drill-down gated behind a confirmed alert. Do not restore a general
+    // browsing feed here to serve it.
 
     if (type === 'all' || type === 'ai_call') {
       try {
@@ -146,7 +160,7 @@ export async function GET(req: NextRequest) {
           (a) => `🤖 AI ${a.feature.replace('-', ' ')}`,
           (a) => `${a.provider} ${a.success ? '✓' : '✗'} ₹${a.costInr.toFixed(2)}`,
           (a) => a.createdAt,
-          (a) => a.user?.email
+          (a) => maskEmail(a.user?.email) ?? undefined
         )
       } catch {}
     }
@@ -164,7 +178,7 @@ export async function GET(req: NextRequest) {
           (s) => `👑 ${s.plan.toUpperCase()} Subscription`,
           (s) => `₹${s.amount} ${s.status}`,
           (s) => s.createdAt,
-          (s) => s.User?.email
+          (s) => maskEmail(s.User?.email) ?? undefined
         )
       } catch {}
     }
