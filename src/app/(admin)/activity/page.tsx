@@ -12,10 +12,17 @@ const RANGES = [
   { key: '30d', label: '30 Days' },
 ]
 
+// ⛔ The 'transaction' tab was removed (audit 2026-07-27). The per-transaction
+// event feed is gone — it streamed individual shopkeepers' sales and purchases
+// by name and email, and a transaction row also identifies THEIR customers and
+// suppliers, third parties to EkBook.
+//
+// Leaving the tab in place would have been its own bug: clicking it returned an
+// empty list with no explanation, which reads as "no transactions today".
+// The transaction COUNT is still shown in the summary cards above.
 const TYPES = [
   { key: 'all', label: 'All' },
   { key: 'signup', label: 'Signups' },
-  { key: 'transaction', label: 'Transactions' },
   { key: 'ai_call', label: 'AI Calls' },
   { key: 'subscription', label: 'Subscriptions' },
   { key: 'admin_action', label: 'Admin' },

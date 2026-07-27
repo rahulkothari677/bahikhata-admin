@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
+import { ReportWarnings } from '@/components/admin/degraded-banner'
 import {
   FileBarChart, TrendingUp, Scale, Wallet, Loader2,
   AlertCircle, Calendar, ArrowUp, ArrowDown, Download,
@@ -153,7 +154,17 @@ export default function FinancialReportsPage() {
               <li>• AI costs sourced from <code className="text-[11px] bg-amber-100 dark:bg-amber-900/40 px-1 rounded">AiUsageLog</code> table (actual provider costs)</li>
               <li>• Payment gateway fees estimated at 2% (Razorpay standard domestic rate)</li>
               <li>• Operating expenses estimated based on user count (Vercel + DB + monitoring + domain)</li>
-              <li>• No tax computation (Indian startups &lt; ₹100Cr revenue are tax-exempt under Section 80-IAC)</li>
+              {/* 🔴 CORRECTED (audit 2026-07-27). This previously read:
+                  "Indian startups < ₹100Cr revenue are tax-exempt under
+                  Section 80-IAC". That is materially wrong and a founder could
+                  act on it. 80-IAC is not an exemption and it is not automatic:
+                  it is a DEDUCTION of 100% of profits for 3 consecutive years
+                  chosen out of the first 10, available only to a DPIIT-recognised
+                  eligible startup that applies for and receives the certificate.
+                  The ₹100Cr figure is a turnover ceiling for ELIGIBILITY, not a
+                  threshold below which tax is not owed. MAT/AMT can still apply.
+                  Stating it as blanket exemption invites an unpaid tax bill. */}
+              <li>• No tax computation. Section 80-IAC is a 3-year profit deduction for DPIIT-recognised eligible startups that have applied for and received it — not an automatic exemption. Do not assume it applies.</li>
               <li>• These reports are for internal/investor review — consult a CA for official tax filing</li>
             </ul>
           </div>
@@ -207,6 +218,12 @@ function PnLReport({ report }: { report: any }) {
         />
       </KPIGrid>
 
+      {/* Qualifies the revenue figures. Without this, a P&L reporting Rs.0
+          recognised revenue next to real gateway fees reads as "the business
+          made nothing" — when it usually means the revenue is deferred, or the
+          recognition job has not run. The API says which; show it. */}
+      <ReportWarnings warnings={report.revenue?.warnings} />
+
       {/* Detailed P&L */}
       <ContentCard title="Detailed P&L Breakdown">
         <div className="p-4 space-y-3">
@@ -217,6 +234,16 @@ function PnLReport({ report }: { report: any }) {
               <span className="text-sm">Subscription Revenue (Recognized)</span>
               <span className="text-sm font-medium tabular-nums">{formatINR(report.revenue.subscriptionRevenue)}</span>
             </div>
+            {/* Cash received is a DIFFERENT source (Subscription) from recognised
+                revenue (RevenueSchedule). Showing only one hid the fact that the
+                two disagreed — which is how Rs.0 revenue sat next to Rs.109.96
+                of fees charged on Rs.5,498 of cash. */}
+            {typeof report.revenue?.cashReceived === 'number' && (
+              <div className="flex justify-between py-1 border-b border-border text-muted-foreground">
+                <span className="text-sm">Cash Received (not yet recognised)</span>
+                <span className="text-sm tabular-nums">{formatINR(report.revenue.cashReceived)}</span>
+              </div>
+            )}
             <div className="flex justify-between py-1 font-bold">
               <span className="text-sm">Total Revenue</span>
               <span className="text-sm tabular-nums">{formatINR(report.revenue.totalRevenue)}</span>
