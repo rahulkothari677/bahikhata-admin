@@ -54,7 +54,7 @@ export async function getTableStats(): Promise<TableStats[]> {
       ORDER BY pg_total_relation_size(relid) DESC
     `,
     10000
-  ).catch(() => [])
+  ).catch((e) => { console.error('[fallback] database-admin.ts:', e); return [] })
 
   return (result as any[]).map((r: any) => ({
     name: r.name,

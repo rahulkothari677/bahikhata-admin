@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { assertPageDepth, PageTooDeepError } from '@/lib/pagination'
 import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
@@ -35,7 +36,7 @@ export const GET = withAdmin(
   try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'overview'
-    const page = parseInt(url.searchParams.get('page') || '1', 10)
+    const page = assertPageDepth(url.searchParams.get('page'))
     const search = url.searchParams.get('search') || ''
     const planFilter = url.searchParams.get('plan') || 'all'
     const statusFilter = url.searchParams.get('status') || 'all'
@@ -258,6 +259,14 @@ export const GET = withAdmin(
 
     return NextResponse.json({ error: 'Invalid tab' }, { status: 400 })
   } catch (error) {
+
+    // A page-depth refusal is a CLIENT error carrying a useful message.
+
+    // Re-throw it so withAdmin returns a typed 400; otherwise this
+
+    // handler flattens it into a generic "failed to fetch".
+
+    if (error instanceof PageTooDeepError) throw error
     console.error('Subscriptions API error:', error)
     return NextResponse.json({
       success: false,

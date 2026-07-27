@@ -134,6 +134,52 @@ export async function keysetPaginate<T extends Record<string, unknown>>(
 }
 
 /**
+ * Maximum page number reachable through OFFSET pagination.
+ *
+ * WHY THIS EXISTS RATHER THAN A FULL KEYSET CONVERSION (audit 2026-07-27):
+ * 21 routes still paginate with skip/take. Converting them all would change 21
+ * response shapes AND the 21 pages consuming them — and changing a response
+ * shape without checking its consumers has already caused two regressions in
+ * this codebase, both mine (the users page rendering "undefined", and every
+ * error toast rendering "[object Object]").
+ *
+ * The danger in OFFSET is DEPTH, not OFFSET itself. Postgres materialises and
+ * discards every skipped row, so cost grows linearly with page number: page 3
+ * is free, page 50,000 reads a million rows and holds a connection the
+ * shopkeepers' app needs. Capping depth removes the outage risk without
+ * touching a single response shape.
+ *
+ * 200 pages at 20-100 rows is 4,000-20,000 rows deep — far past where anyone
+ * genuinely browses. Beyond that the honest answer is "filter instead", which
+ * is what the error says. Routes convert to keyset as their UI is touched;
+ * until then this is the guardrail.
+ */
+export const MAX_OFFSET_PAGE = 200
+
+export class PageTooDeepError extends Error {
+  constructor(readonly page: number) {
+    super(
+      `Page ${page} is beyond the maximum of ${MAX_OFFSET_PAGE}. ` +
+        `Deep pagination degrades linearly and would slow the whole database. ` +
+        `Narrow the results with a filter or a date range instead.`,
+    )
+    this.name = 'PageTooDeepError'
+  }
+}
+
+/**
+ * Clamps a caller-supplied page number, throwing past the cap.
+ * Returns 1 for junk input rather than NaN, which becomes NaN*pageSize = NaN
+ * in the skip calculation and makes Prisma throw something unhelpful.
+ */
+export function assertPageDepth(rawPage: string | number | null | undefined): number {
+  const n = typeof rawPage === 'string' ? parseInt(rawPage, 10) : rawPage
+  if (!n || Number.isNaN(n) || n < 1) return 1
+  if (n > MAX_OFFSET_PAGE) throw new PageTooDeepError(n)
+  return n
+}
+
+/**
  * Row-count estimate from the planner's statistics — O(1) regardless of table
  * size, where COUNT(*) is a full scan.
  *

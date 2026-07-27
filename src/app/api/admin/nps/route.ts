@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { assertPageDepth, PageTooDeepError } from '@/lib/pagination'
 import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
@@ -32,7 +33,7 @@ export const GET = withAdmin(
   try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'overview'
-    const page = parseInt(url.searchParams.get('page') || '1', 10)
+    const page = assertPageDepth(url.searchParams.get('page'))
     const search = url.searchParams.get('search') || ''
     const categoryFilter = url.searchParams.get('category') || 'all'
     const pageSize = 20
@@ -171,6 +172,14 @@ export const GET = withAdmin(
       totalPages: Math.max(1, Math.ceil(total / pageSize)),
     })
   } catch (error) {
+
+    // A page-depth refusal is a CLIENT error carrying a useful message.
+
+    // Re-throw it so withAdmin returns a typed 400; otherwise this
+
+    // handler flattens it into a generic "failed to fetch".
+
+    if (error instanceof PageTooDeepError) throw error
     console.error('NPS fetch error:', error)
     return NextResponse.json({
       success: false,

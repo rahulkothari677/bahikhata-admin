@@ -167,7 +167,7 @@ export async function computeChurnPredictions(): Promise<ComputeSummary> {
   const byLevel = { low: 0, medium: 0, high: 0, critical: 0 }
 
   // Get total user count first
-  const userCount = await withTimeout(db.user.count(), 5000).catch(() => 0)
+  const userCount = await withTimeout(db.user.count(), 5000).catch((e) => { console.error('[fallback] churn-prediction.ts:', e); return 0 })
 
   for (let offset = 0; offset < userCount; offset += CHUNK) {
     const users = await withNeonRetry(() =>
@@ -176,7 +176,7 @@ export async function computeChurnPredictions(): Promise<ComputeSummary> {
         take: CHUNK,
         select: { id: true, email: true, name: true, plan: true, createdAt: true, updatedAt: true },
       })
-    ).catch(() => [])
+    ).catch((e) => { console.error('[fallback] churn-prediction.ts:', e); return [] })
 
     if (users.length === 0) break
 
@@ -190,7 +190,7 @@ export async function computeChurnPredictions(): Promise<ComputeSummary> {
         where: { userId: { in: userIds } },
         _max: { createdAt: true },
       })
-    ).catch(() => [])
+    ).catch((e) => { console.error('[fallback] churn-prediction.ts:', e); return [] })
 
     // AI usage last 7 days
     const aiLast7d = await withNeonRetry(() =>
@@ -199,7 +199,7 @@ export async function computeChurnPredictions(): Promise<ComputeSummary> {
         where: { userId: { in: userIds }, createdAt: { gte: sevenDaysAgo } },
         _count: true,
       })
-    ).catch(() => [])
+    ).catch((e) => { console.error('[fallback] churn-prediction.ts:', e); return [] })
 
     // AI usage previous 7 days (7-14 days ago)
     const aiPrev7d = await withNeonRetry(() =>
@@ -208,7 +208,7 @@ export async function computeChurnPredictions(): Promise<ComputeSummary> {
         where: { userId: { in: userIds }, createdAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo } },
         _count: true,
       })
-    ).catch(() => [])
+    ).catch((e) => { console.error('[fallback] churn-prediction.ts:', e); return [] })
 
     // Open support tickets per user
     const openTickets = await withNeonRetry(() =>
@@ -217,7 +217,7 @@ export async function computeChurnPredictions(): Promise<ComputeSummary> {
         where: { userId: { in: userIds }, status: { in: ['open', 'in_progress'] } },
         _count: true,
       })
-    ).catch(() => [])
+    ).catch((e) => { console.error('[fallback] churn-prediction.ts:', e); return [] })
 
     // Build lookup maps
     const lastTxnMap = new Map<string, Date>()

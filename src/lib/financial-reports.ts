@@ -127,7 +127,7 @@ export async function getProfitLoss(year: number, month?: number): Promise<Profi
         _sum: { amount: true },
       }),
       5000
-    ).catch(() => ({ _sum: { amount: 0 } })),
+    ).catch((e) => { console.error('[fallback] financial-reports.ts:', e); return ({ _sum: { amount: 0 } }) }),
 
     // AI costs in this period (COGS)
     withTimeout(
@@ -136,7 +136,7 @@ export async function getProfitLoss(year: number, month?: number): Promise<Profi
         _sum: { costInr: true },
       }),
       5000
-    ).catch(() => ({ _sum: { costInr: 0 } })),
+    ).catch((e) => { console.error('[fallback] financial-reports.ts:', e); return ({ _sum: { costInr: 0 } }) }),
 
     // Cash received from subscriptions in this period (for payment gateway fee calc)
     withTimeout(
@@ -145,12 +145,12 @@ export async function getProfitLoss(year: number, month?: number): Promise<Profi
         _sum: { amount: true },
       }),
       5000
-    ).catch(() => ({ _sum: { amount: 0 } })),
+    ).catch((e) => { console.error('[fallback] financial-reports.ts:', e); return ({ _sum: { amount: 0 } }) }),
 
     // Has the recognition schedule been BUILT at all? Distinguishes
     // "nobody ran the job" from "built, but nothing earned yet this period".
     // Without this the two are indistinguishable and both read as Rs.0.
-    withTimeout(db.revenueSchedule.count(), 5000).catch(() => -1),
+    withTimeout(db.revenueSchedule.count(), 5000).catch((e) => { console.error('[fallback] financial-reports.ts:', e); return -1 }),
   ])
 
   const subscriptionRevenue = revenueAgg._sum.amount || 0
@@ -171,7 +171,7 @@ export async function getProfitLoss(year: number, month?: number): Promise<Profi
 
   // Operating expenses (estimated — server, database, monitoring, domains)
   // These are real costs not tracked in DB, so we estimate based on user count
-  const userCount = await withTimeout(db.user.count(), 5000).catch(() => 0)
+  const userCount = await withTimeout(db.user.count(), 5000).catch((e) => { console.error('[fallback] financial-reports.ts:', e); return 0 })
   const totalOpex = estimateOpex(userCount)
 
   const operatingIncome = grossProfit - totalOpex
@@ -232,13 +232,13 @@ export async function getBalanceSheet(asOfDate?: Date): Promise<BalanceSheetRepo
     withTimeout(
       db.subscription.aggregate({ _sum: { amount: true } }),
       5000
-    ).catch(() => ({ _sum: { amount: 0 } })),
+    ).catch((e) => { console.error('[fallback] financial-reports.ts:', e); return ({ _sum: { amount: 0 } }) }),
 
     // Total AI costs (all time)
     withTimeout(
       db.aiUsageLog.aggregate({ _sum: { costInr: true } }),
       5000
-    ).catch(() => ({ _sum: { costInr: 0 } })),
+    ).catch((e) => { console.error('[fallback] financial-reports.ts:', e); return ({ _sum: { costInr: 0 } }) }),
 
     // Total gateway fees (2% of cash received) — computed from cashReceived above
     Promise.resolve(0),
@@ -250,7 +250,7 @@ export async function getBalanceSheet(asOfDate?: Date): Promise<BalanceSheetRepo
         _sum: { amount: true },
       }),
       5000
-    ).catch(() => ({ _sum: { amount: 0 } })),
+    ).catch((e) => { console.error('[fallback] financial-reports.ts:', e); return ({ _sum: { amount: 0 } }) }),
 
     // Total recognized revenue (all time)
     withTimeout(
@@ -259,10 +259,10 @@ export async function getBalanceSheet(asOfDate?: Date): Promise<BalanceSheetRepo
         _sum: { amount: true },
       }),
       5000
-    ).catch(() => ({ _sum: { amount: 0 } })),
+    ).catch((e) => { console.error('[fallback] financial-reports.ts:', e); return ({ _sum: { amount: 0 } }) }),
 
     // User count for opex estimation
-    withTimeout(db.user.count(), 5000).catch(() => 0),
+    withTimeout(db.user.count(), 5000).catch((e) => { console.error('[fallback] financial-reports.ts:', e); return 0 }),
   ])
 
   const cashReceived = totalCashReceived._sum.amount || 0
@@ -337,7 +337,7 @@ export async function getCashFlow(year: number, month?: number): Promise<CashFlo
         _sum: { amount: true },
       }),
       5000
-    ).catch(() => ({ _sum: { amount: 0 } })),
+    ).catch((e) => { console.error('[fallback] financial-reports.ts:', e); return ({ _sum: { amount: 0 } }) }),
 
     // AI costs paid in period
     withTimeout(
@@ -346,7 +346,7 @@ export async function getCashFlow(year: number, month?: number): Promise<CashFlo
         _sum: { costInr: true },
       }),
       5000
-    ).catch(() => ({ _sum: { costInr: 0 } })),
+    ).catch((e) => { console.error('[fallback] financial-reports.ts:', e); return ({ _sum: { costInr: 0 } }) }),
   ])
 
   const cashFromSubscriptions = cashFromSubsAgg._sum.amount || 0

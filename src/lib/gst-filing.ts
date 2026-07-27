@@ -75,7 +75,7 @@ export async function generateGstReport(year: number, month: number): Promise<Gs
       },
       take: 50000,
     })
-  ).catch(() => [])
+  ).catch((e) => { console.error('[fallback] gst-filing.ts:', e); return [] })
 
   // Aggregate
   let totalTaxableValue = 0
@@ -182,7 +182,7 @@ export async function getGstOverview() {
         _count: true,
       }),
       5000
-    ).catch(() => ({ _sum: { cgst: 0, sgst: 0, igst: 0 }, _count: 0 })),
+    ).catch((e) => { console.error('[fallback] gst-filing.ts:', e); return ({ _sum: { cgst: 0, sgst: 0, igst: 0 }, _count: 0 }) }),
     withTimeout(
       db.transaction.aggregate({
         where: { createdAt: { gte: lastMonthStart, lt: thisMonthStart }, type: 'sale' },
@@ -190,18 +190,18 @@ export async function getGstOverview() {
         _count: true,
       }),
       5000
-    ).catch(() => ({ _sum: { cgst: 0, sgst: 0, igst: 0 }, _count: 0 })),
+    ).catch((e) => { console.error('[fallback] gst-filing.ts:', e); return ({ _sum: { cgst: 0, sgst: 0, igst: 0 }, _count: 0 }) }),
     withTimeout(
       db.user.count({ where: { transactions: { some: { OR: [{ cgst: { gt: 0 } }, { sgst: { gt: 0 } }, { igst: { gt: 0 } }] } } } }),
       5000
-    ).catch(() => 0),
+    ).catch((e) => { console.error('[fallback] gst-filing.ts:', e); return 0 }),
     withTimeout(
       db.transaction.aggregate({
         where: { type: 'sale' },
         _sum: { cgst: true, sgst: true, igst: true },
       }),
       5000
-    ).catch(() => ({ _sum: { cgst: 0, sgst: 0, igst: 0 } })),
+    ).catch((e) => { console.error('[fallback] gst-filing.ts:', e); return ({ _sum: { cgst: 0, sgst: 0, igst: 0 } }) }),
   ])
 
   const thisMonthGst = (thisMonthTxns._sum.cgst || 0) + (thisMonthTxns._sum.sgst || 0) + (thisMonthTxns._sum.igst || 0)

@@ -78,7 +78,7 @@ export async function computeRevenueSchedule(subscriptionId: string): Promise<{
       },
     }),
     5000
-  ).catch(() => null)
+  ).catch((e) => { console.error('[fallback] revenue-recognition.ts:', e); return null })
 
   if (!subscription) {
     throw new Error('Subscription not found')
@@ -184,7 +184,7 @@ export async function computeAllRevenueSchedules(): Promise<{
       select: { id: true },
     }),
     10000
-  ).catch(() => [])
+  ).catch((e) => { console.error('[fallback] revenue-recognition.ts:', e); return [] })
 
   let totalEntries = 0
 
@@ -225,7 +225,7 @@ export async function getRevenueOverview(): Promise<RevenueOverview> {
         _sum: { amount: true },
       }),
       5000
-    ).catch(() => ({ _sum: { amount: 0 } })),
+    ).catch((e) => { console.error('[fallback] revenue-recognition.ts:', e); return ({ _sum: { amount: 0 } }) }),
 
     // Total recognized (past periods)
     withTimeout(
@@ -234,7 +234,7 @@ export async function getRevenueOverview(): Promise<RevenueOverview> {
         _sum: { amount: true },
       }),
       5000
-    ).catch(() => ({ _sum: { amount: 0 } })),
+    ).catch((e) => { console.error('[fallback] revenue-recognition.ts:', e); return ({ _sum: { amount: 0 } }) }),
 
     // Current month revenue
     withTimeout(
@@ -243,19 +243,19 @@ export async function getRevenueOverview(): Promise<RevenueOverview> {
         _sum: { amount: true },
       }),
       5000
-    ).catch(() => ({ _sum: { amount: 0 } })),
+    ).catch((e) => { console.error('[fallback] revenue-recognition.ts:', e); return ({ _sum: { amount: 0 } }) }),
 
     // Count of pending periods
-    withTimeout(db.revenueSchedule.count({ where: { status: 'pending' } }), 5000).catch(() => 0),
+    withTimeout(db.revenueSchedule.count({ where: { status: 'pending' } }), 5000).catch((e) => { console.error('[fallback] revenue-recognition.ts:', e); return 0 }),
 
     // Count of recognized periods
-    withTimeout(db.revenueSchedule.count({ where: { status: 'recognized' } }), 5000).catch(() => 0),
+    withTimeout(db.revenueSchedule.count({ where: { status: 'recognized' } }), 5000).catch((e) => { console.error('[fallback] revenue-recognition.ts:', e); return 0 }),
 
     // Total scheduled
     withTimeout(
       db.revenueSchedule.aggregate({ _sum: { amount: true } }),
       5000
-    ).catch(() => ({ _sum: { amount: 0 } })),
+    ).catch((e) => { console.error('[fallback] revenue-recognition.ts:', e); return ({ _sum: { amount: 0 } }) }),
   ])
 
   return {
@@ -292,7 +292,7 @@ export async function getMonthlyBreakdown(months: number = 12): Promise<MonthlyB
         _sum: { amount: true },
       }),
       5000
-    ).catch(() => ({ _sum: { amount: 0 } }))
+    ).catch((e) => { console.error('[fallback] revenue-recognition.ts:', e); return ({ _sum: { amount: 0 } }) })
 
     // Deferred at end of this month (pending + current periods starting after monthEnd)
     const deferredAgg = await withTimeout(
@@ -304,7 +304,7 @@ export async function getMonthlyBreakdown(months: number = 12): Promise<MonthlyB
         _sum: { amount: true },
       }),
       5000
-    ).catch(() => ({ _sum: { amount: 0 } }))
+    ).catch((e) => { console.error('[fallback] revenue-recognition.ts:', e); return ({ _sum: { amount: 0 } }) })
 
     // Count entries
     const entryCount = await withTimeout(
@@ -314,7 +314,7 @@ export async function getMonthlyBreakdown(months: number = 12): Promise<MonthlyB
         },
       }),
       5000
-    ).catch(() => 0)
+    ).catch((e) => { console.error('[fallback] revenue-recognition.ts:', e); return 0 })
 
     result.push({
       month: monthKey,

@@ -77,7 +77,7 @@ export async function assignUser(
       },
       select: { variantKey: true },
     })
-  ).catch(() => null)
+  ).catch((e) => { console.error('[fallback] ab-testing.ts:', e); return null })
 
   if (existing) {
     return { variantKey: existing.variantKey, assigned: true }
@@ -89,7 +89,7 @@ export async function assignUser(
       where: { id: experimentId },
       select: { status: true, trafficPct: true, variants: true },
     })
-  ).catch(() => null)
+  ).catch((e) => { console.error('[fallback] ab-testing.ts:', e); return null })
 
   if (!experiment || experiment.status !== 'running') {
     return { variantKey: null, assigned: false }
@@ -145,7 +145,7 @@ export async function assignUser(
         },
         select: { variantKey: true },
       })
-    ).catch(() => null)
+    ).catch((e) => { console.error('[fallback] ab-testing.ts:', e); return null })
     return { variantKey: existing2?.variantKey || null, assigned: !!existing2 }
   }
 
@@ -189,7 +189,7 @@ export async function getExperimentResults(experimentId: string): Promise<Experi
       where: { id: experimentId },
       select: { status: true, variants: true, winnerVariant: true },
     })
-  ).catch(() => null)
+  ).catch((e) => { console.error('[fallback] ab-testing.ts:', e); return null })
 
   if (!experiment) return null
 
@@ -206,7 +206,7 @@ export async function getExperimentResults(experimentId: string): Promise<Experi
       _count: true,
       _sum: { conversionValue: true },
     })
-  ).catch(() => [])
+  ).catch((e) => { console.error('[fallback] ab-testing.ts:', e); return [] })
 
   // Fetch conversion counts per variant
   const convertedRaw = await withNeonRetry(() =>
@@ -215,7 +215,7 @@ export async function getExperimentResults(experimentId: string): Promise<Experi
       where: { experimentId, convertedAt: { not: null } },
       _count: true,
     })
-  ).catch(() => [])
+  ).catch((e) => { console.error('[fallback] ab-testing.ts:', e); return [] })
 
   // Build lookup maps
   const statsMap = new Map<string, { count: number; totalValue: number }>()

@@ -114,7 +114,7 @@ export async function dispatchEvent(
       where: { status: 'active' },
     }),
     5000
-  ).catch(() => [])
+  ).catch((e) => { console.error('[fallback] webhook-engine.ts:', e); return [] })
 
   const deliveryIds: string[] = []
 
@@ -163,7 +163,7 @@ export async function sendDelivery(deliveryId: string): Promise<{
       include: { endpoint: true },
     }),
     5000
-  ).catch(() => null)
+  ).catch((e) => { console.error('[fallback] webhook-engine.ts:', e); return null })
 
   if (!delivery || !delivery.endpoint) {
     return { success: false, status: 'failed', error: 'Delivery or endpoint not found' }
@@ -341,7 +341,7 @@ export async function processPendingDeliveries(): Promise<{
       orderBy: { createdAt: 'asc' },
     }),
     5000
-  ).catch(() => [])
+  ).catch((e) => { console.error('[fallback] webhook-engine.ts:', e); return [] })
 
   let processed = 0
   let succeeded = 0

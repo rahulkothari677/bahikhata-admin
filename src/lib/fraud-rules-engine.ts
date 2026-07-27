@@ -102,7 +102,7 @@ async function evalTransactionCount(params: EvaluatorParams): Promise<UserMetric
       _count: true,
     }),
     10000
-  ).catch(() => [])
+  ).catch((e) => { console.error('[fallback] fraud-rules-engine.ts:', e); return [] })
 
   return (groups as any[])
     .map((g: any) => ({ userId: g.userId, value: g._count }))
@@ -135,7 +135,7 @@ async function evalTransactionAmount(params: EvaluatorParams): Promise<UserMetri
       _sum: { totalAmount: true },
     }),
     10000
-  ).catch(() => [])
+  ).catch((e) => { console.error('[fallback] fraud-rules-engine.ts:', e); return [] })
 
   return (groups as any[])
     .map((g: any) => ({ userId: g.userId, value: g._sum.totalAmount || 0 }))
@@ -158,7 +158,7 @@ async function evalAiCallCount(params: EvaluatorParams): Promise<UserMetric[]> {
       _count: true,
     }),
     10000
-  ).catch(() => [])
+  ).catch((e) => { console.error('[fallback] fraud-rules-engine.ts:', e); return [] })
 
   return (groups as any[])
     .map((g: any) => ({ userId: g.userId, value: g._count }))
@@ -183,7 +183,7 @@ async function evalLoginFailureCount(params: EvaluatorParams): Promise<UserMetri
       _count: true,
     }),
     10000
-  ).catch(() => [])
+  ).catch((e) => { console.error('[fallback] fraud-rules-engine.ts:', e); return [] })
 
   // For login failures, "userId" is actually the IP address
   return (groups as any[])
@@ -213,7 +213,7 @@ async function evalNewUserWithActivity(params: EvaluatorParams): Promise<UserMet
       select: { id: true, name: true, email: true },
     }),
     10000
-  ).catch(() => [])
+  ).catch((e) => { console.error('[fallback] fraud-rules-engine.ts:', e); return [] })
 
   if (newUsers.length === 0) return []
 
@@ -232,7 +232,7 @@ async function evalNewUserWithActivity(params: EvaluatorParams): Promise<UserMet
         _count: true,
       }),
       10000
-    ).catch(() => [])
+    ).catch((e) => { console.error('[fallback] fraud-rules-engine.ts:', e); return [] })
 
     for (const g of groups as any[]) {
       if (matchesOperator(g._count, params.threshold, params.operator)) {
@@ -310,7 +310,7 @@ export async function evaluateAllRules(): Promise<EvaluationSummary> {
   const rules = await withTimeout(
     db.fraudRule.findMany({ where: { enabled: true } }),
     5000
-  ).catch(() => [])
+  ).catch((e) => { console.error('[fallback] fraud-rules-engine.ts:', e); return [] })
 
   if (rules.length === 0) {
     return {
@@ -362,7 +362,7 @@ export async function evaluateAllRules(): Promise<EvaluationSummary> {
               select: { id: true },
             }),
             5000
-          ).catch(() => null)
+          ).catch((e) => { console.error('[fallback] fraud-rules-engine.ts:', e); return null })
 
           if (existing) continue // Already alerted, skip
 
@@ -376,7 +376,7 @@ export async function evaluateAllRules(): Promise<EvaluationSummary> {
                 select: { name: true, email: true },
               }),
               5000
-            ).catch(() => null)
+            ).catch((e) => { console.error('[fallback] fraud-rules-engine.ts:', e); return null })
             userName = user?.name || null
             userEmail = user?.email || null
           }

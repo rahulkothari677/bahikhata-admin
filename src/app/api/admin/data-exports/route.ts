@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { assertPageDepth, PageTooDeepError } from '@/lib/pagination'
 import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout, withNeonRetry } from '@/lib/resilience'
@@ -13,7 +14,7 @@ export const GET = withAdmin(
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'list'
     const status = url.searchParams.get('status') || 'all'
-    const page = parseInt(url.searchParams.get('page') || '1', 10)
+    const page = assertPageDepth(url.searchParams.get('page'))
     const pageSize = 20
 
     if (tab === 'overview') {
@@ -60,6 +61,14 @@ export const GET = withAdmin(
       totalPages: Math.max(1, Math.ceil(total / pageSize)),
     })
   } catch (error) {
+
+    // A page-depth refusal is a CLIENT error carrying a useful message.
+
+    // Re-throw it so withAdmin returns a typed 400; otherwise this
+
+    // handler flattens it into a generic "failed to fetch".
+
+    if (error instanceof PageTooDeepError) throw error
     return NextResponse.json({ error: 'Failed to fetch exports' }, { status: 500 })
   }
 },

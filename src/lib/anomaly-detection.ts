@@ -78,7 +78,7 @@ const METRICS: MetricConfig[] = [
           ORDER BY DATE("createdAt")
         `,
         10000
-      ).catch(() => [])
+      ).catch((e) => { console.error('[fallback] anomaly-detection.ts:', e); return [] })
       return (result as any[]).map(r => ({ date: r.date.toISOString(), value: r.value }))
     },
   },
@@ -100,7 +100,7 @@ const METRICS: MetricConfig[] = [
           ORDER BY DATE("createdAt")
         `,
         10000
-      ).catch(() => [])
+      ).catch((e) => { console.error('[fallback] anomaly-detection.ts:', e); return [] })
       return (result as any[]).map(r => ({ date: r.date.toISOString(), value: r.value }))
     },
   },
@@ -122,7 +122,7 @@ const METRICS: MetricConfig[] = [
           ORDER BY DATE("createdAt")
         `,
         10000
-      ).catch(() => [])
+      ).catch((e) => { console.error('[fallback] anomaly-detection.ts:', e); return [] })
       return (result as any[]).map(r => ({ date: r.date.toISOString(), value: r.value }))
     },
   },
@@ -142,7 +142,7 @@ const METRICS: MetricConfig[] = [
           ORDER BY DATE("createdAt")
         `,
         10000
-      ).catch(() => [])
+      ).catch((e) => { console.error('[fallback] anomaly-detection.ts:', e); return [] })
       return (result as any[]).map(r => ({ date: r.date.toISOString(), value: r.value }))
     },
   },
@@ -162,7 +162,7 @@ const METRICS: MetricConfig[] = [
           ORDER BY DATE("createdAt")
         `,
         10000
-      ).catch(() => [])
+      ).catch((e) => { console.error('[fallback] anomaly-detection.ts:', e); return [] })
       return (result as any[]).map(r => ({ date: r.date.toISOString(), value: r.value }))
     },
   },
@@ -182,7 +182,7 @@ const METRICS: MetricConfig[] = [
           ORDER BY DATE("createdAt")
         `,
         10000
-      ).catch(() => [])
+      ).catch((e) => { console.error('[fallback] anomaly-detection.ts:', e); return [] })
       return (result as any[]).map(r => ({ date: r.date.toISOString(), value: r.value }))
     },
   },
@@ -202,7 +202,7 @@ const METRICS: MetricConfig[] = [
           ORDER BY DATE("createdAt")
         `,
         10000
-      ).catch(() => [])
+      ).catch((e) => { console.error('[fallback] anomaly-detection.ts:', e); return [] })
       return (result as any[]).map(r => ({ date: r.date.toISOString(), value: r.value }))
     },
   },
@@ -313,7 +313,7 @@ export async function detectAnomalies(): Promise<{
           select: { id: true },
         }),
         5000
-      ).catch(() => null)
+      ).catch((e) => { console.error('[fallback] anomaly-detection.ts:', e); return null })
 
       if (existing) continue // Already detected, skip
 

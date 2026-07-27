@@ -17,7 +17,7 @@ import { db } from '@/lib/db'
 export const GET = withAdmin(
   'admin/revenue',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
     const now = new Date()
 
     // ===== 1. COHORT RETENTION (last 8 weeks) =====
@@ -160,24 +160,55 @@ export const GET = withAdmin(
     }
 
     // ===== 5. PAYMENT SUCCESS/FAILURE RATES =====
-    const allSubscriptions = await db.subscription.findMany({
-      select: { status: true, amount: true, createdAt: true },
-    })
+    // 📊 SCALE (audit 2026-07-27). This loaded EVERY subscription row ever
+    // created into memory — with no take, no where — purely to count them by
+    // status in JavaScript. On a Vercel function with 1GB and no swap, that is
+    // an out-of-memory crash the moment the table gets large, and it grows
+    // with the business rather than with the query.
+    //
+    // groupBy does the same work in the database and returns one row per
+    // status, regardless of whether there are a hundred subscriptions or ten
+    // million.
+    const statusCounts = await db.subscription.groupBy({
+      by: ['status'],
+      _count: { _all: true },
+    }).catch(ctx.degrade('subscription.groupBy', [] as Array<{ status: string; _count: { _all: number } }>))
 
-    const successfulPayments = allSubscriptions.filter(s => s.status === 'active').length
-    const cancelledPayments = allSubscriptions.filter(s => s.status === 'cancelled').length
-    const expiredPayments = allSubscriptions.filter(s => s.status === 'expired').length
-    const paymentSuccessRate = allSubscriptions.length > 0
-      ? (successfulPayments / allSubscriptions.length) * 100
+    const countFor = (s: string) =>
+      statusCounts.find((r: any) => r.status === s)?._count?._all ?? 0
+
+    const successfulPayments = countFor('active')
+    const cancelledPayments = countFor('cancelled')
+    const expiredPayments = countFor('expired')
+    const totalSubscriptionCount = (statusCounts as any[]).reduce<number>(
+      (sum, r) => sum + (r._count?._all ?? 0), 0,
+    )
+    const paymentSuccessRate = totalSubscriptionCount > 0
+      ? (successfulPayments / totalSubscriptionCount) * 100
       : 0
 
     // ===== 6. MRR/ARR BREAKDOWN =====
+    // 🐛 FIX (audit 2026-07-27). `pro` and `elite` were computed with the
+    // IDENTICAL filter expression — both summed monthly-duration subscriptions
+    // regardless of plan — so the two lines of the breakdown always showed the
+    // SAME number. The trailing comment ("real breakdown would check the plan
+    // field") described the bug without fixing it, and the plan field it names
+    // was sitting right there on the model.
+    //
+    // A revenue breakdown where every row is the same figure is worse than no
+    // breakdown: it looks like data.
+    const planBreakdown = await db.subscription.groupBy({
+      by: ['plan'],
+      where: { status: 'active' },
+      _sum: { amount: true },
+    }).catch(ctx.degrade('subscription.groupBy.plan', [] as Array<{ plan: string; _sum: { amount: number | null } }>))
+
+    const sumForPlan = (p: string) =>
+      planBreakdown.find((r: any) => r.plan === p)?._sum?.amount ?? 0
+
     const mrrBreakdown = {
-      pro: activeSubscriptions.filter(s => s.endDate.getTime() - s.startDate.getTime() <= 60 * 24 * 60 * 60 * 1000)
-        .reduce((sum, s) => sum + s.amount, 0),
-      elite: activeSubscriptions.filter(s => s.endDate.getTime() - s.startDate.getTime() <= 60 * 24 * 60 * 60 * 1000)
-        .reduce((sum, s) => sum + s.amount, 0),
-      // Simplified — real breakdown would check the plan field
+      pro: sumForPlan('pro'),
+      elite: sumForPlan('elite'),
     }
 
     const arr = totalActiveRevenue * 12
@@ -240,9 +271,15 @@ export const GET = withAdmin(
         growthRate: Math.round(growthRate * 10) / 10,
         projections: forecast,
         arr: Math.round(arr),
+        // 🐛 (audit 2026-07-27) mrrBreakdown was computed and then never
+        // returned — dead code the response never carried. Fixing its
+        // duplicate-plan bug alone would have changed nothing anyone could
+        // see, which is its own trap: the calculation looks correct in review
+        // while the screen shows nothing. Now actually returned.
+        mrrBreakdown,
       },
       payments: {
-        total: allSubscriptions.length,
+        total: totalSubscriptionCount,
         successful: successfulPayments,
         cancelled: cancelledPayments,
         expired: expiredPayments,

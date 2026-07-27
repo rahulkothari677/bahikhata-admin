@@ -4,6 +4,7 @@ import { randomUUID, timingSafeEqual } from 'crypto'
 import { authOptions } from './auth'
 import { db } from './db'
 import { logAdminAction } from './audit'
+import { PageTooDeepError } from './pagination'
 import {
   ROUTE_POLICY,
   isRoleAllowed,
@@ -329,6 +330,12 @@ export function withAdmin(routeKey: string, handler: Handler) {
       }
       return res
     } catch (err) {
+      // A page-depth refusal is the caller's mistake, not a server fault, and
+      // the message tells them what to do instead. Surfacing it as a generic
+      // 500 would send an operator hunting a bug that does not exist.
+      if (err instanceof PageTooDeepError) {
+        return fail(400, 'PAGE_TOO_DEEP', err.message, requestId)
+      }
       // Log the detail; return none of it.
       console.error(`[with-admin] ${routeKey} ${method} failed (${requestId}):`, err)
       return fail(500, 'INTERNAL_ERROR', 'Something went wrong.', requestId)
