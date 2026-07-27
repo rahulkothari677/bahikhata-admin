@@ -299,22 +299,49 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'admin/database/export': { POST: [], stepUp: true, purpose: 'Export query results', pii: 'third-party', lawfulBasis: LEGIT_OPS, verdict: 'constrain', note: 'Must stream, not buffer.' },
   'admin/gst-filing': { GET: ['finance'], purpose: 'Compute GST figures from data the user already owns', pii: 'third-party', lawfulBasis: CONTRACT, verdict: 'constrain', note: 'Computation only. Transmission to GSTN requires a licensed GSP — never store portal credentials.' },
 
-  // ─── ⛔ REMOVE — no lawful basis ──────────────────────────────────────
+}
+
+/**
+ * WITHDRAWN CAPABILITIES — the permanent record of what was removed and why.
+ *
+ * These are NOT in ROUTE_POLICY because their route files no longer exist, and
+ * the CI guard fails on any policy entry naming a route that is absent. But the
+ * reasoning must outlive the code: without it, a future contributor sees a gap
+ * in the product and helpfully rebuilds the thing a regulator would fine you for.
+ *
+ * A test asserts this record stays non-empty and that none of these paths comes
+ * back as a live route.
+ */
+export const WITHDRAWN_CAPABILITIES: Record<
+  string,
+  { removedOn: string; reason: string; rebuildableIf?: string }
+> = {
   'admin/account-aggregator': {
-    GET: [], POST: [],
-    purpose: '⛔ NONE THAT EKBOOK CAN CLAIM',
-    pii: 'third-party',
-    lawfulBasis: '⛔ NONE — an RBI Account Aggregator FIU must itself be regulated by RBI/SEBI/IRDAI/PFRDA. EkBook is a bookkeeping SaaS and is not eligible.',
-    verdict: 'remove',
-    note: 'Also inverts consent: an ADMIN initiates the consent request on the user\'s behalf. Under the AA framework the customer grants consent in the AA\'s own app. Delete routes, page and lib; record an ADR.',
+    removedOn: '2026-07-26',
+    reason:
+      'EkBook cannot lawfully be an Account Aggregator Financial Information User. ' +
+      'Under the RBI AA framework an FIU must itself be regulated by RBI, SEBI, IRDAI or PFRDA. ' +
+      'EkBook is a bookkeeping SaaS and is not eligible for that designation. ' +
+      'The implementation also inverted consent: an ADMIN initiated the consent request on ' +
+      "the user's behalf, whereas the framework requires the customer to grant consent inside " +
+      "the Account Aggregator's own application. Consent obtained the way this code obtained " +
+      'it would not be valid consent under either the AA Master Directions or DPDP s.6.',
+    rebuildableIf:
+      'EkBook obtains an RBI/SEBI/IRDAI/PFRDA registration that makes it FIU-eligible, AND the ' +
+      'consent journey moves into a licensed AA app. Until both hold, do not rebuild this.',
   },
   'admin/supplier-intelligence': {
-    GET: [], POST: [],
-    purpose: '⛔ Aggregating shopkeepers\' purchase data into a supplier product',
-    pii: 'third-party',
-    lawfulBasis: '⛔ NONE — a NEW purpose not covered by the bookkeeping consent, and it processes suppliers\' data: third parties who consented to nothing.',
-    verdict: 'remove',
-    note: 'Rebuildable only as opt-in, genuinely aggregate, k-anonymity >= 5, and disclosed in the notice.',
+    removedOn: '2026-07-26',
+    reason:
+      "Aggregating shopkeepers' purchase records into a saleable supplier product is a NEW " +
+      'PURPOSE, not covered by the consent given for bookkeeping. DPDP s.6 requires consent to ' +
+      'be for a specified purpose, so the existing consent cannot carry it. It also processes ' +
+      "SUPPLIERS' data — third parties with no relationship to EkBook who consented to nothing " +
+      'and have no way to object.',
+    rebuildableIf:
+      'It becomes explicit opt-in with its own notice, genuinely aggregate (k-anonymity >= 5 so ' +
+      'no individual shop or supplier is identifiable), and disclosed in the privacy policy ' +
+      'before any data is collected for it.',
   },
 }
 

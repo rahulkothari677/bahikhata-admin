@@ -120,8 +120,6 @@ const NAV_STRUCTURE: NavGroup[] = [
       // as a regulatory risk (DPDP + RBI Digital Lending Directions).
       // The code, models, pages, and API routes were all deleted.
       // Re-add only after building lending properly with consent + NBFC contract.
-      { label: 'Supplier Intelligence', href: '/supplier-intelligence', icon: Package },
-      { label: 'Account Aggregator', href: '/account-aggregator', icon: Landmark },
       { label: 'Anomaly Detection', href: '/anomalies', icon: Activity },
       { label: 'API Keys', href: '/api-keys', icon: Key },
       { label: 'Webhooks', href: '/webhooks', icon: Webhook },

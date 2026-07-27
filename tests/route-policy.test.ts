@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, statSync } from 'fs'
 import { join, relative, sep } from 'path'
 import {
   ROUTE_POLICY,
+  WITHDRAWN_CAPABILITIES,
   isRoleAllowed,
   buildProcessingRegister,
   type AdminRole,
@@ -183,17 +184,37 @@ describe('role enforcement', () => {
 })
 
 describe('withdrawn capabilities', () => {
-  it('account-aggregator is marked for removal with the legal reason recorded', () => {
-    const p = ROUTE_POLICY['admin/account-aggregator']
-    expect(p.verdict).toBe('remove')
-    expect(p.lawfulBasis).toMatch(/RBI|SEBI|IRDAI|PFRDA/)
+  it('records why account-aggregator was removed, in enough detail to prevent a rebuild', () => {
+    const w = WITHDRAWN_CAPABILITIES['admin/account-aggregator']
+    expect(w).toBeDefined()
+    // The specific reason matters: "we deleted it" invites someone to add it back.
+    expect(w.reason).toMatch(/RBI|SEBI|IRDAI|PFRDA/)
+    expect(w.reason).toMatch(/consent/i)
+    expect(w.rebuildableIf).toBeTruthy()
   })
 
-  it('supplier-intelligence is marked for removal', () => {
-    expect(ROUTE_POLICY['admin/supplier-intelligence'].verdict).toBe('remove')
+  it('records why supplier-intelligence was removed', () => {
+    const w = WITHDRAWN_CAPABILITIES['admin/supplier-intelligence']
+    expect(w).toBeDefined()
+    expect(w.reason).toMatch(/new purpose/i)
+    expect(w.rebuildableIf).toMatch(/k-anonymity/i)
   })
 
-  it('no removed route grants access to any role', () => {
+  it('no withdrawn capability has come back as a live route', () => {
+    // The real risk is not the deletion — it is the quiet re-addition six
+    // months later by someone who sees a gap in the product.
+    const live = new Set(routeFiles.map(routeKeyFor))
+    for (const key of Object.keys(WITHDRAWN_CAPABILITIES)) {
+      expect(
+        live.has(key),
+        `${key} was withdrawn for legal reasons but a route file exists again. ` +
+          `See WITHDRAWN_CAPABILITIES in src/lib/route-policy.ts before restoring it.`,
+      ).toBe(false)
+      expect(ROUTE_POLICY[key], `${key} is withdrawn and must not have a policy entry`).toBeUndefined()
+    }
+  })
+
+  it('any route still marked verdict:remove grants access to nobody', () => {
     for (const [key, p] of Object.entries(ROUTE_POLICY)) {
       if (p.verdict !== 'remove') continue
       for (const role of ['viewer', 'support', 'analyst', 'finance'] as AdminRole[]) {
