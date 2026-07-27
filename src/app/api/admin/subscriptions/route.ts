@@ -58,7 +58,7 @@ export const GET = withAdmin(
         withTimeout(
           db.subscription.count({ where: { status: 'active' } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('subscription.count', 0)),
 
         // MRR: sum of active subscription amounts
         // NOTE: this is the sum of all active subscription amounts. For monthly MRR,
@@ -70,19 +70,19 @@ export const GET = withAdmin(
             _avg: { amount: true },
           }),
           5000
-        ).catch(() => ({ _sum: { amount: 0 }, _avg: { amount: 0 } })),
+        ).catch(ctx.degrade('subscription.aggregate', ({ _sum: { amount: 0 }, _avg: { amount: 0 } }))),
 
         // Cancelled count
         withTimeout(
           db.subscription.count({ where: { status: 'cancelled' } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('subscription.count', 0)),
 
         // Expired count
         withTimeout(
           db.subscription.count({ where: { status: 'expired' } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('subscription.count', 0)),
 
         // Plan distribution (active only)
         withTimeout(
@@ -93,7 +93,7 @@ export const GET = withAdmin(
             _sum: { amount: true },
           }),
           5000
-        ).catch(() => []),
+        ).catch(ctx.degrade('subscription.groupBy', [])),
 
         // New subscriptions in last 30 days (growth signal)
         withTimeout(
@@ -103,7 +103,7 @@ export const GET = withAdmin(
             },
           }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('subscription.count', 0)),
       ])
 
       // Build plan distribution map
@@ -170,11 +170,11 @@ export const GET = withAdmin(
             },
           }),
           5000
-        ).catch(() => []),
+        ).catch(ctx.degrade('subscription.findMany', [])),
         withTimeout(
           db.subscription.count({ where }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('subscription.count', 0)),
       ])
 
       return NextResponse.json({
@@ -227,11 +227,11 @@ export const GET = withAdmin(
             },
           }),
           5000
-        ).catch(() => []),
+        ).catch(ctx.degrade('subscription.findMany', [])),
         withTimeout(
           db.subscription.count({ where }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('subscription.count', 0)),
       ])
 
       return NextResponse.json({

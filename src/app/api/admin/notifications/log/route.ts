@@ -35,19 +35,19 @@ export const GET = withAdmin(
         withTimeout(
           db.notificationLog.count({ where: { status: 'sent' } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('notificationLog.count', 0)),
 
         withTimeout(
           db.notificationLog.count({ where: { status: 'failed' } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('notificationLog.count', 0)),
 
         withTimeout(
           db.notificationLog.count({ where: { status: 'skipped' } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('notificationLog.count', 0)),
 
-        withTimeout(db.notificationLog.count(), 5000).catch(() => 0),
+        withTimeout(db.notificationLog.count(), 5000).catch(ctx.degrade('notificationLog.count', 0)),
 
         withTimeout(
           db.notificationLog.groupBy({
@@ -55,7 +55,7 @@ export const GET = withAdmin(
             _count: true,
           }),
           5000
-        ).catch(() => []),
+        ).catch(ctx.degrade('notificationLog.groupBy', [])),
       ])
 
       // Recent sends (last 7 days)
@@ -63,7 +63,7 @@ export const GET = withAdmin(
       const recent7d = await withTimeout(
         db.notificationLog.count({ where: { sentAt: { gte: sevenDaysAgo } } }),
         5000
-      ).catch(() => 0)
+      ).catch(ctx.degrade('notificationLog.count', 0))
 
       const channelMap: Record<string, number> = { sms: 0, email: 0, push: 0 }
       for (const c of channelDist as any[]) {
@@ -110,11 +110,11 @@ export const GET = withAdmin(
           take: pageSize,
         }),
         5000
-      ).catch(() => []),
+      ).catch(ctx.degrade('notificationLog.findMany', [])),
       withTimeout(
         db.notificationLog.count({ where }),
         5000
-      ).catch(() => 0),
+      ).catch(ctx.degrade('notificationLog.count', 0)),
     ])
 
     return NextResponse.json({

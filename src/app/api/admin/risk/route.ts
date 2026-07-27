@@ -77,7 +77,7 @@ export const GET = withAdmin(
             _count: true,
           }),
           5000
-        ).catch(() => [])
+        ).catch(ctx.degrade('user.groupBy', []))
           .then((r: any[]) => r.filter(g => g._count > 1).length),
 
         // Inactive new users (created >7 days ago, no transactions, no AI usage)
@@ -90,7 +90,7 @@ export const GET = withAdmin(
             },
           }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('user.count', 0)),
 
         // High-value transactions count (₹1L+ in last 7 days)
         withTimeout(
@@ -101,7 +101,7 @@ export const GET = withAdmin(
             },
           }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('transaction.count', 0)),
 
         // Failed logins (24h)
         withTimeout(
@@ -109,7 +109,7 @@ export const GET = withAdmin(
             where: { action: 'login_failure', createdAt: { gte: twentyFourHoursAgo } },
           }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('auditLog.count', 0)),
 
         // Successful logins (24h)
         withTimeout(
@@ -117,7 +117,7 @@ export const GET = withAdmin(
             where: { action: 'login_success', createdAt: { gte: twentyFourHoursAgo } },
           }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('auditLog.count', 0)),
 
         // Brute force IP count (DB-side groupBy on failed logins, filter _count >= 5)
         withTimeout(
@@ -131,26 +131,26 @@ export const GET = withAdmin(
             _count: true,
           }),
           5000
-        ).catch(() => [])
+        ).catch(ctx.degrade('auditLog.groupBy', []))
           .then((r: any[]) => r.filter(g => g._count >= 5).length),
 
         // Admin actions (30 days)
         withTimeout(
           db.adminAction.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('adminAction.count', 0)),
 
         // Data export requests
         withTimeout(
           db.auditLog.count({ where: { action: 'data_export' } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('auditLog.count', 0)),
 
         // Data delete requests
         withTimeout(
           db.auditLog.count({ where: { action: 'data_delete' } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('auditLog.count', 0)),
 
         // Recent data requests (30 days)
         withTimeout(
@@ -161,7 +161,7 @@ export const GET = withAdmin(
             },
           }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('auditLog.count', 0)),
       ])
 
       // Users with data (for DPDP consent ratio) — separate query
@@ -175,7 +175,7 @@ export const GET = withAdmin(
           },
         }),
         5000
-      ).catch(() => 0)
+      ).catch(ctx.degrade('user.count', 0))
 
       const totalLogins24h = failedLogins24h + successfulLogins24h
       const loginSuccessRate = totalLogins24h > 0
@@ -249,7 +249,7 @@ export const GET = withAdmin(
             orderBy: { _count: { phone: 'desc' } },
           }),
           5000
-        ).catch(() => [])
+        ).catch(ctx.degrade('user.groupBy', []))
           .then((r: any[]) => r.filter(g => g._count > 1)),
 
         // High-value transactions (paginated)
@@ -268,7 +268,7 @@ export const GET = withAdmin(
             take: pageSize,
           }),
           5000
-        ).catch(() => []),
+        ).catch(ctx.degrade('transaction.findMany', [])),
 
         // Total count of high-value txns (for pagination)
         withTimeout(
@@ -279,7 +279,7 @@ export const GET = withAdmin(
             },
           }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('transaction.count', 0)),
 
         // (phoneGroupTotal is computed from phoneGroups.length below)
         Promise.resolve(0),
@@ -329,7 +329,7 @@ export const GET = withAdmin(
             orderBy: { _count: { ip: 'desc' } },
           }),
           5000
-        ).catch(() => [])
+        ).catch(ctx.degrade('auditLog.groupBy', []))
           .then((r: any[]) => r.filter(g => g._count >= 5)),
 
         // Admin actions by type (last 30 days)
@@ -342,7 +342,7 @@ export const GET = withAdmin(
             take: 10,
           }),
           5000
-        ).catch(() => []),
+        ).catch(ctx.degrade('adminAction.groupBy', [])),
 
         Promise.resolve(0),
       ])

@@ -49,11 +49,11 @@ export const GET = withAdmin(
             _avg: { durationMs: true },
           }),
           5000
-        ).catch(() => ({
+        ).catch(ctx.degrade('aiUsageLog.aggregate', ({
           _sum: { inputTokens: 0, outputTokens: 0, totalTokens: 0, costInr: 0 },
           _count: 0,
           _avg: { durationMs: 0 },
-        })) as any,
+        }))) as any,
         withTimeout(
           db.aiUsageLog.aggregate({
             where: { createdAt: { gte: weekStart } },
@@ -61,7 +61,7 @@ export const GET = withAdmin(
             _count: true,
           }),
           5000
-        ).catch(() => ({ _sum: { totalTokens: 0, costInr: 0 }, _count: 0 })) as any,
+        ).catch(ctx.degrade('aiUsageLog.aggregate', ({ _sum: { totalTokens: 0, costInr: 0 }, _count: 0 }))) as any,
         withTimeout(
           db.aiUsageLog.aggregate({
             where: { createdAt: { gte: monthStart } },
@@ -69,17 +69,17 @@ export const GET = withAdmin(
             _count: true,
           }),
           5000
-        ).catch(() => ({ _sum: { totalTokens: 0, costInr: 0 }, _count: 0 })) as any,
+        ).catch(ctx.degrade('aiUsageLog.aggregate', ({ _sum: { totalTokens: 0, costInr: 0 }, _count: 0 }))) as any,
         withTimeout(
           db.aiUsageLog.aggregate({
             _sum: { inputTokens: true, outputTokens: true, totalTokens: true, costInr: true },
             _count: true,
           }),
           5000
-        ).catch(() => ({
+        ).catch(ctx.degrade('aiUsageLog.aggregate', ({
           _sum: { inputTokens: 0, outputTokens: 0, totalTokens: 0, costInr: 0 },
           _count: 0,
-        })) as any,
+        }))) as any,
       ])
 
       // 2 parallel groupBy queries for breakdowns (NOT JS-side filtering)
@@ -92,7 +92,7 @@ export const GET = withAdmin(
             _count: true,
           }),
           5000
-        ).catch(() => []),
+        ).catch(ctx.degrade('aiUsageLog.groupBy', [])),
         withTimeout(
           db.aiUsageLog.groupBy({
             by: ['provider'],
@@ -101,7 +101,7 @@ export const GET = withAdmin(
             _count: true,
           }),
           5000
-        ).catch(() => []),
+        ).catch(ctx.degrade('aiUsageLog.groupBy', [])),
       ])
 
       // Success/fail counts (2 parallel count queries)
@@ -111,25 +111,25 @@ export const GET = withAdmin(
             where: { createdAt: { gte: todayStart }, success: true },
           }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('aiUsageLog.count', 0)),
         withTimeout(
           db.aiUsageLog.count({
             where: { createdAt: { gte: todayStart }, success: false },
           }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('aiUsageLog.count', 0)),
         withTimeout(
           db.aiUsageLog.count({
             where: { createdAt: { gte: monthStart }, success: true },
           }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('aiUsageLog.count', 0)),
         withTimeout(
           db.aiUsageLog.count({
             where: { createdAt: { gte: monthStart }, success: false },
           }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('aiUsageLog.count', 0)),
       ])
 
       // Build feature breakdown object
@@ -225,7 +225,7 @@ export const GET = withAdmin(
             take: pageSize,
           }),
           5000
-        ).catch(() => []),
+        ).catch(ctx.degrade('aiUsageLog.groupBy', [])),
         withTimeout(
           db.aiUsageLog.groupBy({
             by: ['userId'],
@@ -233,7 +233,7 @@ export const GET = withAdmin(
             _count: true,
           }),
           5000
-        ).catch(() => []),
+        ).catch(ctx.degrade('aiUsageLog.groupBy', [])),
       ])
 
       const total = (distinctUserCount as any[]).length
@@ -247,7 +247,7 @@ export const GET = withAdmin(
               select: { id: true, email: true, name: true, plan: true },
             }),
             5000
-          ).catch(() => []) as any[]
+          ).catch(ctx.degrade('user.findMany', [])) as any[]
         : []
 
       const userMap = new Map((userDetails as any[]).map((u: any) => [u.id, u]))
@@ -300,11 +300,11 @@ export const GET = withAdmin(
             },
           }),
           5000
-        ).catch(() => []),
+        ).catch(ctx.degrade('aiUsageLog.findMany', [])),
         withTimeout(
           db.aiUsageLog.count({ where }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('aiUsageLog.count', 0)),
       ])
 
       return NextResponse.json({

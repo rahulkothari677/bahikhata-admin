@@ -19,14 +19,14 @@ export const GET = withAdmin(
 
     if (tab === 'overview') {
       const [activeCount, inactiveCount, updateCount30d, competitors] = await Promise.all([
-        withTimeout(db.competitor.count({ where: { status: 'active' } }), 5000).catch(() => 0),
-        withTimeout(db.competitor.count({ where: { status: 'inactive' } }), 5000).catch(() => 0),
+        withTimeout(db.competitor.count({ where: { status: 'active' } }), 5000).catch(ctx.degrade('competitor.count', 0)),
+        withTimeout(db.competitor.count({ where: { status: 'inactive' } }), 5000).catch(ctx.degrade('competitor.count', 0)),
         withTimeout(
           db.competitorUpdate.count({
             where: { createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } },
           }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('competitorUpdate.count', 0)),
         withNeonRetry(() =>
           db.competitor.findMany({
             where: { status: 'active' },
@@ -34,7 +34,7 @@ export const GET = withAdmin(
             orderBy: { name: 'asc' },
             take: 500,  // 🔒 V6 SC2: defensive cap (config table, stays small)
           })
-        ).catch(() => []),
+        ).catch(ctx.degrade('competitor.findMany', [])),
       ])
 
       return NextResponse.json({
@@ -65,7 +65,7 @@ export const GET = withAdmin(
           _count: { select: { updates: true } },
         },
       })
-    ).catch(() => [])
+    ).catch(ctx.degrade('competitor.findMany', []))
 
     return NextResponse.json({
       success: true,

@@ -15,10 +15,10 @@ export const GET = withAdmin(
 
     if (tab === 'overview') {
       const [enabledCount, disabledCount, totalShown, totalResponded] = await Promise.all([
-        withTimeout(db.npsSurveyConfig.count({ where: { enabled: true } }), 5000).catch(() => 0),
-        withTimeout(db.npsSurveyConfig.count({ where: { enabled: false } }), 5000).catch(() => 0),
-        withTimeout(db.npsSurveyConfig.aggregate({ _sum: { timesShown: true } }), 5000).catch(() => ({ _sum: { timesShown: 0 } })),
-        withTimeout(db.npsSurveyConfig.aggregate({ _sum: { timesResponded: true } }), 5000).catch(() => ({ _sum: { timesResponded: 0 } })),
+        withTimeout(db.npsSurveyConfig.count({ where: { enabled: true } }), 5000).catch(ctx.degrade('npsSurveyConfig.count', 0)),
+        withTimeout(db.npsSurveyConfig.count({ where: { enabled: false } }), 5000).catch(ctx.degrade('npsSurveyConfig.count', 0)),
+        withTimeout(db.npsSurveyConfig.aggregate({ _sum: { timesShown: true } }), 5000).catch(ctx.degrade('npsSurveyConfig.aggregate', ({ _sum: { timesShown: 0 } }))),
+        withTimeout(db.npsSurveyConfig.aggregate({ _sum: { timesResponded: true } }), 5000).catch(ctx.degrade('npsSurveyConfig.aggregate', ({ _sum: { timesResponded: 0 } }))),
       ])
 
       return NextResponse.json({
@@ -38,7 +38,7 @@ export const GET = withAdmin(
 
     const configs = await withNeonRetry(() =>
       db.npsSurveyConfig.findMany({ orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }], take: 500 })  // 🔒 V6 SC2: defensive cap
-    ).catch(() => [])
+    ).catch(ctx.degrade('npsSurveyConfig.findMany', []))
 
     return NextResponse.json({
       success: true,

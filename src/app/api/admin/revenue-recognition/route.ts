@@ -64,8 +64,8 @@ export const GET = withAdmin(
             take: pageSize,
           }),
           5000
-        ).catch(() => []),
-        withTimeout(db.revenueSchedule.count({ where }), 5000).catch(() => 0),
+        ).catch(ctx.degrade('revenueSchedule.findMany', [])),
+        withTimeout(db.revenueSchedule.count({ where }), 5000).catch(ctx.degrade('revenueSchedule.count', 0)),
       ])
 
       return NextResponse.json({

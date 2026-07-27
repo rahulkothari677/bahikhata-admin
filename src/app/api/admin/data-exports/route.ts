@@ -18,11 +18,11 @@ export const GET = withAdmin(
 
     if (tab === 'overview') {
       const [pendingCount, completedCount, failedCount, totalExports, totalRows] = await Promise.all([
-        withTimeout(db.dataExportRequest.count({ where: { status: 'pending' } }), 5000).catch(() => 0),
-        withTimeout(db.dataExportRequest.count({ where: { status: 'completed' } }), 5000).catch(() => 0),
-        withTimeout(db.dataExportRequest.count({ where: { status: 'failed' } }), 5000).catch(() => 0),
-        withTimeout(db.dataExportRequest.count(), 5000).catch(() => 0),
-        withTimeout(db.dataExportRequest.aggregate({ _sum: { rowCount: true } }), 5000).catch(() => ({ _sum: { rowCount: 0 } })),
+        withTimeout(db.dataExportRequest.count({ where: { status: 'pending' } }), 5000).catch(ctx.degrade('dataExportRequest.count', 0)),
+        withTimeout(db.dataExportRequest.count({ where: { status: 'completed' } }), 5000).catch(ctx.degrade('dataExportRequest.count', 0)),
+        withTimeout(db.dataExportRequest.count({ where: { status: 'failed' } }), 5000).catch(ctx.degrade('dataExportRequest.count', 0)),
+        withTimeout(db.dataExportRequest.count(), 5000).catch(ctx.degrade('dataExportRequest.count', 0)),
+        withTimeout(db.dataExportRequest.aggregate({ _sum: { rowCount: true } }), 5000).catch(ctx.degrade('dataExportRequest.aggregate', ({ _sum: { rowCount: 0 } }))),
       ])
 
       return NextResponse.json({
@@ -44,8 +44,8 @@ export const GET = withAdmin(
     const [exports, total] = await Promise.all([
       withNeonRetry(() =>
         db.dataExportRequest.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: pageSize })
-      ).catch(() => []),
-      withTimeout(db.dataExportRequest.count({ where }), 5000).catch(() => 0),
+      ).catch(ctx.degrade('dataExportRequest.findMany', [])),
+      withTimeout(db.dataExportRequest.count({ where }), 5000).catch(ctx.degrade('dataExportRequest.count', 0)),
     ])
 
     return NextResponse.json({

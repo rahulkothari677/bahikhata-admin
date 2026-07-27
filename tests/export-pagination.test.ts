@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import {
   fetchAllPaged,
   fetchWithTruncationFlag,
@@ -106,6 +108,42 @@ describe('fetchAllPaged — subject access completeness', () => {
       expect((e as ExportIncompleteError).section).toBe('parties')
       expect(String(e)).toContain(DSAR_HARD_CEILING.toLocaleString())
     })
+  })
+})
+
+describe('the subject-access export path is never degraded', () => {
+  // A codemod converting `.catch(() => [])` into a recorded-but-still-swallowed
+  // fallback ran across 39 routes. On a DSAR that would be the ORIGINAL bug
+  // returning in a smarter disguise: the export would be incomplete, the
+  // failure would be noted in a `degraded` array, and the shopkeeper would
+  // still receive a document short of the data they are legally owed.
+  //
+  // DPDP s.11 requires completeness. These sections must PROPAGATE.
+  it('user_data sections use fetchAllPaged, not a swallowing catch', () => {
+    const src = readFileSync(
+      join(__dirname, '..', 'src', 'app', 'api', 'admin', 'data-exports', 'generate', 'route.ts'),
+      'utf8',
+    )
+    const userDataBlock = src.slice(
+      src.indexOf("case 'user_data'"),
+      src.indexOf("case 'all_users'"),
+    )
+    expect(userDataBlock).toContain('fetchAllPaged')
+    for (const section of ['transactions', 'products', 'parties']) {
+      expect(userDataBlock).toContain(`fetchAllPaged('${section}'`)
+    }
+
+    // Comments must be stripped first. The block contains explanatory comments
+    // QUOTING the old `.catch(() => [])` code, and matching those would fail
+    // against correct source — the same false-positive that made three guards
+    // in the main app fire on code that was right.
+    const code = userDataBlock
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
+
+    // No swallowed failure anywhere in the subject-access branch.
+    expect(code).not.toMatch(/\.catch\(\s*\(\)\s*=>/)
+    expect(code).not.toMatch(/\.catch\(ctx\.degrade/)
   })
 })
 

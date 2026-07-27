@@ -20,7 +20,7 @@ export const GET = withAdmin(
         // NOTE: Partner model deleted with the lending pipeline — no relation to include.
       }),
       5000
-    ).catch(() => null)
+    ).catch(ctx.degrade('apiKey.findUnique', null))
 
     if (!apiKey) {
       return NextResponse.json({ error: 'API key not found' }, { status: 404 })

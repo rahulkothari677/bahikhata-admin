@@ -22,7 +22,7 @@ export const GET = withAdmin(
         },
       }),
       5000
-    ).catch(() => null)
+    ).catch(ctx.degrade('experiment.findUnique', null))
 
     if (!experiment) {
       return NextResponse.json({ error: 'Experiment not found' }, { status: 404 })
@@ -72,7 +72,7 @@ export const PATCH = withAdmin(
     // If completing, auto-determine winner if not provided
     let finalWinner = winnerVariant
     if (status === 'completed' && !finalWinner) {
-      const results = await getExperimentResults(id).catch(() => null)
+      const results = await getExperimentResults(id).catch(ctx.degrade('experiment.findUnique', null))
       if (results?.winnerVariant) {
         finalWinner = results.winnerVariant
       }

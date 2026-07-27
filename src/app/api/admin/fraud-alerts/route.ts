@@ -45,8 +45,8 @@ export const GET = withAdmin(
           },
         }),
         5000
-      ).catch(() => []),
-      withTimeout(db.fraudAlert.count({ where }), 5000).catch(() => 0),
+      ).catch(ctx.degrade('fraudAlert.findMany', [])),
+      withTimeout(db.fraudAlert.count({ where }), 5000).catch(ctx.degrade('fraudAlert.count', 0)),
     ])
 
     return NextResponse.json({

@@ -32,22 +32,22 @@ export const GET = withAdmin(
         withTimeout(
           db.incident.count({ where: { status: { not: 'resolved' } } }),
           5000
-        ).catch(() => 0),
-        withTimeout(db.incident.count({ where: { status: 'resolved' } }), 5000).catch(() => 0),
+        ).catch(ctx.degrade('incident.count', 0)),
+        withTimeout(db.incident.count({ where: { status: 'resolved' } }), 5000).catch(ctx.degrade('incident.count', 0)),
         withTimeout(
           db.incident.count({ where: { severity: 'critical', status: { not: 'resolved' } } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('incident.count', 0)),
         withTimeout(
           db.incident.count({ where: { severity: 'maintenance', status: { not: 'resolved' } } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('incident.count', 0)),
         withTimeout(
           db.incident.count({
             where: { startedAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } },
           }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('incident.count', 0)),
       ])
 
       return NextResponse.json({
@@ -82,8 +82,8 @@ export const GET = withAdmin(
           },
         }),
         5000
-      ).catch(() => []),
-      withTimeout(db.incident.count({ where }), 5000).catch(() => 0),
+      ).catch(ctx.degrade('incident.findMany', [])),
+      withTimeout(db.incident.count({ where }), 5000).catch(ctx.degrade('incident.count', 0)),
     ])
 
     return NextResponse.json({

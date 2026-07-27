@@ -21,7 +21,7 @@ export const GET = withAdmin(
         },
       }),
       5000
-    ).catch(() => null)
+    ).catch(ctx.degrade('incident.findUnique', null))
 
     if (!incident) {
       return NextResponse.json({ error: 'Incident not found' }, { status: 404 })

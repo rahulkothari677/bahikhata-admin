@@ -27,7 +27,7 @@ export const GET = withAdmin(
 
     if (tab === 'overview') {
       const [totalCount, todayCount, weekCount, uniqueAdmins, uniqueUsers] = await Promise.all([
-        withTimeout(db.adminAction.count({ where: { action: 'user_impersonate' } }), 5000).catch(() => 0),
+        withTimeout(db.adminAction.count({ where: { action: 'user_impersonate' } }), 5000).catch(ctx.degrade('adminAction.count', 0)),
         withTimeout(
           db.adminAction.count({
             where: {
@@ -36,7 +36,7 @@ export const GET = withAdmin(
             },
           }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('adminAction.count', 0)),
         withTimeout(
           db.adminAction.count({
             where: {
@@ -45,7 +45,7 @@ export const GET = withAdmin(
             },
           }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('adminAction.count', 0)),
         withTimeout(
           db.adminAction.groupBy({
             by: ['adminId'],
@@ -53,7 +53,7 @@ export const GET = withAdmin(
             _count: true,
           }),
           5000
-        ).catch(() => []),
+        ).catch(ctx.degrade('adminAction.groupBy', [])),
         withTimeout(
           db.adminAction.groupBy({
             by: ['targetId'],
@@ -61,7 +61,7 @@ export const GET = withAdmin(
             _count: true,
           }),
           5000
-        ).catch(() => []),
+        ).catch(ctx.degrade('adminAction.groupBy', [])),
       ])
 
       return NextResponse.json({
@@ -88,11 +88,11 @@ export const GET = withAdmin(
           take: pageSize,
           include: { admin: { select: { email: true, name: true } } },
         })
-      ).catch(() => []),
+      ).catch(ctx.degrade('adminAction.findMany', [])),
       withTimeout(
         db.adminAction.count({ where: { action: 'user_impersonate' } }),
         5000
-      ).catch(() => 0),
+      ).catch(ctx.degrade('adminAction.count', 0)),
     ])
 
     return NextResponse.json({

@@ -42,31 +42,31 @@ export const GET = withAdmin(
       // 5 parallel queries — all O(1)
       const [total, promoters, passives, detractors, avgAgg] = await Promise.all([
         // Total feedback count
-        withTimeout(db.npsFeedback.count(), 5000).catch(() => 0),
+        withTimeout(db.npsFeedback.count(), 5000).catch(ctx.degrade('npsFeedback.count', 0)),
 
         // Promoters (score 9-10)
         withTimeout(
           db.npsFeedback.count({ where: { score: { gte: 9 } } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('npsFeedback.count', 0)),
 
         // Passives (score 7-8)
         withTimeout(
           db.npsFeedback.count({ where: { score: { gte: 7, lte: 8 } } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('npsFeedback.count', 0)),
 
         // Detractors (score 0-6)
         withTimeout(
           db.npsFeedback.count({ where: { score: { lte: 6 } } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('npsFeedback.count', 0)),
 
         // Average score
         withTimeout(
           db.npsFeedback.aggregate({ _avg: { score: true } }),
           5000
-        ).catch(() => ({ _avg: { score: 0 } })),
+        ).catch(ctx.degrade('npsFeedback.aggregate', ({ _avg: { score: 0 } }))),
       ])
 
       // NPS = % promoters - % detractors (range: -100 to +100)
@@ -79,7 +79,7 @@ export const GET = withAdmin(
       const newFeedback7d = await withTimeout(
         db.npsFeedback.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
         5000
-      ).catch(() => 0)
+      ).catch(ctx.degrade('npsFeedback.count', 0))
 
       // Score distribution (how many 0s, 1s, 2s... 10s)
       const scoreDistribution = await withTimeout(
@@ -89,7 +89,7 @@ export const GET = withAdmin(
           orderBy: { score: 'asc' },
         }),
         5000
-      ).catch(() => [])
+      ).catch(ctx.degrade('npsFeedback.groupBy', []))
 
       return NextResponse.json({
         success: true,
@@ -145,11 +145,11 @@ export const GET = withAdmin(
           },
         }),
         5000
-      ).catch(() => []),
+      ).catch(ctx.degrade('npsFeedback.findMany', [])),
       withTimeout(
         db.npsFeedback.count({ where }),
         5000
-      ).catch(() => 0),
+      ).catch(ctx.degrade('npsFeedback.count', 0)),
     ])
 
     return NextResponse.json({

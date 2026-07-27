@@ -23,7 +23,7 @@ export const GET = withAdmin(
         _count: true,
         orderBy: { _count: { segmentId: 'desc' } },
       })
-    ).catch(() => [])
+    ).catch(ctx.degrade('userSegmentCache.groupBy', []))
 
     // Human-readable segment names
     const SEGMENT_NAMES: Record<string, string> = {

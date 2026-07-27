@@ -24,15 +24,15 @@ export const GET = withAdmin(
 
     if (tab === 'overview') {
       const [activeCount, disabledCount, totalSent, totalSuccess, totalFailed, pendingDeliveries] = await Promise.all([
-        withTimeout(db.webhookEndpoint.count({ where: { status: 'active' } }), 5000).catch(() => 0),
-        withTimeout(db.webhookEndpoint.count({ where: { status: 'disabled' } }), 5000).catch(() => 0),
-        withTimeout(db.webhookEndpoint.aggregate({ _sum: { totalSent: true } }), 5000).catch(() => ({ _sum: { totalSent: 0 } })),
-        withTimeout(db.webhookEndpoint.aggregate({ _sum: { totalSuccess: true } }), 5000).catch(() => ({ _sum: { totalSuccess: 0 } })),
-        withTimeout(db.webhookEndpoint.aggregate({ _sum: { totalFailed: true } }), 5000).catch(() => ({ _sum: { totalFailed: 0 } })),
+        withTimeout(db.webhookEndpoint.count({ where: { status: 'active' } }), 5000).catch(ctx.degrade('webhookEndpoint.count', 0)),
+        withTimeout(db.webhookEndpoint.count({ where: { status: 'disabled' } }), 5000).catch(ctx.degrade('webhookEndpoint.count', 0)),
+        withTimeout(db.webhookEndpoint.aggregate({ _sum: { totalSent: true } }), 5000).catch(ctx.degrade('webhookEndpoint.aggregate', ({ _sum: { totalSent: 0 } }))),
+        withTimeout(db.webhookEndpoint.aggregate({ _sum: { totalSuccess: true } }), 5000).catch(ctx.degrade('webhookEndpoint.aggregate', ({ _sum: { totalSuccess: 0 } }))),
+        withTimeout(db.webhookEndpoint.aggregate({ _sum: { totalFailed: true } }), 5000).catch(ctx.degrade('webhookEndpoint.aggregate', ({ _sum: { totalFailed: 0 } }))),
         withTimeout(
           db.webhookDelivery.count({ where: { status: { in: ['pending', 'retrying'] } } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('webhookDelivery.count', 0)),
       ])
 
       return NextResponse.json({
@@ -69,8 +69,8 @@ export const GET = withAdmin(
           // partnerName/partnerType below are always null.
         }),
         5000
-      ).catch(() => []),
-      withTimeout(db.webhookEndpoint.count({ where }), 5000).catch(() => 0),
+      ).catch(ctx.degrade('webhookEndpoint.findMany', [])),
+      withTimeout(db.webhookEndpoint.count({ where }), 5000).catch(ctx.degrade('webhookEndpoint.count', 0)),
     ])
 
     return NextResponse.json({

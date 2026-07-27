@@ -19,22 +19,22 @@ export const GET = withAdmin(
 
     if (tab === 'overview') {
       const [enabledCount, disabledCount, openAlertCount, criticalOpenCount, rulesByMetric] = await Promise.all([
-        withTimeout(db.fraudRule.count({ where: { enabled: true } }), 5000).catch(() => 0),
-        withTimeout(db.fraudRule.count({ where: { enabled: false } }), 5000).catch(() => 0),
-        withTimeout(db.fraudAlert.count({ where: { status: 'open' } }), 5000).catch(() => 0),
+        withTimeout(db.fraudRule.count({ where: { enabled: true } }), 5000).catch(ctx.degrade('fraudRule.count', 0)),
+        withTimeout(db.fraudRule.count({ where: { enabled: false } }), 5000).catch(ctx.degrade('fraudRule.count', 0)),
+        withTimeout(db.fraudAlert.count({ where: { status: 'open' } }), 5000).catch(ctx.degrade('fraudAlert.count', 0)),
         withTimeout(
           db.fraudAlert.count({
             where: { status: 'open', rule: { severity: 'critical' } },
           }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('fraudAlert.count', 0)),
         withTimeout(
           db.fraudRule.groupBy({
             by: ['metric'],
             _count: true,
           }),
           5000
-        ).catch(() => []),
+        ).catch(ctx.degrade('fraudRule.groupBy', [])),
       ])
 
       return NextResponse.json({
@@ -67,7 +67,7 @@ export const GET = withAdmin(
         },
       }),
       5000
-    ).catch(() => [])
+    ).catch(ctx.degrade('fraudRule.findMany', []))
 
     return NextResponse.json({
       success: true,

@@ -46,6 +46,25 @@ export interface AdminContext {
     targetId?: string
     metadata?: unknown
   }) => Promise<unknown>
+
+  /**
+   * Marks a query's fallback value as NOT REAL, for use in `.catch(...)`:
+   *
+   *     db.fraudAlert.count().catch(ctx.degrade('fraudCount', 0))
+   *
+   * The fallback is still returned, so one broken widget does not blank the
+   * page. But withAdmin injects `degraded: [...]` into the JSON response, so
+   * the UI can render "—" instead of a confident zero.
+   *
+   * WHY (audit 2026-07-27): ~290 sites did `.catch(() => 0)`, which makes a
+   * FAILURE indistinguishable from a FACT. "0 fraud alerts" read identically
+   * whether the query succeeded or timed out.
+   *
+   * Collected by the wrapper rather than assembled per route, so adopting it
+   * is a one-token change at the call site and no route has to remember to
+   * merge the report into its own response.
+   */
+  degrade: <T>(section: string, fallback: T) => (err: unknown) => T
 }
 
 type Handler = (
@@ -153,6 +172,15 @@ export function withAdmin(routeKey: string, handler: Handler) {
                 targetId: entry.targetId,
                 metadata: { ...(entry.metadata as object), requestId, viaCron: true },
               }),
+            // A cron run has no UI to warn, so a degraded section is logged
+            // loudly instead — a nightly job silently computing from partial
+            // data is how a wrong number becomes a stored fact.
+            degrade:
+              <T,>(section: string, fallback: T) =>
+              (err: unknown): T => {
+                console.error(`[degraded/cron] ${routeKey}/${section} (${requestId}):`, err)
+                return fallback
+              },
           }
           try {
             const res = await handler(req, cronCtx, routeParams)
@@ -186,7 +214,29 @@ export function withAdmin(routeKey: string, handler: Handler) {
 
     // Re-check against the DATABASE, not the JWT. This is what makes
     // deactivating or demoting an admin take effect immediately.
-    const admin = await loadAdmin(adminId)
+    //
+    // 🐛 FIX (audit 2026-07-27): this call sits OUTSIDE the try block below,
+    // so when the database was unreachable the Prisma error escaped `wrapped`
+    // entirely. The caller got a bare 500 with an EMPTY body — no code, no
+    // message, no requestId — while every other failure path in this file
+    // returns a typed shape. Found by stopping the database and watching what
+    // came back: `status 500` and nothing else.
+    //
+    // It must also fail CLOSED. If we cannot read the operator's current role,
+    // we cannot know what they are allowed to do, so the request is refused
+    // rather than served on the strength of a JWT claim.
+    let admin: Awaited<ReturnType<typeof loadAdmin>>
+    try {
+      admin = await loadAdmin(adminId)
+    } catch (err) {
+      console.error(`[with-admin] role re-check failed (${requestId}):`, err)
+      return fail(
+        503,
+        'AUTH_UNAVAILABLE',
+        'Cannot verify your access right now. Please retry shortly.',
+        requestId,
+      )
+    }
     if (!admin) {
       return fail(401, 'UNAUTHENTICATED', 'Sign in to continue.', requestId)
     }
@@ -222,6 +272,8 @@ export function withAdmin(routeKey: string, handler: Handler) {
       undefined
     const userAgent = req.headers.get('user-agent') || undefined
 
+    const degradedSections: string[] = []
+
     const ctx: AdminContext = {
       adminId,
       email,
@@ -240,6 +292,13 @@ export function withAdmin(routeKey: string, handler: Handler) {
           ip,
           userAgent,
         }),
+      degrade:
+        <T,>(section: string, fallback: T) =>
+        (err: unknown): T => {
+          degradedSections.push(section)
+          console.error(`[degraded] ${routeKey}/${section} (${requestId}):`, err)
+          return fallback
+        },
     }
 
     try {
@@ -247,6 +306,27 @@ export function withAdmin(routeKey: string, handler: Handler) {
       res.headers.set('x-request-id', requestId)
       // Admin responses carry personal and financial data. Never cacheable.
       res.headers.set('Cache-Control', 'no-store')
+
+      // Inject the degradation report so no route has to remember to merge it.
+      // Only for successful JSON responses — a 4xx/5xx already says something
+      // went wrong, and streamed bodies must not be buffered to rewrite them.
+      if (degradedSections.length > 0 && res.ok) {
+        const contentType = res.headers.get('content-type') ?? ''
+        if (contentType.includes('application/json')) {
+          try {
+            const body = await res.clone().json()
+            const withReport = NextResponse.json(
+              { ...body, degraded: degradedSections, isDegraded: true },
+              { status: res.status },
+            )
+            res.headers.forEach((v, k) => withReport.headers.set(k, v))
+            return withReport
+          } catch {
+            // Body was not parseable JSON after all — return it untouched
+            // rather than losing the response to a reporting nicety.
+          }
+        }
+      }
       return res
     } catch (err) {
       // Log the detail; return none of it.

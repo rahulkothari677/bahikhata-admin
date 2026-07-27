@@ -40,7 +40,7 @@ export const GET = withAdmin(
         },
       }),
       5000
-    ).catch(() => [])
+    ).catch(ctx.degrade('notificationTemplate.findMany', []))
 
     return NextResponse.json({
       success: true,

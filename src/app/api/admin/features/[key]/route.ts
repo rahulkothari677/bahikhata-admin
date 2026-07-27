@@ -88,7 +88,7 @@ export const POST = withAdmin(
   async (req: NextRequest, ctx, { params }) => {
     const { key } = (await params) as { key: string }
 
-    const parsed = CreateSchema.safeParse(await req.json().catch(() => null))
+    const parsed = CreateSchema.safeParse(await req.json().catch(ctx.degrade('featureFlag.update', null)))
     if (!parsed.success) {
       return NextResponse.json(
         {

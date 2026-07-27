@@ -33,8 +33,8 @@ export const GET = withAdmin(
     // ============ OVERVIEW TAB ============
     if (tab === 'overview') {
       const [activeCount, revokedCount, expiredCount, totalUsage, partnerKeysCount, internalKeysCount] = await Promise.all([
-        withTimeout(db.apiKey.count({ where: { status: 'active' } }), 5000).catch(() => 0),
-        withTimeout(db.apiKey.count({ where: { status: 'revoked' } }), 5000).catch(() => 0),
+        withTimeout(db.apiKey.count({ where: { status: 'active' } }), 5000).catch(ctx.degrade('apiKey.count', 0)),
+        withTimeout(db.apiKey.count({ where: { status: 'revoked' } }), 5000).catch(ctx.degrade('apiKey.count', 0)),
         withTimeout(
           db.apiKey.count({
             where: {
@@ -43,10 +43,10 @@ export const GET = withAdmin(
             },
           }),
           5000
-        ).catch(() => 0),
-        withTimeout(db.apiKey.aggregate({ _sum: { usageCount: true } }), 5000).catch(() => ({ _sum: { usageCount: 0 } })),
-        withTimeout(db.apiKey.count({ where: { partnerId: { not: null } } }), 5000).catch(() => 0),
-        withTimeout(db.apiKey.count({ where: { partnerId: null } }), 5000).catch(() => 0),
+        ).catch(ctx.degrade('apiKey.count', 0)),
+        withTimeout(db.apiKey.aggregate({ _sum: { usageCount: true } }), 5000).catch(ctx.degrade('apiKey.aggregate', ({ _sum: { usageCount: 0 } }))),
+        withTimeout(db.apiKey.count({ where: { partnerId: { not: null } } }), 5000).catch(ctx.degrade('apiKey.count', 0)),
+        withTimeout(db.apiKey.count({ where: { partnerId: null } }), 5000).catch(ctx.degrade('apiKey.count', 0)),
       ])
 
       return NextResponse.json({
@@ -91,8 +91,8 @@ export const GET = withAdmin(
           // no relation to include. partnerName/partnerType below are always null.
         }),
         5000
-      ).catch(() => []),
-      withTimeout(db.apiKey.count({ where }), 5000).catch(() => 0),
+      ).catch(ctx.degrade('apiKey.findMany', [])),
+      withTimeout(db.apiKey.count({ where }), 5000).catch(ctx.degrade('apiKey.count', 0)),
     ])
 
     return NextResponse.json({

@@ -22,18 +22,18 @@ export const GET = withAdmin(
 
     if (tab === 'overview') {
       const [totalUsers, lowCount, mediumCount, highCount, criticalCount, computedAt] = await Promise.all([
-        withTimeout(db.churnPrediction.count(), 5000).catch(() => 0),
-        withTimeout(db.churnPrediction.count({ where: { riskLevel: 'low' } }), 5000).catch(() => 0),
-        withTimeout(db.churnPrediction.count({ where: { riskLevel: 'medium' } }), 5000).catch(() => 0),
-        withTimeout(db.churnPrediction.count({ where: { riskLevel: 'high' } }), 5000).catch(() => 0),
-        withTimeout(db.churnPrediction.count({ where: { riskLevel: 'critical' } }), 5000).catch(() => 0),
+        withTimeout(db.churnPrediction.count(), 5000).catch(ctx.degrade('churnPrediction.count', 0)),
+        withTimeout(db.churnPrediction.count({ where: { riskLevel: 'low' } }), 5000).catch(ctx.degrade('churnPrediction.count', 0)),
+        withTimeout(db.churnPrediction.count({ where: { riskLevel: 'medium' } }), 5000).catch(ctx.degrade('churnPrediction.count', 0)),
+        withTimeout(db.churnPrediction.count({ where: { riskLevel: 'high' } }), 5000).catch(ctx.degrade('churnPrediction.count', 0)),
+        withTimeout(db.churnPrediction.count({ where: { riskLevel: 'critical' } }), 5000).catch(ctx.degrade('churnPrediction.count', 0)),
         withTimeout(
           db.churnPrediction.findFirst({
             orderBy: { computedAt: 'desc' },
             select: { computedAt: true },
           }),
           5000
-        ).catch(() => null),
+        ).catch(ctx.degrade('churnPrediction.findFirst', null)),
       ])
 
       const atRiskCount = highCount + criticalCount
@@ -68,8 +68,8 @@ export const GET = withAdmin(
           skip,
           take: pageSize,
         })
-      ).catch(() => []),
-      withTimeout(db.churnPrediction.count({ where }), 5000).catch(() => 0),
+      ).catch(ctx.degrade('churnPrediction.findMany', [])),
+      withTimeout(db.churnPrediction.count({ where }), 5000).catch(ctx.degrade('churnPrediction.count', 0)),
     ])
 
     return NextResponse.json({

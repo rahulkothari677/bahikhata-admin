@@ -87,7 +87,7 @@ export const POST = withAdmin(
       template = await withTimeout(
         db.notificationTemplate.findUnique({ where: { id: templateId } }),
         5000
-      ).catch(() => null)
+      ).catch(ctx.degrade('notificationTemplate.findUnique', null))
 
       if (!template) {
         return NextResponse.json({ error: 'Template not found' }, { status: 404 })
@@ -145,7 +145,7 @@ export const POST = withAdmin(
             },
           }),
           5000
-        ).catch(() => [])
+        ).catch(ctx.degrade('user.findMany', []))
         users.push(...fetched)
       }
 

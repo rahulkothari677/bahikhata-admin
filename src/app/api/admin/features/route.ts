@@ -20,13 +20,13 @@ export const GET = withAdmin(
     // Fetch all flags
     const flags = await withNeonRetry(() =>
       db.featureFlag.findMany({ orderBy: { key: 'asc' } })
-    ).catch(() => [])
+    ).catch(ctx.degrade('featureFlag.findMany', []))
 
     if (tab === 'overview') {
       const [enabledCount, disabledCount, totalCount, recentToggles, toggleCount30d] = await Promise.all([
-        withTimeout(db.featureFlag.count({ where: { enabled: true } }), 5000).catch(() => 0),
-        withTimeout(db.featureFlag.count({ where: { enabled: false } }), 5000).catch(() => 0),
-        withTimeout(db.featureFlag.count(), 5000).catch(() => 0),
+        withTimeout(db.featureFlag.count({ where: { enabled: true } }), 5000).catch(ctx.degrade('featureFlag.count', 0)),
+        withTimeout(db.featureFlag.count({ where: { enabled: false } }), 5000).catch(ctx.degrade('featureFlag.count', 0)),
+        withTimeout(db.featureFlag.count(), 5000).catch(ctx.degrade('featureFlag.count', 0)),
         withNeonRetry(() =>
           db.adminAction.findMany({
             where: { action: { in: ['feature_toggle', 'feature_create'] } },
@@ -34,7 +34,7 @@ export const GET = withAdmin(
             take: 10,
             include: { admin: { select: { email: true, name: true } } },
           })
-        ).catch(() => []),
+        ).catch(ctx.degrade('adminAction.findMany', [])),
         withTimeout(
           db.adminAction.count({
             where: {
@@ -43,7 +43,7 @@ export const GET = withAdmin(
             },
           }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('adminAction.count', 0)),
       ])
 
       return NextResponse.json({
@@ -77,7 +77,7 @@ export const GET = withAdmin(
         where: { action: 'feature_toggle' },
         _count: true,
       })
-    ).catch(() => [])
+    ).catch(ctx.degrade('adminAction.groupBy', []))
 
     const toggleMap = new Map<string, number>()
     for (const t of toggleCounts as any[]) {

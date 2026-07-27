@@ -16,7 +16,7 @@ export const GET = withAdmin(
     const template = await withTimeout(
       db.notificationTemplate.findUnique({ where: { id } }),
       5000
-    ).catch(() => null)
+    ).catch(ctx.degrade('notificationTemplate.findUnique', null))
 
     if (!template) {
       return NextResponse.json({ error: 'Template not found' }, { status: 404 })

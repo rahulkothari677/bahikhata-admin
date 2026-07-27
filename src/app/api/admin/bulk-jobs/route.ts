@@ -21,12 +21,12 @@ export const GET = withAdmin(
 
     if (tab === 'overview') {
       const [scheduledCount, runningCount, completedCount, failedCount, cancelledCount, totalProcessed, upcomingJobs] = await Promise.all([
-        withTimeout(db.bulkJob.count({ where: { status: 'scheduled' } }), 5000).catch(() => 0),
-        withTimeout(db.bulkJob.count({ where: { status: 'running' } }), 5000).catch(() => 0),
-        withTimeout(db.bulkJob.count({ where: { status: 'completed' } }), 5000).catch(() => 0),
-        withTimeout(db.bulkJob.count({ where: { status: 'failed' } }), 5000).catch(() => 0),
-        withTimeout(db.bulkJob.count({ where: { status: 'cancelled' } }), 5000).catch(() => 0),
-        withTimeout(db.bulkJob.aggregate({ _sum: { processedCount: true } }), 5000).catch(() => ({ _sum: { processedCount: 0 } })),
+        withTimeout(db.bulkJob.count({ where: { status: 'scheduled' } }), 5000).catch(ctx.degrade('bulkJob.count', 0)),
+        withTimeout(db.bulkJob.count({ where: { status: 'running' } }), 5000).catch(ctx.degrade('bulkJob.count', 0)),
+        withTimeout(db.bulkJob.count({ where: { status: 'completed' } }), 5000).catch(ctx.degrade('bulkJob.count', 0)),
+        withTimeout(db.bulkJob.count({ where: { status: 'failed' } }), 5000).catch(ctx.degrade('bulkJob.count', 0)),
+        withTimeout(db.bulkJob.count({ where: { status: 'cancelled' } }), 5000).catch(ctx.degrade('bulkJob.count', 0)),
+        withTimeout(db.bulkJob.aggregate({ _sum: { processedCount: true } }), 5000).catch(ctx.degrade('bulkJob.aggregate', ({ _sum: { processedCount: 0 } }))),
         withNeonRetry(() =>
           db.bulkJob.findMany({
             where: { status: 'scheduled', scheduledAt: { gte: new Date() } },
@@ -34,7 +34,7 @@ export const GET = withAdmin(
             take: 5,
             select: { id: true, name: true, action: true, scheduledAt: true, totalTargets: true },
           })
-        ).catch(() => []),
+        ).catch(ctx.degrade('bulkJob.findMany', [])),
       ])
 
       return NextResponse.json({
@@ -65,8 +65,8 @@ export const GET = withAdmin(
           skip,
           take: pageSize,
         })
-      ).catch(() => []),
-      withTimeout(db.bulkJob.count({ where }), 5000).catch(() => 0),
+      ).catch(ctx.degrade('bulkJob.findMany', [])),
+      withTimeout(db.bulkJob.count({ where }), 5000).catch(ctx.degrade('bulkJob.count', 0)),
     ])
 
     return NextResponse.json({

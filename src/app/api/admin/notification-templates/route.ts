@@ -38,17 +38,17 @@ export const GET = withAdmin(
         withTimeout(
           db.notificationTemplate.count({ where: { status: 'active' } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('notificationTemplate.count', 0)),
 
         withTimeout(
           db.notificationTemplate.count({ where: { status: 'draft' } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('notificationTemplate.count', 0)),
 
         withTimeout(
           db.notificationTemplate.count({ where: { status: 'archived' } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('notificationTemplate.count', 0)),
 
         withTimeout(
           db.notificationTemplate.groupBy({
@@ -57,7 +57,7 @@ export const GET = withAdmin(
             _count: true,
           }),
           5000
-        ).catch(() => []),
+        ).catch(ctx.degrade('notificationTemplate.groupBy', [])),
       ])
 
       const channelMap: Record<string, number> = { sms: 0, email: 0, push: 0 }
@@ -100,11 +100,11 @@ export const GET = withAdmin(
           take: pageSize,
         }),
         5000
-      ).catch(() => []),
+      ).catch(ctx.degrade('notificationTemplate.findMany', [])),
       withTimeout(
         db.notificationTemplate.count({ where }),
         5000
-      ).catch(() => 0),
+      ).catch(ctx.degrade('notificationTemplate.count', 0)),
     ])
 
     return NextResponse.json({

@@ -182,7 +182,7 @@ export const POST = withAdmin(
       const template = await withTimeout(
         db.notificationTemplate.findUnique({ where: { id: step.templateId } }),
         5000
-      ).catch(() => null)
+      ).catch(ctx.degrade('campaignStep.update', null))
 
       if (!template) {
         await db.campaignStep.update({
@@ -202,7 +202,7 @@ export const POST = withAdmin(
             select: { userId: true },
           }),
           5000
-        ).catch(() => [])
+        ).catch(ctx.degrade('campaignStep.update', []))
         userIds = (segmentUsers as any[]).map((u: any) => u.userId)
       } else {
         try {
@@ -233,7 +233,7 @@ export const POST = withAdmin(
           select: { id: true, email: true, name: true, phone: true, plan: true },
         }),
         5000
-      ).catch(() => [])
+      ).catch(ctx.degrade('campaignStep.update', []))
 
       let sentCount = 0
       let failedCount = 0

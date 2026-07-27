@@ -42,10 +42,10 @@ export const GET = withAdmin(
       const monthStart = new Date(todayStart.getTime() - 30 * 24 * 60 * 60 * 1000)
 
       const [todayCount, weekCount, monthCount, totalCount, topActions, topTargetTypes] = await Promise.all([
-        withTimeout(db.adminAction.count({ where: { createdAt: { gte: todayStart } } }), 5000).catch(() => 0),
-        withTimeout(db.adminAction.count({ where: { createdAt: { gte: weekStart } } }), 5000).catch(() => 0),
-        withTimeout(db.adminAction.count({ where: { createdAt: { gte: monthStart } } }), 5000).catch(() => 0),
-        withTimeout(db.adminAction.count(), 5000).catch(() => 0),
+        withTimeout(db.adminAction.count({ where: { createdAt: { gte: todayStart } } }), 5000).catch(ctx.degrade('adminAction.count', 0)),
+        withTimeout(db.adminAction.count({ where: { createdAt: { gte: weekStart } } }), 5000).catch(ctx.degrade('adminAction.count', 0)),
+        withTimeout(db.adminAction.count({ where: { createdAt: { gte: monthStart } } }), 5000).catch(ctx.degrade('adminAction.count', 0)),
+        withTimeout(db.adminAction.count(), 5000).catch(ctx.degrade('adminAction.count', 0)),
         withTimeout(
           db.adminAction.groupBy({
             by: ['action'],
@@ -55,7 +55,7 @@ export const GET = withAdmin(
             take: 10,
           }),
           5000
-        ).catch(() => []),
+        ).catch(ctx.degrade('adminAction.groupBy', [])),
         withTimeout(
           db.adminAction.groupBy({
             by: ['targetType'],
@@ -65,7 +65,7 @@ export const GET = withAdmin(
             take: 10,
           }),
           5000
-        ).catch(() => []),
+        ).catch(ctx.degrade('adminAction.groupBy', [])),
       ])
 
       return NextResponse.json({
@@ -117,8 +117,8 @@ export const GET = withAdmin(
             admin: { select: { id: true, email: true, name: true } },
           },
         })
-      ).catch(() => []),
-      withTimeout(db.adminAction.count({ where }), 5000).catch(() => 0),
+      ).catch(ctx.degrade('adminAction.findMany', [])),
+      withTimeout(db.adminAction.count({ where }), 5000).catch(ctx.degrade('adminAction.count', 0)),
       // Fetch distinct action types for filter dropdown
       withTimeout(
         db.adminAction.groupBy({
@@ -128,7 +128,7 @@ export const GET = withAdmin(
           take: 50,
         }),
         5000
-      ).catch(() => []),
+      ).catch(ctx.degrade('adminAction.groupBy', [])),
     ])
 
     return NextResponse.json({

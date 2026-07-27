@@ -29,16 +29,16 @@ export const GET = withAdmin(
     // ============ OVERVIEW TAB ============
     if (tab === 'overview') {
       const [draftCount, scheduledCount, runningCount, pausedCount, completedCount, cancelledCount, totalSent] = await Promise.all([
-        withTimeout(db.campaign.count({ where: { status: 'draft' } }), 5000).catch(() => 0),
-        withTimeout(db.campaign.count({ where: { status: 'scheduled' } }), 5000).catch(() => 0),
-        withTimeout(db.campaign.count({ where: { status: 'running' } }), 5000).catch(() => 0),
-        withTimeout(db.campaign.count({ where: { status: 'paused' } }), 5000).catch(() => 0),
-        withTimeout(db.campaign.count({ where: { status: 'completed' } }), 5000).catch(() => 0),
-        withTimeout(db.campaign.count({ where: { status: 'cancelled' } }), 5000).catch(() => 0),
+        withTimeout(db.campaign.count({ where: { status: 'draft' } }), 5000).catch(ctx.degrade('campaign.count', 0)),
+        withTimeout(db.campaign.count({ where: { status: 'scheduled' } }), 5000).catch(ctx.degrade('campaign.count', 0)),
+        withTimeout(db.campaign.count({ where: { status: 'running' } }), 5000).catch(ctx.degrade('campaign.count', 0)),
+        withTimeout(db.campaign.count({ where: { status: 'paused' } }), 5000).catch(ctx.degrade('campaign.count', 0)),
+        withTimeout(db.campaign.count({ where: { status: 'completed' } }), 5000).catch(ctx.degrade('campaign.count', 0)),
+        withTimeout(db.campaign.count({ where: { status: 'cancelled' } }), 5000).catch(ctx.degrade('campaign.count', 0)),
         withTimeout(
           db.campaign.aggregate({ _sum: { totalSent: true } }),
           5000
-        ).catch(() => ({ _sum: { totalSent: 0 } })),
+        ).catch(ctx.degrade('campaign.aggregate', ({ _sum: { totalSent: 0 } }))),
       ])
 
       return NextResponse.json({
@@ -81,8 +81,8 @@ export const GET = withAdmin(
           },
         }),
         5000
-      ).catch(() => []),
-      withTimeout(db.campaign.count({ where }), 5000).catch(() => 0),
+      ).catch(ctx.degrade('campaign.findMany', [])),
+      withTimeout(db.campaign.count({ where }), 5000).catch(ctx.degrade('campaign.count', 0)),
     ])
 
     return NextResponse.json({
@@ -160,7 +160,7 @@ export const POST = withAdmin(
         select: { id: true, name: true, channel: true, status: true },
       }),
       5000
-    ).catch(() => [])
+    ).catch(ctx.degrade('notificationTemplate.findMany', []))
 
     if (templates.length !== templateIds.length) {
       return NextResponse.json({ error: 'One or more template IDs are invalid' }, { status: 400 })

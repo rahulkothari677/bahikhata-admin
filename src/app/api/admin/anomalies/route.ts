@@ -31,19 +31,19 @@ export const GET = withAdmin(
     // ============ OVERVIEW TAB ============
     if (tab === 'overview') {
       const [openCount, acknowledgedCount, resolvedCount, criticalOpenCount, recent24h, metricDist] = await Promise.all([
-        withTimeout(db.anomaly.count({ where: { status: 'open' } }), 5000).catch(() => 0),
-        withTimeout(db.anomaly.count({ where: { status: 'acknowledged' } }), 5000).catch(() => 0),
-        withTimeout(db.anomaly.count({ where: { status: 'resolved' } }), 5000).catch(() => 0),
+        withTimeout(db.anomaly.count({ where: { status: 'open' } }), 5000).catch(ctx.degrade('anomaly.count', 0)),
+        withTimeout(db.anomaly.count({ where: { status: 'acknowledged' } }), 5000).catch(ctx.degrade('anomaly.count', 0)),
+        withTimeout(db.anomaly.count({ where: { status: 'resolved' } }), 5000).catch(ctx.degrade('anomaly.count', 0)),
         withTimeout(
           db.anomaly.count({ where: { status: 'open', severity: 'critical' } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('anomaly.count', 0)),
         withTimeout(
           db.anomaly.count({
             where: { detectedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
           }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('anomaly.count', 0)),
         withTimeout(
           db.anomaly.groupBy({
             by: ['metric'],
@@ -51,7 +51,7 @@ export const GET = withAdmin(
             _count: true,
           }),
           5000
-        ).catch(() => []),
+        ).catch(ctx.degrade('anomaly.groupBy', [])),
       ])
 
       return NextResponse.json({
@@ -89,8 +89,8 @@ export const GET = withAdmin(
           take: pageSize,
         }),
         5000
-      ).catch(() => []),
-      withTimeout(db.anomaly.count({ where }), 5000).catch(() => 0),
+      ).catch(ctx.degrade('anomaly.findMany', [])),
+      withTimeout(db.anomaly.count({ where }), 5000).catch(ctx.degrade('anomaly.count', 0)),
     ])
 
     return NextResponse.json({

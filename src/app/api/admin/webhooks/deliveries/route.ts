@@ -42,8 +42,8 @@ export const GET = withAdmin(
           },
         }),
         5000
-      ).catch(() => []),
-      withTimeout(db.webhookDelivery.count({ where }), 5000).catch(() => 0),
+      ).catch(ctx.degrade('webhookDelivery.findMany', [])),
+      withTimeout(db.webhookDelivery.count({ where }), 5000).catch(ctx.degrade('webhookDelivery.count', 0)),
     ])
 
     return NextResponse.json({

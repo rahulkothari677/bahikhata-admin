@@ -22,18 +22,18 @@ export const GET = withAdmin(
 
     if (tab === 'overview') {
       const [draftCount, runningCount, completedCount, cancelledCount, totalAssignments, runningExperiments] = await Promise.all([
-        withTimeout(db.experiment.count({ where: { status: 'draft' } }), 5000).catch(() => 0),
-        withTimeout(db.experiment.count({ where: { status: 'running' } }), 5000).catch(() => 0),
-        withTimeout(db.experiment.count({ where: { status: 'completed' } }), 5000).catch(() => 0),
-        withTimeout(db.experiment.count({ where: { status: 'cancelled' } }), 5000).catch(() => 0),
-        withTimeout(db.experimentAssignment.count(), 5000).catch(() => 0),
+        withTimeout(db.experiment.count({ where: { status: 'draft' } }), 5000).catch(ctx.degrade('experiment.count', 0)),
+        withTimeout(db.experiment.count({ where: { status: 'running' } }), 5000).catch(ctx.degrade('experiment.count', 0)),
+        withTimeout(db.experiment.count({ where: { status: 'completed' } }), 5000).catch(ctx.degrade('experiment.count', 0)),
+        withTimeout(db.experiment.count({ where: { status: 'cancelled' } }), 5000).catch(ctx.degrade('experiment.count', 0)),
+        withTimeout(db.experimentAssignment.count(), 5000).catch(ctx.degrade('experimentAssignment.count', 0)),
         withTimeout(
           db.experiment.findMany({
             where: { status: 'running' },
             select: { id: true, name: true, metric: true, targetEvent: true },
           }),
           5000
-        ).catch(() => []),
+        ).catch(ctx.degrade('experiment.findMany', [])),
       ])
 
       return NextResponse.json({
@@ -66,8 +66,8 @@ export const GET = withAdmin(
             _count: { select: { assignments: true } },
           },
         })
-      ).catch(() => []),
-      withTimeout(db.experiment.count({ where }), 5000).catch(() => 0),
+      ).catch(ctx.degrade('experiment.findMany', [])),
+      withTimeout(db.experiment.count({ where }), 5000).catch(ctx.degrade('experiment.count', 0)),
     ])
 
     // Fetch results for running/completed experiments

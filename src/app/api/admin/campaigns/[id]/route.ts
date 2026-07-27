@@ -23,7 +23,7 @@ export const GET = withAdmin(
         },
       }),
       5000
-    ).catch(() => null)
+    ).catch(ctx.degrade('campaign.findUnique', null))
 
     if (!campaign) {
       return NextResponse.json({ error: 'Campaign not found' }, { status: 404 })

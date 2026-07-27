@@ -20,7 +20,7 @@ export const GET = withAdmin(
           updates: { orderBy: { createdAt: 'desc' }, take: 20 },
         },
       })
-    ).catch(() => null)
+    ).catch(ctx.degrade('competitor.findUnique', null))
 
     if (!competitor) {
       return NextResponse.json({ error: 'Competitor not found' }, { status: 404 })

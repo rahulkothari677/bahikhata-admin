@@ -46,27 +46,27 @@ export const GET = withAdmin(
         withTimeout(
           db.supportTicket.count({ where: { status: 'open' } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('supportTicket.count', 0)),
 
         withTimeout(
           db.supportTicket.count({ where: { status: 'in_progress' } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('supportTicket.count', 0)),
 
         withTimeout(
           db.supportTicket.count({ where: { status: 'resolved' } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('supportTicket.count', 0)),
 
         withTimeout(
           db.supportTicket.count({ where: { status: 'closed' } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('supportTicket.count', 0)),
 
         withTimeout(
           db.supportTicket.count({ where: { priority: 'urgent', status: { in: ['open', 'in_progress'] } } }),
           5000
-        ).catch(() => 0),
+        ).catch(ctx.degrade('supportTicket.count', 0)),
 
         withTimeout(
           db.supportTicket.groupBy({
@@ -76,7 +76,7 @@ export const GET = withAdmin(
             orderBy: { _count: { category: 'desc' } },
           }),
           5000
-        ).catch(() => []),
+        ).catch(ctx.degrade('supportTicket.groupBy', [])),
       ])
 
       // Recent tickets created in last 7 days (growth signal)
@@ -84,7 +84,7 @@ export const GET = withAdmin(
       const newTickets7d = await withTimeout(
         db.supportTicket.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
         5000
-      ).catch(() => 0)
+      ).catch(ctx.degrade('supportTicket.count', 0))
 
       return NextResponse.json({
         success: true,
@@ -140,11 +140,11 @@ export const GET = withAdmin(
           },
         }),
         5000
-      ).catch(() => []),
+      ).catch(ctx.degrade('supportTicket.findMany', [])),
       withTimeout(
         db.supportTicket.count({ where }),
         5000
-      ).catch(() => 0),
+      ).catch(ctx.degrade('supportTicket.count', 0)),
     ])
 
     return NextResponse.json({

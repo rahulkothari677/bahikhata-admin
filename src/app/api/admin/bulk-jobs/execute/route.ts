@@ -44,7 +44,7 @@ export const POST = withAdmin(
         },
         take: 10,
       })
-    ).catch(() => [])
+    ).catch(ctx.degrade('bulkJob.findMany', []))
 
     let processedJobs = 0
     let totalProcessed = 0
@@ -73,21 +73,21 @@ export const POST = withAdmin(
               where: { id: { in: criteria.userIds } },
               select: { id: true, email: true, name: true, plan: true, phone: true },
             })
-          ).catch(() => [])
+          ).catch(ctx.degrade('bulkJob.update', []))
         } else if (criteria.plan) {
           users = await withNeonRetry(() =>
             db.user.findMany({
               where: { plan: criteria.plan },
               select: { id: true, email: true, name: true, plan: true, phone: true },
             })
-          ).catch(() => [])
+          ).catch(ctx.degrade('user.findMany', []))
         } else if (criteria.segmentId) {
           const segmentUsers = await withNeonRetry(() =>
             db.userSegmentCache.findMany({
               where: { segmentId: criteria.segmentId },
               select: { userId: true },
             })
-          ).catch(() => [])
+          ).catch(ctx.degrade('userSegmentCache.findMany', []))
           const userIds = segmentUsers.map((s: any) => s.userId)
           if (userIds.length > 0) {
             users = await withNeonRetry(() =>
@@ -95,7 +95,7 @@ export const POST = withAdmin(
                 where: { id: { in: userIds } },
                 select: { id: true, email: true, name: true, plan: true, phone: true },
               })
-            ).catch(() => [])
+            ).catch(ctx.degrade('user.findMany', []))
           }
         }
 
@@ -122,7 +122,7 @@ export const POST = withAdmin(
                 await db.user.update({
                   where: { id: user.id },
                   data: { cancelledAt: new Date() },
-                }).catch(() => {})
+                }).catch(ctx.degrade('user.update', {}))
                 successCount++
                 break
 
@@ -140,7 +140,7 @@ export const POST = withAdmin(
                     sentBy: ctx.adminId,
                     category: params.category || 'promotional',
                   },
-                }).catch(() => {})
+                }).catch(ctx.degrade('notificationLog.create', {}))
                 successCount++
                 break
 
@@ -154,7 +154,7 @@ export const POST = withAdmin(
                 await db.user.update({
                   where: { id: user.id },
                   data: { cancelledAt: new Date(), plan: 'free' },
-                }).catch(() => {})
+                }).catch(ctx.degrade('user.update', {}))
                 successCount++
                 break
 
@@ -192,7 +192,7 @@ export const POST = withAdmin(
             completedAt: new Date(),
             errorMessage: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
           },
-        }).catch(() => {})
+        }).catch(ctx.degrade('bulkJob.update', {}))
       }
     }
 

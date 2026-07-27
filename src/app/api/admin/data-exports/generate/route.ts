@@ -24,7 +24,7 @@ const BULK_EXPORT_LIMIT = 10_000
 export const POST = withAdmin(
   'admin/data-exports/generate',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
     const { id } = await req.json()
     if (!id) return NextResponse.json({ error: 'Export ID required' }, { status: 400 })
 
@@ -43,12 +43,17 @@ export const POST = withAdmin(
       switch (exportReq.type) {
         case 'user_data': {
           // Fetch all data for a single user
+          // NOT wrapped in a degrade/catch, deliberately. Swallowing a failure
+          // here turns "the database is unreachable" into "User not found" —
+          // a misleading answer on a legal request, and one that would send an
+          // operator looking for a deleted account instead of a broken query.
+          // Let it propagate; the outer handler marks the export failed.
           const user = await withNeonRetry(() =>
             db.user.findUnique({
               where: { id: exportReq.userId! },
               select: { id: true, email: true, name: true, phone: true, plan: true, createdAt: true, updatedAt: true },
             })
-          ).catch(() => null)
+          )
 
           if (!user) throw new Error('User not found')
 
