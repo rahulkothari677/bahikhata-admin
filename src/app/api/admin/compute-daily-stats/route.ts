@@ -18,7 +18,7 @@ import { db } from '@/lib/db'
 export const POST = withAdmin(
   'admin/compute-daily-stats',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
     const body = await req.json().catch(() => ({}))
     const targetDate = body.date ? new Date(body.date) : new Date()
     const dayStart = new Date(Date.UTC(targetDate.getUTCFullYear(), targetDate.getUTCMonth(), targetDate.getUTCDate()))
@@ -100,10 +100,57 @@ export const POST = withAdmin(
       },
     })
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // 📊 Refresh the denormalised per-user activity counters.
+    //
+    // These back the admin users list, which previously used `_count` on four
+    // relations — a correlated subquery per row, 100 of them for a 25-row page
+    // over the transaction table.
+    //
+    // Done as ONE set-based UPDATE ... FROM rather than per-user queries: at a
+    // million users, a loop of updates is a million round trips. The database
+    // does the join once.
+    //
+    // INCREMENTAL by default: only users whose counters are stale or who have
+    // been active since the last run. A full recompute over a billion
+    // transactions every night is exactly the kind of job that quietly starts
+    // taking six hours and then starts overlapping itself.
+    // ═══════════════════════════════════════════════════════════════════════
+    const rollupStart = Date.now()
+    const staleBefore = new Date(Date.now() - 23 * 60 * 60 * 1000)
+
+    const rollupRows = await db.$executeRawUnsafe(`
+      UPDATE "User" u
+      SET "txnCount"        = COALESCE(c.txn_count, 0),
+          "productCount"    = COALESCE(c.product_count, 0),
+          "partyCount"      = COALESCE(c.party_count, 0),
+          "countsUpdatedAt" = NOW()
+      FROM (
+        SELECT u2.id,
+               (SELECT COUNT(*) FROM "Transaction" t WHERE t."userId" = u2.id) AS txn_count,
+               (SELECT COUNT(*) FROM "Product"     p WHERE p."userId" = u2.id) AS product_count,
+               (SELECT COUNT(*) FROM "Party"       y WHERE y."userId" = u2.id) AS party_count
+        FROM "User" u2
+        WHERE u2."countsUpdatedAt" IS NULL
+           OR u2."countsUpdatedAt" < $1
+           OR u2."updatedAt"       > u2."countsUpdatedAt"
+        LIMIT 50000
+      ) c
+      WHERE u.id = c.id
+    `, staleBefore)
+
     return NextResponse.json({
       success: true,
       message: `Daily stats computed for ${dayStart.toISOString().split('T')[0]}`,
       stats,
+      rollup: {
+        usersRefreshed: rollupRows,
+        durationMs: Date.now() - rollupStart,
+        // LIMIT 50000 per run keeps one execution bounded. If this equals the
+        // limit there is more to do and the next run will continue — it is not
+        // an error, but it IS the signal to move rollups to their own job.
+        capped: rollupRows >= 50000,
+      },
     })
   } catch (error) {
     console.error('Compute daily stats error:', error)
@@ -122,7 +169,7 @@ export const POST = withAdmin(
 export const GET = withAdmin(
   'admin/compute-daily-stats',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
     // Get the latest 30 days of stats
     const stats = await db.dailyStats.findMany({
       orderBy: { date: 'desc' },

@@ -61,6 +61,28 @@ model User {
   // date the statutory obligation expires — only after that may the row be
   // considered for purge, and even then by a deliberate, audited job.
   // ═══════════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════
+  // 📊 DENORMALISED ACTIVITY COUNTERS (audit 2026-07-27).
+  //
+  // The admin users list used `_count: { transactions, products, parties }`,
+  // which Prisma compiles to a correlated subquery PER ROW — 75 subqueries
+  // over the transaction table for one 25-row page. At a billion transactions
+  // that page never returns.
+  //
+  // Worse, filters like "users with >10 transactions" were applied in
+  // JAVASCRIPT after fetching the page, so `total` was wrong, pages came back
+  // short, and matching users on later pages were invisible.
+  //
+  // These columns make both problems a plain indexed lookup. Refreshed by
+  // /api/admin/compute-daily-stats (nightly). They are a CACHE for admin
+  // filtering and display — never a source of truth for money or compliance,
+  // where you must still aggregate the real rows.
+  // ═══════════════════════════════════════════════════════════════════════
+  txnCount        Int       @default(0)
+  productCount    Int       @default(0)
+  partyCount      Int       @default(0)
+  countsUpdatedAt DateTime? // null = never computed; UI must say "—", not "0"
+
   deletedAt       DateTime? // set = account closed; row and books retained
   deletedBy       String? // admin id, or 'self' for user-initiated closure
   deletionReason  String? // free text; required by the API
@@ -125,6 +147,12 @@ model User {
   // Every admin list query filters deletedAt: null. Without this index that
   // filter becomes a sequential scan once the table is large.
   @@index([deletedAt])
+  // Keyset pagination sorts on (createdAt, id). A composite index makes each
+  // page an index seek rather than a scan, so page 5,000 costs what page 1 does.
+  @@index([createdAt, id])
+  // Backs the "users with more than N transactions" admin filter, which used
+  // to be applied in JavaScript after fetching a page.
+  @@index([txnCount])
 }
 model Shop {
   id        String   @id @default(cuid())

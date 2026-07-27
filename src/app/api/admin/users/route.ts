@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withAdmin } from '@/lib/with-admin'
 import { requireAdmin } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
+import { clampPageSize, decodeCursor, keysetOrderBy, keysetPaginate, keysetWhere } from '@/lib/pagination'
+import { maskEmail, maskName, maskPhone } from '@/lib/pii'
 
 /**
  * GET /api/admin/users
@@ -109,68 +111,90 @@ export const GET = withAdmin(
       where.aiUsageLogs = { none: {} }
     }
 
-    // Sorting
-    const sortBy = p.get('sortBy') || 'createdAt'
-    const sortOrder = p.get('sortOrder') || 'desc'
-    const orderBy: any = {}
-    orderBy[sortBy] = sortOrder
+    // ═══════════════════════════════════════════════════════════════════════
+    // 📊 SCALE (audit 2026-07-27). This block previously:
+    //
+    //  1. Paginated with skip/take -> SQL OFFSET. The database materialises
+    //     every skipped row and discards it, so page 5,000 reads five million
+    //     rows to return twenty, while holding a connection the shopkeepers'
+    //     app needs. Now keyset — page 5,000 costs what page 1 costs.
+    //
+    //  2. Selected `_count` on four relations, which Prisma compiles to a
+    //     correlated subquery PER ROW: 100 subqueries over the transaction
+    //     table for one 25-row page. Now reads denormalised columns.
+    //
+    //  3. Applied minTransactions/minProducts/minParties in JAVASCRIPT, AFTER
+    //     fetching the page. That was silently wrong, not merely slow:
+    //       - `total` came from an unfiltered count, so paging was nonsense
+    //       - pages returned fewer rows than `limit` with no explanation
+    //       - a user matching the filter on page 3 was invisible if page 1
+    //         was being viewed — the filter only ever saw 20 rows
+    //     Those filters are now real WHERE clauses on indexed columns.
+    // ═══════════════════════════════════════════════════════════════════════
+    if (minTransactions !== null) where.txnCount = { gte: minTransactions }
+    if (minProducts !== null) where.productCount = { gte: minProducts }
+    if (minParties !== null) where.partyCount = { gte: minParties }
 
-    // Pagination
-    const page = Math.max(1, Number(p.get('page') || '1'))
-    const limit = Math.min(100, Number(p.get('limit') || '20'))
-    const skip = (page - 1) * limit
+    // Closed accounts are hidden by default; ?includeClosed=true to see them.
+    if (p.get('includeClosed') !== 'true') where.deletedAt = null
 
-    const [users, total] = await Promise.all([
-      db.user.findMany({
-        where,
-        orderBy,
-        skip,
-        take: limit,
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          phone: true,
-          plan: true,
-          role: true,
-          createdAt: true,
-          updatedAt: true,
-          renewsAt: true,
-          cancelledAt: true,
-          shops: { select: { name: true, gstin: true, state: true } },
-          _count: {
-            select: {
-              transactions: true,
-              products: true,
-              parties: true,
-              aiUsageLogs: true,
-            },
+    const sortOrder = p.get('sortOrder') === 'asc' ? 'asc' : 'desc'
+    const pageSize = clampPageSize(p.get('limit'))
+    const cursor = decodeCursor(p.get('cursor'))
+
+    // Sorting is restricted to indexed columns. An arbitrary `sortBy` from the
+    // query string means any column can be sorted on, including unindexed ones
+    // — a guaranteed sequential scan on a large table.
+    const SORTABLE = new Set(['createdAt', 'updatedAt'])
+    const rawSort = p.get('sortBy') || 'createdAt'
+    const sortBy = SORTABLE.has(rawSort) ? rawSort : 'createdAt'
+
+    const page = await keysetPaginate(
+      (take) =>
+        db.user.findMany({
+          where: { ...where, ...keysetWhere(sortBy, cursor, sortOrder) },
+          orderBy: keysetOrderBy(sortBy, sortOrder),
+          take,
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            phone: true,
+            plan: true,
+            role: true,
+            createdAt: true,
+            updatedAt: true,
+            renewsAt: true,
+            cancelledAt: true,
+            deletedAt: true,
+            shops: { select: { name: true, gstin: true, state: true } },
+            txnCount: true,
+            productCount: true,
+            partyCount: true,
+            countsUpdatedAt: true,
           },
-        },
-      }),
-      db.user.count({ where }),
-    ])
-
-    // Post-filter for min counts (since Prisma can't filter by _count directly in where)
-    let filteredUsers = users
-    if (minTransactions !== null) {
-      filteredUsers = filteredUsers.filter(u => u._count.transactions >= minTransactions)
-    }
-    if (minProducts !== null) {
-      filteredUsers = filteredUsers.filter(u => u._count.products >= minProducts)
-    }
-    if (minParties !== null) {
-      filteredUsers = filteredUsers.filter(u => u._count.parties >= minParties)
-    }
+        }),
+      pageSize,
+      sortBy,
+    )
 
     return NextResponse.json({
       success: true,
-      users: filteredUsers,
+      // Identifiers are MASKED by default. Support agents unmask per-user via
+      // /api/admin/users/[id], which is audited; a list view never needs them.
+      users: page.rows.map((u) => ({
+        ...u,
+        email: maskEmail(u.email),
+        name: maskName(u.name),
+        phone: maskPhone(u.phone),
+        // countsUpdatedAt null means the rollup has never run. The UI must
+        // render "—", NOT "0" — an uncomputed count is not a count of zero.
+        countsStale: u.countsUpdatedAt === null,
+      })),
       pagination: {
-        page,
-        limit,
-        total: minTransactions || minProducts || minParties ? filteredUsers.length : total,
-        totalPages: Math.ceil((minTransactions || minProducts || minParties ? filteredUsers.length : total) / limit),
+        pageSize,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
       },
       filters: Object.fromEntries(p.entries()),
     })
