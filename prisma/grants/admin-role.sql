@@ -34,7 +34,8 @@ $$;
 -- Set the password out of band; never commit it:
 --   ALTER ROLE bahikhata_admin_app WITH PASSWORD '<from your secret manager>';
 
-GRANT CONNECT ON DATABASE neondb TO bahikhata_admin_app;
+-- Uses whatever database you are connected to, so the name does not matter.
+DO $do$ BEGIN EXECUTE format('GRANT CONNECT ON DATABASE %I TO bahikhata_admin_app', current_database()); END $do$;
 GRANT USAGE ON SCHEMA public TO bahikhata_admin_app;
 
 -- ─── 2. Baseline: read everything, write nothing ──────────────────────────
@@ -101,7 +102,7 @@ BEGIN
 END
 $$;
 
-GRANT CONNECT ON DATABASE neondb TO bahikhata_readonly;
+DO $do$ BEGIN EXECUTE format('GRANT CONNECT ON DATABASE %I TO bahikhata_readonly', current_database()); END $do$;
 GRANT USAGE ON SCHEMA public TO bahikhata_readonly;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO bahikhata_readonly;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
