@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { readApiError } from '@/lib/read-api-error'
 import { useState } from 'react'
 import {
   Download, Plus, X, Save, Loader2, Trash2, Play,
@@ -72,7 +73,7 @@ export default function DataExportsPage() {
       })
       if (!r.ok) {
         const data = await r.json().catch(() => ({}))
-        throw new Error(data.error || data.detail || `HTTP ${r.status}`)
+        throw new Error(readApiError(data, r.status))
       }
       // If response is CSV (not JSON), download it
       const contentType = r.headers.get('content-type') || ''
@@ -108,7 +109,7 @@ export default function DataExportsPage() {
         body: JSON.stringify(data),
       })
       const result = await r.json()
-      if (!r.ok) throw new Error(result.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(result, r.status))
       return result
     },
     onSuccess: (data) => {

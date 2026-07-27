@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { readApiError } from '@/lib/read-api-error'
 import { useState } from 'react'
 import {
   TrendingUp, RefreshCw, Loader2, Calendar, CheckCircle2,
@@ -80,7 +81,7 @@ export default function RevenueRecognitionPage() {
     mutationFn: async () => {
       const r = await fetch('/api/admin/revenue-recognition/recompute', { method: 'POST' })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: (data) => {

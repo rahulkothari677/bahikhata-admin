@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { readApiError } from '@/lib/read-api-error'
 import { useState } from 'react'
 import {
   FlaskConical, Plus, Edit3, Trash2, X, Save, Loader2, Play,
@@ -75,7 +76,7 @@ export default function ExperimentsPage() {
         body: JSON.stringify({ status, conclusion }),
       })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: (data) => {
@@ -93,7 +94,7 @@ export default function ExperimentsPage() {
     mutationFn: async (id: string) => {
       const r = await fetch(`/api/admin/experiments/${id}`, { method: 'DELETE' })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: () => {
@@ -526,7 +527,7 @@ function ExperimentEditor({ onClose, onCreated }: { onClose: () => void; onCreat
         body: JSON.stringify(payload),
       })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || data.detail || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: () => {

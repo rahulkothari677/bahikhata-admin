@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery, useMutation } from '@tanstack/react-query'
+import { readApiError } from '@/lib/read-api-error'
 import { useState } from 'react'
 import { Shield, Lock, Smartphone, Loader2, CheckCircle2, AlertCircle, KeyRound } from 'lucide-react'
 import { toast as sonnerToast } from 'sonner'
@@ -25,7 +26,7 @@ export default function SettingsPage() {
         body: JSON.stringify({ code }),
       })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error)
+      if (!r.ok) throw new Error(readApiError(data))
       return data
     },
     onSuccess: (data) => {
@@ -44,7 +45,7 @@ export default function SettingsPage() {
         body: JSON.stringify({ code }),
       })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error)
+      if (!r.ok) throw new Error(readApiError(data))
       return data
     },
     onSuccess: (data) => {

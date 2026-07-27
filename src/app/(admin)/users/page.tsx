@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { readApiError } from '@/lib/read-api-error'
 import { useState, useEffect } from 'react'
 import { useDebounce } from '@/hooks/use-debounce'
 import { Users as UsersIcon, Search, Crown, Loader2, Download, Send, Ban, Trash2, UserCog, CheckSquare, Square } from 'lucide-react'
@@ -69,7 +70,7 @@ export default function UsersPage() {
         body: JSON.stringify(body),
       })
       const data = await r.json().catch(() => ({}))
-      if (!r.ok) throw new Error(data.error || 'Bulk operation failed')
+      if (!r.ok) throw new Error(readApiError(data))
       return data
     },
     onSuccess: (data) => {
@@ -179,7 +180,7 @@ export default function UsersPage() {
             })
             .then(r => r.json())
             .then(data => {
-              if (!data.success) throw new Error(data.error || 'Export failed')
+              if (!data.success) throw new Error(readApiError(data))
               // Download CSV
               const blob = new Blob([data.csv], { type: 'text/csv;charset=utf-8;' })
               const url = URL.createObjectURL(blob)

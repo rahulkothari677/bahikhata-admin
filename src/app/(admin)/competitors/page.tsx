@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { readApiError } from '@/lib/read-api-error'
 import { useState } from 'react'
 import {
   Swords, Plus, Edit3, Trash2, X, Save, Loader2, Globe,
@@ -72,7 +73,7 @@ export default function CompetitorsPage() {
         body: JSON.stringify(data),
       })
       const result = await r.json()
-      if (!r.ok) throw new Error(result.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(result, r.status))
       return result
     },
     onSuccess: () => {
@@ -92,7 +93,7 @@ export default function CompetitorsPage() {
     mutationFn: async (id: string) => {
       const r = await fetch(`/api/admin/competitors/${id}`, { method: 'DELETE' })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: () => {

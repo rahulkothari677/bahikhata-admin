@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { readApiError } from '@/lib/read-api-error'
 import { useState } from 'react'
 import {
   ShieldAlert, Plus, RefreshCw, Loader2, X, Play,
@@ -104,7 +105,7 @@ export default function FraudRulesPage() {
     mutationFn: async () => {
       const r = await fetch('/api/admin/fraud-rules/evaluate', { method: 'POST' })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: (data) => {
@@ -130,7 +131,7 @@ export default function FraudRulesPage() {
         body: JSON.stringify({ status, adminNote }),
       })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: () => {
@@ -154,7 +155,7 @@ export default function FraudRulesPage() {
         body: JSON.stringify({ enabled }),
       })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: () => {
@@ -648,7 +649,7 @@ function RuleEditor({
         body: JSON.stringify(payload),
       })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || data.detail || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: () => {

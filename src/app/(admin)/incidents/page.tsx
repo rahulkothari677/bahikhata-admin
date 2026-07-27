@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { readApiError } from '@/lib/read-api-error'
 import { useState } from 'react'
 import {
   AlertTriangle, Plus, Play, Pause, X, RefreshCw, Eye,
@@ -100,7 +101,7 @@ export default function IncidentsPage() {
         body: JSON.stringify(data),
       })
       const result = await r.json()
-      if (!r.ok) throw new Error(result.error || result.detail || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(result, r.status))
       return result
     },
     onSuccess: () => {
@@ -123,7 +124,7 @@ export default function IncidentsPage() {
         body: JSON.stringify({ status }),
       })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: () => {
@@ -146,7 +147,7 @@ export default function IncidentsPage() {
         body: JSON.stringify({ message, status }),
       })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: () => {

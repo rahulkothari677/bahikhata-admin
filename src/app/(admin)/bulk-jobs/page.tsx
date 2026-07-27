@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { readApiError } from '@/lib/read-api-error'
 import { useState } from 'react'
 import {
   Layers, Plus, X, Save, Loader2, Play, Trash2, Clock,
@@ -73,7 +74,7 @@ export default function BulkJobsPage() {
     mutationFn: async () => {
       const r = await fetch('/api/admin/bulk-jobs/execute', { method: 'POST' })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: (data) => {
@@ -98,7 +99,7 @@ export default function BulkJobsPage() {
         body: JSON.stringify({ status: 'cancelled' }),
       })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: () => {
@@ -116,7 +117,7 @@ export default function BulkJobsPage() {
     mutationFn: async (id: string) => {
       const r = await fetch(`/api/admin/bulk-jobs/${id}`, { method: 'DELETE' })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: () => {
@@ -426,7 +427,7 @@ function BulkJobEditor({ onClose, onCreated }: { onClose: () => void; onCreated:
         body: JSON.stringify(payload),
       })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: () => {

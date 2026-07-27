@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { readApiError } from '@/lib/read-api-error'
 import { useState } from 'react'
 import {
   Star, Plus, Edit3, Trash2, X, Save, Loader2, TrendingUp,
@@ -68,7 +69,7 @@ export default function NpsConfigPage() {
         body: JSON.stringify(data),
       })
       const result = await r.json()
-      if (!r.ok) throw new Error(result.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(result, r.status))
       return result
     },
     onSuccess: () => {

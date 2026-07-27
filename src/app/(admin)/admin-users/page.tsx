@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { readApiError } from '@/lib/read-api-error'
 import { useState } from 'react'
 import {
   Users, Plus, X, Save, Loader2, Trash2, ShieldCheck,
@@ -58,7 +59,7 @@ export default function AdminUsersPage() {
         body: JSON.stringify(data),
       })
       const result = await r.json()
-      if (!r.ok) throw new Error(result.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(result, r.status))
       return result
     },
     onSuccess: () => {
@@ -77,7 +78,7 @@ export default function AdminUsersPage() {
         body: JSON.stringify(data),
       })
       const result = await r.json()
-      if (!r.ok) throw new Error(result.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(result, r.status))
       return result
     },
     onSuccess: () => {
@@ -93,7 +94,7 @@ export default function AdminUsersPage() {
     mutationFn: async (id: string) => {
       const r = await fetch(`/api/admin/admin-users/${id}`, { method: 'DELETE' })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: () => {

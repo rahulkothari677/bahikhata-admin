@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery, useMutation } from '@tanstack/react-query'
+import { readApiError } from '@/lib/read-api-error'
 import { useState } from 'react'
 import {
   Database, Play, Download, Loader2, AlertTriangle,
@@ -60,7 +61,7 @@ export default function DatabaseAdminPage() {
         body: JSON.stringify({ sql: sqlText }),
       })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || data.detail || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: (data) => {
@@ -83,7 +84,7 @@ export default function DatabaseAdminPage() {
       })
       if (!r.ok) {
         const data = await r.json()
-        throw new Error(data.error || `HTTP ${r.status}`)
+        throw new Error(readApiError(data, r.status))
       }
       return r.blob()
     },

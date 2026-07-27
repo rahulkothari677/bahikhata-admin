@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { readApiError } from '@/lib/read-api-error'
 import { useState } from 'react'
 import {
   Flag, Plus, Search, X, Loader2, TrendingUp, History,
@@ -53,7 +54,7 @@ export default function FeaturesPage() {
         body: JSON.stringify({ enabled }),
       })
       const data = await r.json().catch(() => ({}))
-      if (!r.ok) throw new Error(data.error || data.detail || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: (data) => {

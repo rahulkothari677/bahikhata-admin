@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { readApiError } from '@/lib/read-api-error'
 import { useParams, useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { ArrowLeft, Crown, Coins, ShoppingCart, Zap, Loader2, Save, UserCog } from 'lucide-react'
@@ -63,7 +64,7 @@ export default function UserDetailPage() {
         body: JSON.stringify({ userId, reason }),
       })
       const data = await r.json().catch(() => ({}))
-      if (!r.ok) throw new Error(data.error || 'Failed to create impersonation link')
+      if (!r.ok) throw new Error(readApiError(data))
       return data
     },
     onSuccess: (data) => {

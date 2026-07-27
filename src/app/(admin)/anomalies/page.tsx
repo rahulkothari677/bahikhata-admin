@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { readApiError } from '@/lib/read-api-error'
 import { useState } from 'react'
 import {
   AlertTriangle, TrendingUp, TrendingDown, RefreshCw, Loader2,
@@ -80,7 +81,7 @@ export default function AnomaliesPage() {
     mutationFn: async () => {
       const r = await fetch('/api/admin/anomalies/detect', { method: 'POST' })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || data.detail || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: (data) => {
@@ -117,7 +118,7 @@ export default function AnomaliesPage() {
         body: JSON.stringify({ status, adminNote }),
       })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: () => {

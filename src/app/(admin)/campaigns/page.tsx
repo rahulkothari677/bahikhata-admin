@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { readApiError } from '@/lib/read-api-error'
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
@@ -104,7 +105,7 @@ export default function CampaignsPage() {
         body: JSON.stringify({ action, stepId }),
       })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || data.detail || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: (data) => {
@@ -563,7 +564,7 @@ function CampaignEditor({ initialSegmentId, onClose, onCreated }: { initialSegme
         body: JSON.stringify(payload),
       })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || data.detail || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: () => {

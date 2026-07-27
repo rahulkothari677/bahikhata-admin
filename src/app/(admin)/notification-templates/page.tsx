@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { readApiError } from '@/lib/read-api-error'
 import { useState } from 'react'
 import {
   MessageSquare, Mail, Smartphone, Bell, Plus, Edit3, Trash2,
@@ -94,7 +95,7 @@ export default function NotificationTemplatesPage() {
         body: JSON.stringify(data),
       })
       const result = await r.json()
-      if (!r.ok) throw new Error(result.error || result.detail || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(result, r.status))
       return result
     },
     onSuccess: (data) => {
@@ -114,7 +115,7 @@ export default function NotificationTemplatesPage() {
     mutationFn: async (id: string) => {
       const r = await fetch(`/api/admin/notification-templates/${id}`, { method: 'DELETE' })
       const data = await r.json()
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`)
+      if (!r.ok) throw new Error(readApiError(data, r.status))
       return data
     },
     onSuccess: () => {
