@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -32,14 +31,10 @@ import { sendNotification, substituteVariables } from '@/lib/notification-provid
  * synchronously for immediate feedback. Scheduled future steps would be
  * handled by cron in production.
  */
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/campaigns/[id]/action',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const body = await req.json()
     const { action, stepId } = body
@@ -53,7 +48,7 @@ export async function POST(
       return NextResponse.json({ error: 'Campaign not found' }, { status: 404 })
     }
 
-    const adminId = (session.user as any).id
+    const adminId = ctx.adminId
 
     // ============ START ============
     if (action === 'start') {
@@ -353,8 +348,7 @@ export async function POST(
     console.error('Campaign action error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to execute action',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to execute action',    }, { status: 500 })
   }
-}
+},
+)

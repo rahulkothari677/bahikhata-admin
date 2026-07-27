@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { requireAdmin } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
 
@@ -29,7 +28,9 @@ import { db } from '@/lib/db'
  *   ?page=1                  — pagination
  *   ?limit=20                — items per page (max 100)
  */
-export async function GET(req: NextRequest) {
+export const GET = withAdmin(
+  'admin/users',
+  async (req: NextRequest, ctx) => {
   try {
     const auth = await requireAdmin()
     if (!auth.ok) return auth.error
@@ -177,4 +178,5 @@ export async function GET(req: NextRequest) {
     console.error('Admin users fetch error:', error)
     return NextResponse.json({ error: 'Failed to fetch users' }, { status: 500 })
   }
-}
+},
+)

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout, withNeonRetry } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -10,11 +9,10 @@ import { logAdminAction } from '@/lib/audit'
  * Returns competitors + comparison data.
  * Query: ?tab=overview|list&status=all|active|inactive
  */
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/competitors',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'list'
     const status = url.searchParams.get('status') || 'all'
@@ -93,17 +91,17 @@ export async function GET(req: NextRequest) {
     console.error('Competitors fetch error:', error)
     return NextResponse.json({ error: 'Failed to fetch competitors' }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * POST /api/admin/competitors
  * Create a new competitor.
  */
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/competitors',
+  async (req: NextRequest, ctx) => {
+  try {
     const body = await req.json()
     const { name, website, description, freePrice, proPrice, elitePrice, features, targetMarket, usp, weaknesses } = body
 
@@ -124,12 +122,12 @@ export async function POST(req: NextRequest) {
         usp: usp || null,
         weaknesses: weaknesses || null,
         status: 'active',
-        createdBy: (session.user as any).id,
+        createdBy: ctx.adminId,
       },
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'competitor_create',
       description: `Added competitor "${name}"`,
       targetType: 'competitor',
@@ -141,4 +139,5 @@ export async function POST(req: NextRequest) {
     console.error('Create competitor error:', error)
     return NextResponse.json({ error: 'Failed to create competitor' }, { status: 500 })
   }
-}
+},
+)

@@ -79,7 +79,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Validation failed', detail: error.issues }, { status: 400 })
     }
     console.error('Setup error:', error)
-    return NextResponse.json({ error: 'Setup failed', detail: String(error) }, { status: 500 })
+    // 🔒 (audit 2026-07-27) This returned `detail: String(error)` on an
+    // UNAUTHENTICATED endpoint — the worst possible place to leak Prisma
+    // messages, column names and constraint names. Log it, do not ship it.
+    console.error('[admin/setup] failed:', error)
+    return NextResponse.json({ error: 'Setup failed' }, { status: 500 })
   }
 }
 

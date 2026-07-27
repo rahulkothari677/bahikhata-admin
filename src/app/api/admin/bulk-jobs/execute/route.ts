@@ -1,7 +1,5 @@
-import type { NextRequest } from "next/server"
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
+import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { withNeonRetry } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -23,14 +21,10 @@ import { logAdminAction } from '@/lib/audit'
 const lastExecuteAt: { ts: number | null } = { ts: null }
 const EXECUTE_COOLDOWN_MS = 60 * 1000
 
-export async function POST(req: NextRequest) {
-  try {
-    const cronSecret = process.env.CRON_SECRET
-    const authHeader = req.headers.get('authorization')
-    const isCron = !!(cronSecret && authHeader === `Bearer ${cronSecret}`)
-    const session = isCron ? null : await getServerSession(authOptions)
-    if (!isCron && !session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/bulk-jobs/execute',
+  async (req: NextRequest, ctx) => {
+  try {
     if (lastExecuteAt.ts && Date.now() - lastExecuteAt.ts < EXECUTE_COOLDOWN_MS) {
       const remaining = Math.ceil((EXECUTE_COOLDOWN_MS - (Date.now() - lastExecuteAt.ts)) / 1000)
       return NextResponse.json({
@@ -143,7 +137,7 @@ export async function POST(req: NextRequest) {
                     body: params.message || '',
                     status: 'skipped',
                     provider: 'dry-run',
-                    sentBy: (session ? (session.user as any).id : 'cron'),
+                    sentBy: ctx.adminId,
                     category: params.category || 'promotional',
                   },
                 }).catch(() => {})
@@ -203,7 +197,7 @@ export async function POST(req: NextRequest) {
     }
 
     await logAdminAction({
-      adminId: (session ? (session.user as any).id : 'cron'),
+      adminId: ctx.adminId,
       action: 'bulk_jobs_execute',
       description: `Executed ${processedJobs} bulk jobs — ${totalProcessed} users processed, ${totalSuccess} success, ${totalFailed} failed`,
       targetType: 'bulk_job',
@@ -220,4 +214,5 @@ export async function POST(req: NextRequest) {
     console.error('Bulk jobs execute error:', error)
     return NextResponse.json({ error: 'Execution failed' }, { status: 500 })
   }
-}
+},
+)

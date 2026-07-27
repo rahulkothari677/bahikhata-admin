@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -12,11 +11,10 @@ import crypto from 'crypto'
  * Returns webhook endpoints + stats.
  * Query: ?tab=overview|list&partnerId=all|<id>&status=all|active|disabled&page=1
  */
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/webhooks',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'overview'
     const partnerId = url.searchParams.get('partnerId') || 'all'
@@ -103,21 +101,19 @@ export async function GET(req: NextRequest) {
     console.error('Webhooks fetch error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to fetch webhooks',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to fetch webhooks',    }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * POST /api/admin/webhooks
  * Create a new webhook endpoint.
  */
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/webhooks',
+  async (req: NextRequest, ctx) => {
+  try {
     const body = await req.json()
     const { partnerId, url, events, description, generateSecret } = body
 
@@ -223,12 +219,12 @@ export async function POST(req: NextRequest) {
         secret,
         description: description || null,
         status: 'active',
-        createdBy: (session.user as any).id,
+        createdBy: ctx.adminId,
       },
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'webhook_create',
       description: `Created webhook endpoint for partner (URL: ${url}, events: ${events.join(', ')})`,
       targetType: 'webhook_endpoint',
@@ -244,8 +240,7 @@ export async function POST(req: NextRequest) {
     console.error('Create webhook error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to create webhook',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to create webhook',    }, { status: 500 })
   }
-}
+},
+)

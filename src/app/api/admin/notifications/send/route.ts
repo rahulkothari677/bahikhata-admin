@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { sendNotification, substituteVariables, type Channel } from '@/lib/notification-providers'
@@ -36,11 +35,10 @@ import { logAdminAction } from '@/lib/audit'
  */
 const MAX_RECIPIENTS = 1000
 
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/notifications/send',
+  async (req: NextRequest, ctx) => {
+  try {
     const body = await req.json()
     const {
       mode,
@@ -254,7 +252,7 @@ export async function POST(req: NextRequest) {
             provider: sendResult.provider,
             providerMessageId: sendResult.providerMessageId || null,
             errorMessage: sendResult.error || null,
-            sentBy: (session.user as any).id,
+            sentBy: ctx.adminId,
             category,
           },
         })
@@ -274,7 +272,7 @@ export async function POST(req: NextRequest) {
 
     // ============ AUDIT LOG ============
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'notification_send',
       description: `Sent ${finalChannel} to ${recipientList.length} recipient(s) via ${mode} mode — sent:${totalSent} failed:${totalFailed} skipped:${totalSkipped}`,
       targetType: mode === 'template' ? 'notification_template' : 'notification_direct',
@@ -294,8 +292,7 @@ export async function POST(req: NextRequest) {
     console.error('Send notification error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to send notifications',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to send notifications',    }, { status: 500 })
   }
-}
+},
+)

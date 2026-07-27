@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { logAdminAction } from '@/lib/audit'
 
@@ -21,11 +20,10 @@ import { logAdminAction } from '@/lib/audit'
  *     endsAt?: ISO string,
  *   }
  */
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/notifications',
+  async (req: NextRequest, ctx) => {
+  try {
     const body = await req.json()
     const { title, message, type = 'info', link, targetSegment = 'all', startsAt, endsAt } = body
 
@@ -44,13 +42,13 @@ export async function POST(req: NextRequest) {
         isActive: true,
         startsAt: startsAt ? new Date(startsAt) : new Date(),
         endsAt: endsAt ? new Date(endsAt) : null,
-        createdBy: (session.user as any).email,
+        createdBy: ctx.email,
       },
     })
 
     // Log the admin action
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'notification_broadcast',
       description: `Sent "${title}" to ${targetSegment} segment`,
       targetType: 'announcement',
@@ -69,17 +67,17 @@ export async function POST(req: NextRequest) {
     console.error('Create notification error:', error)
     return NextResponse.json({ error: 'Failed to create notification' }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * GET /api/admin/notifications
  * Returns all announcements (active + past)
  */
-export async function GET() {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/notifications',
+  async (req: NextRequest, ctx) => {
+  try {
     const announcements = await db.announcement.findMany({
       orderBy: { createdAt: 'desc' },
       take: 50,
@@ -90,17 +88,17 @@ export async function GET() {
     console.error('Fetch notifications error:', error)
     return NextResponse.json({ error: 'Failed to fetch notifications' }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * DELETE /api/admin/notifications
  * Deactivates an announcement (soft delete)
  */
-export async function DELETE(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const DELETE = withAdmin(
+  'admin/notifications',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const id = url.searchParams.get('id')
 
@@ -114,7 +112,7 @@ export async function DELETE(req: NextRequest) {
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'notification_deactivated',
       description: `Deactivated announcement ${id}`,
       targetType: 'announcement',
@@ -128,4 +126,5 @@ export async function DELETE(req: NextRequest) {
     console.error('Delete notification error:', error)
     return NextResponse.json({ error: 'Failed to delete notification' }, { status: 500 })
   }
-}
+},
+)

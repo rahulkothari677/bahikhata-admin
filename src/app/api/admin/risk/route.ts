@@ -1,6 +1,5 @@
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { NextRequest, NextResponse } from 'next/server'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { toPaise } from '@/lib/money'
@@ -40,11 +39,10 @@ const HIGH_VALUE_TXN_THRESHOLD_PAISE = toPaise(HIGH_VALUE_TXN_THRESHOLD_RUPEES)
  *   - groupBy on IP for failed logins (DB-side) → returns only IPs with >5 fails
  *   - findMany with take:10 + pagination for high-value transactions
  */
-export async function GET(req: Request) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/risk',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'overview'
     const page = parseInt(url.searchParams.get('page') || '1', 10)
@@ -373,11 +371,10 @@ export async function GET(req: Request) {
     console.error('Risk analytics error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to fetch risk data',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to fetch risk data',    }, { status: 500 })
   }
-}
+},
+)
 
 // ===== SCORING HELPERS (unchanged) =====
 

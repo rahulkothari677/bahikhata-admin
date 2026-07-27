@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout, withNeonRetry } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -10,11 +9,10 @@ import { logAdminAction } from '@/lib/audit'
  * Returns scheduled bulk jobs + stats.
  * Query: ?tab=overview|list&status=all|scheduled|running|completed|failed|cancelled&page=1
  */
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/bulk-jobs',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'list'
     const status = url.searchParams.get('status') || 'all'
@@ -100,17 +98,17 @@ export async function GET(req: NextRequest) {
     console.error('Bulk jobs fetch error:', error)
     return NextResponse.json({ error: 'Failed to fetch bulk jobs' }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * POST /api/admin/bulk-jobs
  * Create a new scheduled bulk job.
  */
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/bulk-jobs',
+  async (req: NextRequest, ctx) => {
+  try {
     const body = await req.json()
     const { name, action, targetType, targetCriteria, actionParams, scheduledAt } = body
 
@@ -132,12 +130,12 @@ export async function POST(req: NextRequest) {
         actionParams: JSON.stringify(actionParams || {}),
         status: 'scheduled',
         scheduledAt: new Date(scheduledAt),
-        createdBy: (session.user as any).id,
+        createdBy: ctx.adminId,
       },
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'bulk_job_create',
       description: `Created bulk job "${name}" (${action}, scheduled for ${new Date(scheduledAt).toLocaleString()})`,
       targetType: 'bulk_job',
@@ -149,4 +147,5 @@ export async function POST(req: NextRequest) {
     console.error('Create bulk job error:', error)
     return NextResponse.json({ error: 'Failed to create bulk job' }, { status: 500 })
   }
-}
+},
+)

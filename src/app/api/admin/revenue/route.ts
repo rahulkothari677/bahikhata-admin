@@ -1,6 +1,5 @@
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { NextRequest, NextResponse } from 'next/server'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 
 /**
@@ -15,11 +14,10 @@ import { db } from '@/lib/db'
  *   - MRR/ARR with breakdown
  */
 
-export async function GET() {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/revenue',
+  async (req: NextRequest, ctx) => {
+  try {
     const now = new Date()
 
     // ===== 1. COHORT RETENTION (last 8 weeks) =====
@@ -261,7 +259,8 @@ export async function GET() {
     console.error('Revenue analytics error:', error)
     return NextResponse.json({ error: 'Failed to fetch revenue analytics' }, { status: 500 })
   }
-}
+},
+)
 
 function getWeekStart(date: Date): Date {
   const d = new Date(date)

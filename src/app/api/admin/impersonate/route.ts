@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { logAdminAction } from '@/lib/audit'
 import { withNeonRetry } from '@/lib/resilience'
@@ -45,13 +44,12 @@ import { withNeonRetry } from '@/lib/resilience'
  *   - The token is bound to the targetUserId in the DB (can't be replayed
  *     for a different user)
  */
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/impersonate',
+  async (req: NextRequest, ctx) => {
+  try {
     // Only founder role can impersonate
-    if ((session.user as any).role !== 'founder') {
+    if (ctx.role !== 'founder') {
       return NextResponse.json({
         error: 'Insufficient permissions',
         detail: 'Only founder accounts can impersonate users.',
@@ -89,8 +87,8 @@ export async function POST(req: NextRequest) {
     const token = crypto.randomBytes(32).toString('hex')
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex')
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000) // 5 minutes
-    const adminId = (session.user as any).id as string
-    const adminEmail = (session.user as any).email as string
+    const adminId = ctx.adminId as string
+    const adminEmail = ctx.email as string
 
     // 🐛 INTEGRATION PHASE D.3: Write the ImpersonationToken row to the
     // shared DB. The main app's consumer will look this up by tokenHash.
@@ -160,4 +158,5 @@ export async function POST(req: NextRequest) {
     console.error('Impersonation error:', error)
     return NextResponse.json({ error: 'Failed to create impersonation link' }, { status: 500 })
   }
-}
+},
+)

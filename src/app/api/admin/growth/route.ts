@@ -1,6 +1,5 @@
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { NextRequest, NextResponse } from 'next/server'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 
 /**
@@ -12,11 +11,10 @@ import { db } from '@/lib/db'
  *   3. Referral tracking: viral coefficient, K-factor
  *   4. Growth trends: signups per day (last 30 days)
  */
-export async function GET() {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/growth',
+  async (req: NextRequest, ctx) => {
+  try {
     const now = new Date()
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
@@ -213,4 +211,5 @@ export async function GET() {
     console.error('Growth analytics error:', error)
     return NextResponse.json({ error: 'Failed to fetch growth analytics' }, { status: 500 })
   }
-}
+},
+)

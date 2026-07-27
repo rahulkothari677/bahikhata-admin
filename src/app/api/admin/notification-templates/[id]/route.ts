@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -9,14 +8,10 @@ import { logAdminAction } from '@/lib/audit'
  * GET /api/admin/notification-templates/[id]
  * Returns a single notification template by ID.
  */
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/notification-templates/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const template = await withTimeout(
       db.notificationTemplate.findUnique({ where: { id } }),
@@ -31,20 +26,17 @@ export async function GET(
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch template' }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * PATCH /api/admin/notification-templates/[id]
  * Update a notification template. Bumps version on each edit.
  */
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const PATCH = withAdmin(
+  'admin/notification-templates/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const body = await req.json()
     const { name, category, channel, subject, body: templateBody, variables, language, status } = body
@@ -86,7 +78,7 @@ export async function PATCH(
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'notification_template_update',
       description: `Updated template "${existing.name}" (v${existing.version} → v${updated.version})`,
       targetType: 'notification_template',
@@ -98,24 +90,19 @@ export async function PATCH(
     console.error('Update template error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to update template',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to update template',    }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * DELETE /api/admin/notification-templates/[id]
  * Delete a notification template (hard delete — admin confirmation required in UI).
  */
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const DELETE = withAdmin(
+  'admin/notification-templates/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const existing = await db.notificationTemplate.findUnique({ where: { id } })
     if (!existing) {
@@ -125,7 +112,7 @@ export async function DELETE(
     await db.notificationTemplate.delete({ where: { id } })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'notification_template_delete',
       description: `Deleted template "${existing.name}" (${existing.channel})`,
       targetType: 'notification_template',
@@ -137,8 +124,7 @@ export async function DELETE(
     console.error('Delete template error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to delete template',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to delete template',    }, { status: 500 })
   }
-}
+},
+)

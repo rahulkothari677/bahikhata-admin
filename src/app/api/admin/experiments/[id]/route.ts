@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -10,14 +9,10 @@ import { getExperimentResults } from '@/lib/ab-testing'
  * GET /api/admin/experiments/[id]
  * Returns a single experiment with full results.
  */
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/experiments/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const experiment = await withTimeout(
       db.experiment.findUnique({
@@ -54,20 +49,17 @@ export async function GET(
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch experiment' }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * PATCH /api/admin/experiments/[id]
  * Update experiment (status changes, conclusion, end date).
  */
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const PATCH = withAdmin(
+  'admin/experiments/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const body = await req.json()
     const { name, description, status, trafficPct, startAt, endAt, winnerVariant, conclusion } = body
@@ -101,7 +93,7 @@ export async function PATCH(
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'experiment_update',
       description: `Updated experiment "${existing.name}" — status: ${status || existing.status}${finalWinner ? `, winner: ${finalWinner}` : ''}`,
       targetType: 'experiment',
@@ -113,20 +105,17 @@ export async function PATCH(
     console.error('Update experiment error:', error)
     return NextResponse.json({ error: 'Failed to update experiment' }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * DELETE /api/admin/experiments/[id]
  * Hard delete (cascade assignments).
  */
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const DELETE = withAdmin(
+  'admin/experiments/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const existing = await db.experiment.findUnique({ where: { id } })
     if (!existing) {
@@ -136,7 +125,7 @@ export async function DELETE(
     await db.experiment.delete({ where: { id } })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'experiment_delete',
       description: `Deleted experiment "${existing.name}"`,
       targetType: 'experiment',
@@ -147,4 +136,5 @@ export async function DELETE(
   } catch (error) {
     return NextResponse.json({ error: 'Failed to delete experiment' }, { status: 500 })
   }
-}
+},
+)

@@ -1,7 +1,5 @@
-import type { NextRequest } from "next/server"
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
+import { NextRequest, NextResponse } from 'next/server'
 import { computeChurnPredictions } from '@/lib/churn-prediction'
 import { logAdminAction } from '@/lib/audit'
 
@@ -13,14 +11,10 @@ import { logAdminAction } from '@/lib/audit'
 const lastComputeAt: { ts: number | null } = { ts: null }
 const COOLDOWN_MS = 5 * 60 * 1000
 
-export async function POST(req: NextRequest) {
-  try {
-    const cronSecret = process.env.CRON_SECRET
-    const authHeader = req.headers.get('authorization')
-    const isCron = !!(cronSecret && authHeader === `Bearer ${cronSecret}`)
-    const session = isCron ? null : await getServerSession(authOptions)
-    if (!isCron && !session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/churn-predictions/compute',
+  async (req: NextRequest, ctx) => {
+  try {
     if (lastComputeAt.ts && Date.now() - lastComputeAt.ts < COOLDOWN_MS) {
       const remaining = Math.ceil((COOLDOWN_MS - (Date.now() - lastComputeAt.ts)) / 1000)
       return NextResponse.json({
@@ -35,7 +29,7 @@ export async function POST(req: NextRequest) {
     const result = await computeChurnPredictions()
 
     await logAdminAction({
-      adminId: (session ? (session.user as any).id : 'cron'),
+      adminId: ctx.adminId,
       action: 'churn_prediction_compute',
       description: `Computed churn predictions for ${result.totalUsers} users — low:${result.byLevel.low} medium:${result.byLevel.medium} high:${result.byLevel.high} critical:${result.byLevel.critical} in ${result.durationMs}ms`,
       targetType: 'churn_prediction',
@@ -46,4 +40,5 @@ export async function POST(req: NextRequest) {
     console.error('Churn prediction compute error:', error)
     return NextResponse.json({ error: 'Computation failed' }, { status: 500 })
   }
-}
+},
+)

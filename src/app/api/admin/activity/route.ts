@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { maskEmail, maskName } from '@/lib/pii'
 
@@ -17,11 +16,10 @@ import { maskEmail, maskName } from '@/lib/pii'
  * (WHERE createdAt < ?), but for now take/skip with indexed createdAt works
  * fine up to ~100K events per day.
  */
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/activity',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const range = url.searchParams.get('range') || '7d'
     const type = url.searchParams.get('type') || 'all'
@@ -226,8 +224,7 @@ export async function GET(req: NextRequest) {
     console.error('Activity API error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to fetch activity',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to fetch activity',    }, { status: 500 })
   }
-}
+},
+)

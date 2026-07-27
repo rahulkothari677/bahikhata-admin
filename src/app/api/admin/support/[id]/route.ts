@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { logAdminAction } from '@/lib/audit'
 
@@ -13,14 +12,10 @@ import { logAdminAction } from '@/lib/audit'
  *
  * If response is provided and status is set to 'resolved', marks as resolved.
  */
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const PATCH = withAdmin(
+  'admin/support/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const body = await req.json()
     const { status, priority, assignedTo, response } = body
@@ -46,7 +41,7 @@ export async function PATCH(
     // If resolving, set resolvedAt + resolvedBy
     if (status === 'resolved' && !ticket.resolvedAt) {
       updateData.resolvedAt = new Date()
-      updateData.resolvedBy = (session.user as any).email
+      updateData.resolvedBy = ctx.email
     }
 
     // If reopening, clear resolvedAt
@@ -63,7 +58,7 @@ export async function PATCH(
 
     // Log with diff
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'support_ticket_update',
       description: `Updated ticket #${id.slice(-6)}: ${ticket.subject}`,
       targetType: 'support_ticket',
@@ -82,4 +77,5 @@ export async function PATCH(
     console.error('Ticket update error:', error)
     return NextResponse.json({ error: 'Failed to update ticket' }, { status: 500 })
   }
-}
+},
+)

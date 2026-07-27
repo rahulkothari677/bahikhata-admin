@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { logAdminAction } from '@/lib/audit'
 import { invalidateTokenVersionCache } from '@/lib/token-version-cache'
@@ -10,14 +9,10 @@ import { withNeonRetry } from '@/lib/resilience'
  * GET /api/admin/users/[id]
  * Returns detailed info for a single user — full drill-down.
  */
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/users/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
 
     const user = await db.user.findUnique({
@@ -128,7 +123,8 @@ export async function GET(
     console.error('Admin user detail error:', error)
     return NextResponse.json({ error: 'Failed to fetch user' }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * PATCH /api/admin/users/[id]
@@ -136,14 +132,10 @@ export async function GET(
  * This is the ONLY write operation — uses the admin app's DB write access.
  * For all other changes, we call the main app's API.
  */
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const PATCH = withAdmin(
+  'admin/users/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const body = await req.json()
     const { plan, renewsAt } = body
@@ -186,7 +178,7 @@ export async function PATCH(
 
     // Log the admin action
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'user_plan_change',
       description: `Changed ${user.email} plan from ${oldPlan} to ${plan} (tokenVersion bumped to ${updated.tokenVersion})`,
       targetType: 'user',
@@ -205,4 +197,5 @@ export async function PATCH(
     console.error('Admin user update error:', error)
     return NextResponse.json({ error: 'Failed to update user' }, { status: 500 })
   }
-}
+},
+)

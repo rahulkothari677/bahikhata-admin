@@ -40,20 +40,30 @@ function routeKeyFor(file: string): string {
 
 /**
  * Lower this as routes are migrated. It must never go up.
- * 2026-07-26: 79 routes total, 1 enforced, 78 remaining.
  *
- * (An earlier substring-based count claimed 2 enforced. That was a comment
- * mentioning withAdmin(), not a wrapped handler — see codeOnly() below. The
- * measurement being wrong in the optimistic direction is exactly why the
- * detector now parses code rather than text.)
+ * 2026-07-26: 79 routes, 1 enforced, 78 remaining.
+ * 2026-07-27: 79 routes, 74 enforced, 5 remaining (codemod migration).
+ *
+ * The 5 that remain are the deliberately PUBLIC routes, which have no session
+ * to enforce against and are listed in SKIP in scripts/migrate-to-with-admin.mjs:
+ *   auth/[...nextauth]  — it IS the login
+ *   admin/setup         — bootstrap, gated by SETUP_SECRET (Phase 4)
+ *   admin/forgot-password
+ *   admin/login-probe
+ *   status              — public status page
+ *
+ * (An earlier substring-based count claimed 2 enforced when only 1 was. That
+ * was a comment mentioning withAdmin(), not a wrapped handler — see codeOnly().
+ * Being wrong in the optimistic direction is why the detector parses code.)
  */
-const MAX_UNMIGRATED = 76
+const MAX_UNMIGRATED = 5
 
 /**
  * Routes returning raw exception text to the client. Lower as routes migrate.
  * 2026-07-26: 40.
+ * 2026-07-27: 0 — the codemod stripped every `detail: String(error)`.
  */
-const MAX_ERROR_LEAKS = 40
+const MAX_ERROR_LEAKS = 0
 
 /**
  * Routes where a missing check is not a papercut. Unwrapping any of these

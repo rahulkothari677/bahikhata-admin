@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -16,11 +15,10 @@ import { logAdminAction } from '@/lib/audit'
  *   - severity: 'all' | 'minor' | 'major' | 'critical' | 'maintenance'
  *   - page: number (default 1)
  */
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/incidents',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'overview'
     const status = url.searchParams.get('status') || 'all'
@@ -112,11 +110,10 @@ export async function GET(req: NextRequest) {
     console.error('Incidents fetch error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to fetch incidents',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to fetch incidents',    }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * POST /api/admin/incidents
@@ -129,11 +126,10 @@ export async function GET(req: NextRequest) {
  *   - status: 'investigating' | 'identified' | 'monitoring' | 'resolved' (default: investigating)
  *   - service: 'api' | 'database' | 'ai_providers' | 'payments' | 'all' (default: all)
  */
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/incidents',
+  async (req: NextRequest, ctx) => {
+  try {
     const body = await req.json()
     const { title, description, severity, status, service } = body
 
@@ -163,12 +159,12 @@ export async function POST(req: NextRequest) {
         status: status || 'investigating',
         service: service || 'all',
         resolvedAt: status === 'resolved' ? new Date() : null,
-        createdBy: (session.user as any).id,
+        createdBy: ctx.adminId,
         updates: {
           create: {
             message: description,
             status: status || 'investigating',
-            createdBy: (session.user as any).id,
+            createdBy: ctx.adminId,
           },
         },
       },
@@ -176,7 +172,7 @@ export async function POST(req: NextRequest) {
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'incident_create',
       description: `Created incident "${title}" (severity: ${severity || 'minor'}, service: ${service || 'all'})`,
       targetType: 'incident',
@@ -188,8 +184,7 @@ export async function POST(req: NextRequest) {
     console.error('Create incident error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to create incident',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to create incident',    }, { status: 500 })
   }
-}
+},
+)

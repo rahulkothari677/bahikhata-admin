@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { getRevenueOverview, getMonthlyBreakdown } from '@/lib/revenue-recognition'
@@ -16,11 +15,10 @@ import { getRevenueOverview, getMonthlyBreakdown } from '@/lib/revenue-recogniti
  *   - page: number (default 1)
  *   - months: number (for monthly tab, default 12)
  */
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/revenue-recognition',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'overview'
     const status = url.searchParams.get('status') || 'all'
@@ -106,8 +104,7 @@ export async function GET(req: NextRequest) {
     console.error('Revenue recognition fetch error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to fetch revenue recognition data',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to fetch revenue recognition data',    }, { status: 500 })
   }
-}
+},
+)

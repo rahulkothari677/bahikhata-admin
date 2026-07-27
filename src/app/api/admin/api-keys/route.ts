@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -19,11 +18,10 @@ import { generateApiKey, serializeScopes, VALID_SCOPES, SCOPE_CONFIGS } from '@/
  *   - search: string (search by name or keyPrefix)
  *   - page: number (default 1)
  */
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/api-keys',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'overview'
     const status = url.searchParams.get('status') || 'all'
@@ -125,11 +123,10 @@ export async function GET(req: NextRequest) {
     console.error('API keys fetch error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to fetch API keys',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to fetch API keys',    }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * POST /api/admin/api-keys
@@ -145,11 +142,10 @@ export async function GET(req: NextRequest) {
  *   - apiKey: the DB record (with keyHash, NOT rawKey)
  *   - rawKey: the FULL key — shown ONCE, admin must save it
  */
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/api-keys',
+  async (req: NextRequest, ctx) => {
+  try {
     const body = await req.json()
     const { name, partnerId, scopes, expiresAt } = body
 
@@ -186,12 +182,12 @@ export async function POST(req: NextRequest) {
         scopes: serializeScopes(scopes),
         status: 'active',
         expiresAt: expiresAt ? new Date(expiresAt) : null,
-        createdBy: (session.user as any).id,
+        createdBy: ctx.adminId,
       },
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'api_key_create',
       description: `Created API key "${name}" (prefix: ${keyPrefix}..., scopes: ${scopes.join(', ')})`,
       targetType: 'api_key',
@@ -216,8 +212,7 @@ export async function POST(req: NextRequest) {
     console.error('Create API key error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to create API key',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to create API key',    }, { status: 500 })
   }
-}
+},
+)

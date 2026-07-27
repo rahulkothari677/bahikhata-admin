@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout, withNeonRetry } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
 
 const VALID_TYPES = ['user_data', 'all_users', 'transactions', 'subscriptions', 'ai_usage', 'custom']
 
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/data-exports',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'list'
     const status = url.searchParams.get('status') || 'all'
@@ -64,13 +62,13 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch exports' }, { status: 500 })
   }
-}
+},
+)
 
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/data-exports',
+  async (req: NextRequest, ctx) => {
+  try {
     const body = await req.json()
     const { type, format, userId, customQuery } = body
 
@@ -91,13 +89,13 @@ export async function POST(req: NextRequest) {
         userId: userId || null,
         customQuery: customQuery || null,
         status: 'pending',
-        requestedBy: (session.user as any).id,
+        requestedBy: ctx.adminId,
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24h expiry
       },
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'data_export_request',
       description: `Requested ${type} export (${format || 'csv'})`,
       targetType: 'data_export',
@@ -108,4 +106,5 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: 'Failed to create export' }, { status: 500 })
   }
-}
+},
+)

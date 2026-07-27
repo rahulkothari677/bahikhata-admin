@@ -1,17 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { logAdminAction } from '@/lib/audit'
 
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const PATCH = withAdmin(
+  'admin/nps-config/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const body = await req.json()
     const existing = await db.npsSurveyConfig.findUnique({ where: { id } })
@@ -32,7 +27,7 @@ export async function PATCH(
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'nps_config_update',
       description: `Updated NPS config "${existing.name}"`,
       targetType: 'nps_config',
@@ -43,16 +38,13 @@ export async function PATCH(
   } catch (error) {
     return NextResponse.json({ error: 'Failed to update' }, { status: 500 })
   }
-}
+},
+)
 
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const DELETE = withAdmin(
+  'admin/nps-config/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const existing = await db.npsSurveyConfig.findUnique({ where: { id } })
     if (!existing) return NextResponse.json({ error: 'Config not found' }, { status: 404 })
@@ -60,7 +52,7 @@ export async function DELETE(
     await db.npsSurveyConfig.delete({ where: { id } })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'nps_config_delete',
       description: `Deleted NPS config "${existing.name}"`,
       targetType: 'nps_config',
@@ -71,4 +63,5 @@ export async function DELETE(
   } catch (error) {
     return NextResponse.json({ error: 'Failed to delete' }, { status: 500 })
   }
-}
+},
+)

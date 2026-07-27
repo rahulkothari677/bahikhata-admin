@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -9,14 +8,10 @@ import { logAdminAction } from '@/lib/audit'
  * GET /api/admin/incidents/[id]
  * Returns a single incident with all its updates.
  */
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/incidents/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const incident = await withTimeout(
       db.incident.findUnique({
@@ -49,20 +44,17 @@ export async function GET(
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch incident' }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * PATCH /api/admin/incidents/[id]
  * Update incident fields. If status changes to 'resolved', set resolvedAt.
  */
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const PATCH = withAdmin(
+  'admin/incidents/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const body = await req.json()
     const { title, description, severity, status, service } = body
@@ -90,7 +82,7 @@ export async function PATCH(
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'incident_update',
       description: `Updated incident "${existing.title}" — status: ${status || existing.status}`,
       targetType: 'incident',
@@ -102,24 +94,19 @@ export async function PATCH(
     console.error('Update incident error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to update incident',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to update incident',    }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * DELETE /api/admin/incidents/[id]
  * Hard delete (cascade updates).
  */
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const DELETE = withAdmin(
+  'admin/incidents/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const existing = await db.incident.findUnique({ where: { id } })
     if (!existing) {
@@ -129,7 +116,7 @@ export async function DELETE(
     await db.incident.delete({ where: { id } })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'incident_delete',
       description: `Deleted incident "${existing.title}"`,
       targetType: 'incident',
@@ -141,8 +128,7 @@ export async function DELETE(
     console.error('Delete incident error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to delete incident',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to delete incident',    }, { status: 500 })
   }
-}
+},
+)

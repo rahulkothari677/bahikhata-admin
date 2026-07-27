@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout, withNeonRetry } from '@/lib/resilience'
 
@@ -12,13 +11,12 @@ import { withTimeout, withNeonRetry } from '@/lib/resilience'
  *
  * Query: ?tab=overview|list&page=1
  */
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/impersonation-log',
+  async (req: NextRequest, ctx) => {
+  try {
     // Only founders can view impersonation logs
-    if ((session.user as any).role !== 'founder') {
+    if (ctx.role !== 'founder') {
       return NextResponse.json({ error: 'Only founders can view impersonation logs' }, { status: 403 })
     }
 
@@ -120,4 +118,5 @@ export async function GET(req: NextRequest) {
     console.error('Impersonation log fetch error:', error)
     return NextResponse.json({ error: 'Failed to fetch logs' }, { status: 500 })
   }
-}
+},
+)

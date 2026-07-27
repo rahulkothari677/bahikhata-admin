@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -11,11 +10,10 @@ import { METRIC_CONFIGS, OPERATOR_CONFIGS } from '@/lib/fraud-rules-engine'
  * Returns all fraud rules with stats + alert counts.
  * Query: ?tab=overview|list
  */
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/fraud-rules',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'list'
 
@@ -93,21 +91,19 @@ export async function GET(req: NextRequest) {
     console.error('Fraud rules fetch error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to fetch fraud rules',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to fetch fraud rules',    }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * POST /api/admin/fraud-rules
  * Create a new fraud rule.
  */
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/fraud-rules',
+  async (req: NextRequest, ctx) => {
+  try {
     const body = await req.json()
     const { name, description, metric, operator, threshold, windowMinutes, userAgeMinutes, enabled, severity } = body
 
@@ -145,12 +141,12 @@ export async function POST(req: NextRequest) {
         userAgeMinutes: userAgeMinutes ? parseInt(userAgeMinutes, 10) : null,
         enabled: enabled !== false,
         severity: severity || 'medium',
-        createdBy: (session.user as any).id,
+        createdBy: ctx.adminId,
       },
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'fraud_rule_create',
       description: `Created fraud rule "${name}" (${metric} ${operator} ${threshold})`,
       targetType: 'fraud_rule',
@@ -162,8 +158,7 @@ export async function POST(req: NextRequest) {
     console.error('Create fraud rule error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to create rule',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to create rule',    }, { status: 500 })
   }
-}
+},
+)

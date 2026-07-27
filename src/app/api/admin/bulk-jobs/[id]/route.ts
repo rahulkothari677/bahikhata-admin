@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -9,14 +8,10 @@ import { logAdminAction } from '@/lib/audit'
  * PATCH /api/admin/bulk-jobs/[id]
  * Update job (cancel, change schedule).
  */
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const PATCH = withAdmin(
+  'admin/bulk-jobs/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const body = await req.json()
     const { status, scheduledAt } = body
@@ -40,7 +35,7 @@ export async function PATCH(
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'bulk_job_update',
       description: `Updated bulk job "${existing.name}" — status: ${status || existing.status}`,
       targetType: 'bulk_job',
@@ -51,20 +46,17 @@ export async function PATCH(
   } catch (error) {
     return NextResponse.json({ error: 'Failed to update job' }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * DELETE /api/admin/bulk-jobs/[id]
  * Hard delete (only if scheduled or cancelled).
  */
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const DELETE = withAdmin(
+  'admin/bulk-jobs/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const existing = await db.bulkJob.findUnique({ where: { id } })
     if (!existing) {
@@ -78,7 +70,7 @@ export async function DELETE(
     await db.bulkJob.delete({ where: { id } })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'bulk_job_delete',
       description: `Deleted bulk job "${existing.name}"`,
       targetType: 'bulk_job',
@@ -89,4 +81,5 @@ export async function DELETE(
   } catch (error) {
     return NextResponse.json({ error: 'Failed to delete job' }, { status: 500 })
   }
-}
+},
+)

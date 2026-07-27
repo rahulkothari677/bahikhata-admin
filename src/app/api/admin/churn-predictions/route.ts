@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout, withNeonRetry } from '@/lib/resilience'
 
@@ -10,11 +9,10 @@ import { withTimeout, withNeonRetry } from '@/lib/resilience'
  * Returns churn prediction analytics + paginated list.
  * Query: ?tab=overview|list&riskLevel=all|low|medium|high|critical&plan=all|free|pro|elite&page=1
  */
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/churn-predictions',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'overview'
     const riskLevel = url.searchParams.get('riskLevel') || 'all'
@@ -87,4 +85,5 @@ export async function GET(req: NextRequest) {
     console.error('Churn predictions fetch error:', error)
     return NextResponse.json({ error: 'Failed to fetch predictions' }, { status: 500 })
   }
-}
+},
+)

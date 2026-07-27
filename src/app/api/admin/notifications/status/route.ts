@@ -1,6 +1,5 @@
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { NextRequest, NextResponse } from 'next/server'
+import { withAdmin } from '@/lib/with-admin'
 import { getProviderStatus } from '@/lib/notification-providers'
 
 /**
@@ -12,11 +11,10 @@ import { getProviderStatus } from '@/lib/notification-providers'
  *
  * No DB query — pure env var check. Instant, O(1).
  */
-export async function GET() {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/notifications/status',
+  async (req: NextRequest, ctx) => {
+  try {
     const status = getProviderStatus()
 
     return NextResponse.json({
@@ -30,4 +28,5 @@ export async function GET() {
       error: 'Failed to fetch provider status',
     }, { status: 500 })
   }
-}
+},
+)

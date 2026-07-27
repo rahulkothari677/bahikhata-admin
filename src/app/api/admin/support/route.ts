@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -20,11 +19,10 @@ import { logAdminAction } from '@/lib/audit'
  *   - page: number (default 1)
  *   - limit: number (default 20, max 100)
  */
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/support',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'list'
     const status = url.searchParams.get('status')
@@ -177,21 +175,19 @@ export async function GET(req: NextRequest) {
     console.error('Support tickets fetch error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to fetch tickets',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to fetch tickets',    }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * POST /api/admin/support
  * Create a ticket manually (admin creating on behalf of user)
  */
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/support',
+  async (req: NextRequest, ctx) => {
+  try {
     const body = await req.json()
     const { userId, subject, message, category, priority } = body
 
@@ -207,7 +203,7 @@ export async function POST(req: NextRequest) {
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'support_ticket_create',
       description: `Created support ticket for user ${userId}`,
       targetType: 'support_ticket',
@@ -219,4 +215,5 @@ export async function POST(req: NextRequest) {
     console.error('Create ticket error:', error)
     return NextResponse.json({ error: 'Failed to create ticket' }, { status: 500 })
   }
-}
+},
+)

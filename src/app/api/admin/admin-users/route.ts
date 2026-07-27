@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout, withNeonRetry } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -12,13 +11,12 @@ import { logAdminAction } from '@/lib/audit'
  *
  * Query: ?tab=overview|list
  */
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/admin-users',
+  async (req: NextRequest, ctx) => {
+  try {
     // Only founders can view admin team
-    const role = (session.user as any).role
+    const role = ctx.role
     if (role !== 'founder') {
       return NextResponse.json({ error: 'Only founders can manage admin team' }, { status: 403 })
     }
@@ -82,7 +80,8 @@ export async function GET(req: NextRequest) {
     console.error('Admin users fetch error:', error)
     return NextResponse.json({ error: 'Failed to fetch admin users' }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * POST /api/admin/admin-users
@@ -94,12 +93,11 @@ export async function GET(req: NextRequest) {
  *   - password: string (required)
  *   - role: 'admin' | 'viewer' (required — cannot create founder via API)
  */
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-    const role = (session.user as any).role
+export const POST = withAdmin(
+  'admin/admin-users',
+  async (req: NextRequest, ctx) => {
+  try {
+    const role = ctx.role
     if (role !== 'founder') {
       return NextResponse.json({ error: 'Only founders can create admin users' }, { status: 403 })
     }
@@ -137,7 +135,7 @@ export async function POST(req: NextRequest) {
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'admin_user_create',
       description: `Created admin user "${name}" (${email}, role: ${newRole || 'viewer'})`,
       targetType: 'admin_user',
@@ -152,4 +150,5 @@ export async function POST(req: NextRequest) {
     console.error('Create admin user error:', error)
     return NextResponse.json({ error: 'Failed to create admin user' }, { status: 500 })
   }
-}
+},
+)

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 
@@ -13,11 +12,10 @@ import { withTimeout } from '@/lib/resilience'
  *   - endpointId: specific endpoint (optional)
  *   - page: number (default 1)
  */
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/webhooks/deliveries',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const status = url.searchParams.get('status') || 'all'
     const endpointId = url.searchParams.get('endpointId')
@@ -77,4 +75,5 @@ export async function GET(req: NextRequest) {
     console.error('Delivery logs fetch error:', error)
     return NextResponse.json({ error: 'Failed to fetch deliveries' }, { status: 500 })
   }
-}
+},
+)

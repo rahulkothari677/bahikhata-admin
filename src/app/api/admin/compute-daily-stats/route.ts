@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 
 /**
@@ -16,14 +15,10 @@ import { db } from '@/lib/db'
  *
  * Body: { date?: "2026-07-02" }  // defaults to today
  */
-export async function POST(req: NextRequest) {
-  try {
-    const cronSecret = process.env.CRON_SECRET
-    const authHeader = req.headers.get('authorization')
-    const isCron = !!(cronSecret && authHeader === `Bearer ${cronSecret}`)
-    const session = isCron ? null : await getServerSession(authOptions)
-    if (!isCron && !session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/compute-daily-stats',
+  async (req: NextRequest, ctx) => {
+  try {
     const body = await req.json().catch(() => ({}))
     const targetDate = body.date ? new Date(body.date) : new Date()
     const dayStart = new Date(Date.UTC(targetDate.getUTCFullYear(), targetDate.getUTCMonth(), targetDate.getUTCDate()))
@@ -114,22 +109,20 @@ export async function POST(req: NextRequest) {
     console.error('Compute daily stats error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to compute daily stats',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to compute daily stats',    }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * GET /api/admin/compute-daily-stats
  * Returns the latest daily stats (for dashboard to read).
  * If no stats exist yet, triggers computation.
  */
-export async function GET() {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/compute-daily-stats',
+  async (req: NextRequest, ctx) => {
+  try {
     // Get the latest 30 days of stats
     const stats = await db.dailyStats.findMany({
       orderBy: { date: 'desc' },
@@ -150,4 +143,5 @@ export async function GET() {
     console.error('Fetch daily stats error:', error)
     return NextResponse.json({ error: 'Failed to fetch daily stats' }, { status: 500 })
   }
-}
+},
+)

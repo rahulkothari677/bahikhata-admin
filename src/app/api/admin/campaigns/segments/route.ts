@@ -1,6 +1,5 @@
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { NextRequest, NextResponse } from 'next/server'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout, withNeonRetry } from '@/lib/resilience'
 
@@ -13,11 +12,10 @@ import { withTimeout, withNeonRetry } from '@/lib/resilience'
  * Reads from UserSegmentCache (pre-computed by background job).
  * Returns: [{ segmentId, userCount }]
  */
-export async function GET() {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/campaigns/segments',
+  async (req: NextRequest, ctx) => {
+  try {
     // Group by segmentId to get count per segment
     const segments = await withNeonRetry(() =>
       db.userSegmentCache.groupBy({
@@ -53,4 +51,5 @@ export async function GET() {
     console.error('Campaign segments fetch error:', error)
     return NextResponse.json({ error: 'Failed to fetch segments' }, { status: 500 })
   }
-}
+},
+)

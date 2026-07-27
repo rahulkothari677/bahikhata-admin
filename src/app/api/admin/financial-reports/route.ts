@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { getProfitLoss, getBalanceSheet, getCashFlow } from '@/lib/financial-reports'
 
 /**
@@ -13,11 +12,10 @@ import { getProfitLoss, getBalanceSheet, getCashFlow } from '@/lib/financial-rep
  *   - year: number (required, e.g. 2026)
  *   - month: number (optional, 0-11 — if omitted, returns yearly report)
  */
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/financial-reports',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const statement = url.searchParams.get('statement') || 'pnl'
     const year = parseInt(url.searchParams.get('year') || String(new Date().getFullYear()), 10)
@@ -48,8 +46,7 @@ export async function GET(req: NextRequest) {
     console.error('Financial reports error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to generate report',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to generate report',    }, { status: 500 })
   }
-}
+},
+)

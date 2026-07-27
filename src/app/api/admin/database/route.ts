@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { getTableStats, getDatabaseOverview } from '@/lib/database-admin'
 
 /**
@@ -9,11 +8,10 @@ import { getTableStats, getDatabaseOverview } from '@/lib/database-admin'
  *
  * Query: ?tab=overview|tables
  */
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/database',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'overview'
 
@@ -35,8 +33,7 @@ export async function GET(req: NextRequest) {
     console.error('Database admin error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to fetch database stats',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to fetch database stats',    }, { status: 500 })
   }
-}
+},
+)

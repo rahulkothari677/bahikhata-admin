@@ -1,7 +1,5 @@
-import type { NextRequest } from "next/server"
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
+import { NextRequest, NextResponse } from 'next/server'
 import { processPendingDeliveries } from '@/lib/webhook-engine'
 import { logAdminAction } from '@/lib/audit'
 
@@ -15,14 +13,10 @@ import { logAdminAction } from '@/lib/audit'
 const lastTriggerAt: { ts: number | null } = { ts: null }
 const COOLDOWN_MS = 60 * 1000
 
-export async function POST(req: NextRequest) {
-  try {
-    const cronSecret = process.env.CRON_SECRET
-    const authHeader = req.headers.get('authorization')
-    const isCron = !!(cronSecret && authHeader === `Bearer ${cronSecret}`)
-    const session = isCron ? null : await getServerSession(authOptions)
-    if (!isCron && !session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/webhooks/deliver',
+  async (req: NextRequest, ctx) => {
+  try {
     if (lastTriggerAt.ts && Date.now() - lastTriggerAt.ts < COOLDOWN_MS) {
       const remaining = Math.ceil((COOLDOWN_MS - (Date.now() - lastTriggerAt.ts)) / 1000)
       return NextResponse.json({
@@ -36,7 +30,7 @@ export async function POST(req: NextRequest) {
     const result = await processPendingDeliveries()
 
     await logAdminAction({
-      adminId: (session ? (session.user as any).id : 'cron'),
+      adminId: ctx.adminId,
       action: 'webhook_deliver_run',
       description: `Processed ${result.processed} deliveries — success: ${result.succeeded}, retrying: ${result.retrying}, failed: ${result.failed}`,
       targetType: 'webhook_delivery',
@@ -47,4 +41,5 @@ export async function POST(req: NextRequest) {
     console.error('Webhook delivery error:', error)
     return NextResponse.json({ error: 'Delivery failed' }, { status: 500 })
   }
-}
+},
+)

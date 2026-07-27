@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
-import { randomUUID } from 'crypto'
+import { randomUUID, timingSafeEqual } from 'crypto'
 import { authOptions } from './auth'
 import { db } from './db'
 import { logAdminAction } from './audit'
@@ -124,6 +124,48 @@ export function withAdmin(routeKey: string, handler: Handler) {
         'This capability has been withdrawn and is no longer available.',
         requestId,
       )
+    }
+
+    // ── Cron authentication ───────────────────────────────────────────────
+    // Scheduled jobs (GitHub Actions) present a bearer CRON_SECRET instead of
+    // a session. Only routes whose policy declares `cron: true` may use it, and
+    // the comparison is length-checked + timing-safe: a plain === on a secret
+    // leaks its length and content through response timing.
+    if (policy.cron) {
+      const authHeader = req.headers.get('authorization')
+      const cronSecret = process.env.CRON_SECRET
+      if (authHeader?.startsWith('Bearer ') && cronSecret) {
+        const presented = authHeader.slice(7)
+        const a = Buffer.from(presented)
+        const b = Buffer.from(cronSecret)
+        if (a.length === b.length && timingSafeEqual(a, b)) {
+          const cronCtx: AdminContext = {
+            adminId: 'system:cron',
+            email: 'cron@system',
+            role: 'founder',
+            requestId,
+            audit: (entry) =>
+              logAdminAction({
+                adminId: 'system:cron',
+                action: entry.action,
+                description: entry.description,
+                targetType: entry.targetType,
+                targetId: entry.targetId,
+                metadata: { ...(entry.metadata as object), requestId, viaCron: true },
+              }),
+          }
+          try {
+            const res = await handler(req, cronCtx, routeParams)
+            res.headers.set('x-request-id', requestId)
+            res.headers.set('Cache-Control', 'no-store')
+            return res
+          } catch (err) {
+            console.error(`[with-admin/cron] ${routeKey} failed (${requestId}):`, err)
+            return fail(500, 'INTERNAL_ERROR', 'Something went wrong.', requestId)
+          }
+        }
+      }
+      // Fall through to session auth — a human may also trigger these manually.
     }
 
     const session = await getServerSession(authOptions)

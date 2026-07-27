@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -9,14 +8,10 @@ import { logAdminAction } from '@/lib/audit'
  * GET /api/admin/campaigns/[id]
  * Returns a single campaign with all its steps.
  */
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/campaigns/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const campaign = await withTimeout(
       db.campaign.findUnique({
@@ -54,7 +49,8 @@ export async function GET(
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch campaign' }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * PATCH /api/admin/campaigns/[id]
@@ -62,14 +58,10 @@ export async function GET(
  * Steps cannot be edited after creation (for audit trail integrity).
  * To change steps, cancel this campaign and create a new one.
  */
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const PATCH = withAdmin(
+  'admin/campaigns/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const body = await req.json()
     const { name, description, startAt } = body
@@ -133,7 +125,7 @@ export async function PATCH(
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'campaign_update',
       description: `Updated campaign "${existing.name}"`,
       targetType: 'campaign',
@@ -145,25 +137,20 @@ export async function PATCH(
     console.error('Update campaign error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to update campaign',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to update campaign',    }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * DELETE /api/admin/campaigns/[id]
  * Hard delete (campaign + all steps cascade).
  * Only allowed for draft or cancelled campaigns.
  */
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const DELETE = withAdmin(
+  'admin/campaigns/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const existing = await db.campaign.findUnique({ where: { id } })
     if (!existing) {
@@ -179,7 +166,7 @@ export async function DELETE(
     await db.campaign.delete({ where: { id } })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'campaign_delete',
       description: `Deleted campaign "${existing.name}"`,
       targetType: 'campaign',
@@ -191,8 +178,7 @@ export async function DELETE(
     console.error('Delete campaign error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to delete campaign',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to delete campaign',    }, { status: 500 })
   }
-}
+},
+)

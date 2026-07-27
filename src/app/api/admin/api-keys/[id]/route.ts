@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -10,14 +9,10 @@ import { serializeScopes, VALID_SCOPES } from '@/lib/api-key-utils'
  * GET /api/admin/api-keys/[id]
  * Returns a single API key (without rawKey — only stored as hash).
  */
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/api-keys/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const apiKey = await withTimeout(
       db.apiKey.findUnique({
@@ -49,21 +44,18 @@ export async function GET(
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch API key' }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * PATCH /api/admin/api-keys/[id]
  * Update API key (name, scopes, status, expiresAt).
  * Cannot change the keyHash (to rotate, revoke + create new).
  */
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const PATCH = withAdmin(
+  'admin/api-keys/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const body = await req.json()
     const { name, scopes, status, expiresAt } = body
@@ -95,7 +87,7 @@ export async function PATCH(
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'api_key_update',
       description: `Updated API key "${existing.name}" (prefix: ${existing.keyPrefix}...)`,
       targetType: 'api_key',
@@ -107,24 +99,19 @@ export async function PATCH(
     console.error('Update API key error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to update API key',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to update API key',    }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * DELETE /api/admin/api-keys/[id]
  * Hard delete (use PATCH status=revoked for soft delete instead).
  */
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const DELETE = withAdmin(
+  'admin/api-keys/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const existing = await db.apiKey.findUnique({ where: { id } })
     if (!existing) {
@@ -134,7 +121,7 @@ export async function DELETE(
     await db.apiKey.delete({ where: { id } })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'api_key_delete',
       description: `Deleted API key "${existing.name}" (prefix: ${existing.keyPrefix}...)`,
       targetType: 'api_key',
@@ -146,8 +133,7 @@ export async function DELETE(
     console.error('Delete API key error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to delete API key',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to delete API key',    }, { status: 500 })
   }
-}
+},
+)

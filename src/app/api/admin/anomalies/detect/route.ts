@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { detectAnomalies } from '@/lib/anomaly-detection'
 import { logAdminAction } from '@/lib/audit'
 
@@ -19,14 +18,10 @@ import { logAdminAction } from '@/lib/audit'
 const lastDetectAt: { ts: number | null } = { ts: null }
 const DETECT_COOLDOWN_MS = 5 * 60 * 1000
 
-export async function POST(req: NextRequest) {
-  try {
-    const cronSecret = process.env.CRON_SECRET
-    const authHeader = req.headers.get('authorization')
-    const isCron = !!(cronSecret && authHeader === `Bearer ${cronSecret}`)
-    const session = isCron ? null : await getServerSession(authOptions)
-    if (!isCron && !session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/anomalies/detect',
+  async (req: NextRequest, ctx) => {
+  try {
     // Cooldown check
     if (lastDetectAt.ts && Date.now() - lastDetectAt.ts < DETECT_COOLDOWN_MS) {
       const remaining = Math.ceil((DETECT_COOLDOWN_MS - (Date.now() - lastDetectAt.ts)) / 1000)
@@ -42,7 +37,7 @@ export async function POST(req: NextRequest) {
     const result = await detectAnomalies()
 
     await logAdminAction({
-      adminId: (session ? (session.user as any).id : 'cron'),
+      adminId: ctx.adminId,
       action: 'anomaly_detection_run',
       description: `Ran anomaly detection — ${result.totalMetricsChecked} metrics checked, ${result.newAnomalies} new anomalies in ${result.durationMs}ms`,
       targetType: 'anomaly_detection',
@@ -56,21 +51,19 @@ export async function POST(req: NextRequest) {
     console.error('Anomaly detection error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Detection failed',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Detection failed',    }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * GET /api/admin/anomalies/detect
  * Returns cooldown status.
  */
-export async function GET() {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/anomalies/detect',
+  async (req: NextRequest, ctx) => {
+  try {
     const cooldownRemaining = lastDetectAt.ts
       ? Math.max(0, DETECT_COOLDOWN_MS - (Date.now() - lastDetectAt.ts))
       : 0
@@ -83,4 +76,5 @@ export async function GET() {
   } catch {
     return NextResponse.json({ canDetect: true, cooldownRemainingMs: 0 })
   }
-}
+},
+)

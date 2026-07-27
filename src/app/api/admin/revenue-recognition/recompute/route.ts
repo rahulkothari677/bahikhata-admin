@@ -1,6 +1,5 @@
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { NextRequest, NextResponse } from 'next/server'
+import { withAdmin } from '@/lib/with-admin'
 import { computeAllRevenueSchedules } from '@/lib/revenue-recognition'
 import { logAdminAction } from '@/lib/audit'
 
@@ -20,11 +19,10 @@ import { logAdminAction } from '@/lib/audit'
 const lastRecomputeAt: { ts: number | null } = { ts: null }
 const RECOMPUTE_COOLDOWN_MS = 10 * 60 * 1000
 
-export async function POST() {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/revenue-recognition/recompute',
+  async (req: NextRequest, ctx) => {
+  try {
     if (lastRecomputeAt.ts && Date.now() - lastRecomputeAt.ts < RECOMPUTE_COOLDOWN_MS) {
       const remaining = Math.ceil((RECOMPUTE_COOLDOWN_MS - (Date.now() - lastRecomputeAt.ts)) / 1000)
       return NextResponse.json({
@@ -39,7 +37,7 @@ export async function POST() {
     const result = await computeAllRevenueSchedules()
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'revenue_recognition_recompute',
       description: `Recomputed revenue schedules — ${result.subscriptionsProcessed} subscriptions, ${result.entriesCreated} entries in ${result.durationMs}ms`,
       targetType: 'revenue_schedule',
@@ -53,17 +51,15 @@ export async function POST() {
     console.error('Revenue recompute error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Recompute failed',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Recompute failed',    }, { status: 500 })
   }
-}
+},
+)
 
-export async function GET() {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/revenue-recognition/recompute',
+  async (req: NextRequest, ctx) => {
+  try {
     const cooldownRemaining = lastRecomputeAt.ts
       ? Math.max(0, RECOMPUTE_COOLDOWN_MS - (Date.now() - lastRecomputeAt.ts))
       : 0
@@ -76,4 +72,5 @@ export async function GET() {
   } catch {
     return NextResponse.json({ canRecompute: true, cooldownRemainingMs: 0 })
   }
-}
+},
+)

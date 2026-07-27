@@ -1,6 +1,5 @@
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { NextRequest, NextResponse } from 'next/server'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { safeCount, validateStat, checkDbHealth, type ValidationResult } from '@/lib/resilience'
 
@@ -20,11 +19,10 @@ import { safeCount, validateStat, checkDbHealth, type ValidationResult } from '@
  * If ALL metrics pass → data is trustworthy
  * If ANY metric fails → data discrepancy detected, investigation needed
  */
-export async function GET() {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/validate-data',
+  async (req: NextRequest, ctx) => {
+  try {
     // Check DB health first
     const dbHealthy = await checkDbHealth()
     if (!dbHealthy) {
@@ -108,9 +106,8 @@ export async function GET() {
     console.error('Data validation error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Validation failed',
-      detail: String(error).slice(0, 300),
-      dbHealthy: false,
+      error: 'Validation failed',      dbHealthy: false,
     }, { status: 500 })
   }
-}
+},
+)

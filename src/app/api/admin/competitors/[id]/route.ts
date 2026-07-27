@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout, withNeonRetry } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -9,14 +8,10 @@ import { logAdminAction } from '@/lib/audit'
  * GET /api/admin/competitors/[id]
  * Returns a single competitor with update history.
  */
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/competitors/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const competitor = await withNeonRetry(() =>
       db.competitor.findUnique({
@@ -47,20 +42,17 @@ export async function GET(
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch competitor' }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * PATCH /api/admin/competitors/[id]
  * Update competitor. Creates CompetitorUpdate entries for changed fields.
  */
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const PATCH = withAdmin(
+  'admin/competitors/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const body = await req.json()
     const { name, website, description, freePrice, proPrice, elitePrice, features, targetMarket, usp, weaknesses, status } = body
@@ -122,13 +114,13 @@ export async function PATCH(
           field: u.field,
           oldValue: u.oldValue,
           newValue: u.newValue,
-          updatedBy: (session.user as any).id,
+          updatedBy: ctx.adminId,
         })),
       })
     }
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'competitor_update',
       description: `Updated competitor "${existing.name}" — ${updates.length} field(s) changed`,
       targetType: 'competitor',
@@ -140,20 +132,17 @@ export async function PATCH(
     console.error('Update competitor error:', error)
     return NextResponse.json({ error: 'Failed to update competitor' }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * DELETE /api/admin/competitors/[id]
  * Hard delete (cascade updates).
  */
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const DELETE = withAdmin(
+  'admin/competitors/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const existing = await db.competitor.findUnique({ where: { id } })
     if (!existing) {
@@ -163,7 +152,7 @@ export async function DELETE(
     await db.competitor.delete({ where: { id } })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'competitor_delete',
       description: `Deleted competitor "${existing.name}"`,
       targetType: 'competitor',
@@ -174,4 +163,5 @@ export async function DELETE(
   } catch (error) {
     return NextResponse.json({ error: 'Failed to delete competitor' }, { status: 500 })
   }
-}
+},
+)

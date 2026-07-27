@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { computeHealthScore } from '@/lib/health-score'
 import { db } from '@/lib/db'
 
@@ -28,11 +27,10 @@ import { db } from '@/lib/db'
 const MAX_PAGE_SIZE = 200
 const DEFAULT_PAGE_SIZE = 50
 
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/health',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const userId = url.searchParams.get('userId')
 
@@ -128,4 +126,5 @@ export async function GET(req: NextRequest) {
     console.error('Health score error:', error)
     return NextResponse.json({ error: 'Failed to compute health scores' }, { status: 500 })
   }
-}
+},
+)

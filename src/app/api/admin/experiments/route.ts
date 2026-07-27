@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout, withNeonRetry } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -11,11 +10,10 @@ import { getExperimentResults } from '@/lib/ab-testing'
  * Returns experiments + results.
  * Query: ?tab=overview|list&status=all|draft|running|completed|cancelled&page=1
  */
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/experiments',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'overview'
     const status = url.searchParams.get('status') || 'all'
@@ -117,21 +115,19 @@ export async function GET(req: NextRequest) {
     console.error('Experiments fetch error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to fetch experiments',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to fetch experiments',    }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * POST /api/admin/experiments
  * Create a new experiment.
  */
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/experiments',
+  async (req: NextRequest, ctx) => {
+  try {
     const body = await req.json()
     const { name, description, metric, metricGoal, targetEvent, trafficPct, variants, startAt, endAt } = body
 
@@ -177,12 +173,12 @@ export async function POST(req: NextRequest) {
         variants: JSON.stringify(variants),
         startAt: startAtDate,
         endAt: endAt ? new Date(endAt) : null,
-        createdBy: (session.user as any).id,
+        createdBy: ctx.adminId,
       },
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'experiment_create',
       description: `Created experiment "${name}" (${metric}, ${variants.length} variants, status: ${status})`,
       targetType: 'experiment',
@@ -194,8 +190,7 @@ export async function POST(req: NextRequest) {
     console.error('Create experiment error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to create experiment',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to create experiment',    }, { status: 500 })
   }
-}
+},
+)

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -19,11 +18,10 @@ import { logAdminAction } from '@/lib/audit'
  *   - search: string (search by name or body)
  *   - page: number (default 1)
  */
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/notification-templates',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'overview'
     const channel = url.searchParams.get('channel') || 'all'
@@ -134,21 +132,19 @@ export async function GET(req: NextRequest) {
     console.error('Notification templates fetch error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to fetch templates',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to fetch templates',    }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * POST /api/admin/notification-templates
  * Create a new notification template.
  */
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/notification-templates',
+  async (req: NextRequest, ctx) => {
+  try {
     const body = await req.json()
     const { name, category, channel, subject, body: templateBody, variables, language, status } = body
 
@@ -184,12 +180,12 @@ export async function POST(req: NextRequest) {
         language: language || 'en',
         status: status || 'draft',
         version: 1,
-        createdBy: (session.user as any).id,
+        createdBy: ctx.adminId,
       },
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'notification_template_create',
       description: `Created ${channel} template "${name}"`,
       targetType: 'notification_template',
@@ -201,8 +197,7 @@ export async function POST(req: NextRequest) {
     console.error('Create template error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to create template',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to create template',    }, { status: 500 })
   }
-}
+},
+)

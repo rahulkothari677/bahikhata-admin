@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout, withNeonRetry } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
 
 const VALID_TRIGGERS = ['days_after_signup', 'transaction_count', 'days_since_last_survey', 'plan_upgrade', 'manual']
 
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/nps-config',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'list'
 
@@ -53,13 +51,13 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch NPS config' }, { status: 500 })
   }
-}
+},
+)
 
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/nps-config',
+  async (req: NextRequest, ctx) => {
+  try {
     const body = await req.json()
     const { name, triggerType, triggerValue, question, cooldownDays, targetPlans, enabled, priority } = body
 
@@ -80,12 +78,12 @@ export async function POST(req: NextRequest) {
         targetPlans: targetPlans || 'all',
         enabled: enabled !== false,
         priority: priority || 1,
-        createdBy: (session.user as any).id,
+        createdBy: ctx.adminId,
       },
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'nps_config_create',
       description: `Created NPS survey config "${name}" (trigger: ${triggerType})`,
       targetType: 'nps_config',
@@ -96,4 +94,5 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: 'Failed to create config' }, { status: 500 })
   }
-}
+},
+)

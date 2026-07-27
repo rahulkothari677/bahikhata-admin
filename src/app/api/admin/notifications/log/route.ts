@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 
@@ -17,11 +16,10 @@ import { withTimeout } from '@/lib/resilience'
  *   - search: string (search by recipient or templateName)
  *   - page: number (default 1)
  */
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/notifications/log',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'overview'
     const channel = url.searchParams.get('channel') || 'all'
@@ -147,8 +145,7 @@ export async function GET(req: NextRequest) {
     console.error('Notification log fetch error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to fetch notification logs',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to fetch notification logs',    }, { status: 500 })
   }
-}
+},
+)

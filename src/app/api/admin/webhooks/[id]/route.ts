@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -10,14 +9,10 @@ import { VALID_EVENTS } from '@/lib/webhook-engine'
  * PATCH /api/admin/webhooks/[id]
  * Update webhook endpoint (url, events, status, description).
  */
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const PATCH = withAdmin(
+  'admin/webhooks/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const body = await req.json()
     const { url, events, status, description } = body
@@ -54,7 +49,7 @@ export async function PATCH(
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'webhook_update',
       description: `Updated webhook endpoint (URL: ${existing.url})`,
       targetType: 'webhook_endpoint',
@@ -66,20 +61,17 @@ export async function PATCH(
     console.error('Update webhook error:', error)
     return NextResponse.json({ error: 'Failed to update webhook' }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * DELETE /api/admin/webhooks/[id]
  * Hard delete (cascade deliveries).
  */
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const DELETE = withAdmin(
+  'admin/webhooks/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const existing = await db.webhookEndpoint.findUnique({ where: { id } })
     if (!existing) {
@@ -89,7 +81,7 @@ export async function DELETE(
     await db.webhookEndpoint.delete({ where: { id } })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'webhook_delete',
       description: `Deleted webhook endpoint (URL: ${existing.url})`,
       targetType: 'webhook_endpoint',
@@ -100,4 +92,5 @@ export async function DELETE(
   } catch (error) {
     return NextResponse.json({ error: 'Failed to delete webhook' }, { status: 500 })
   }
-}
+},
+)

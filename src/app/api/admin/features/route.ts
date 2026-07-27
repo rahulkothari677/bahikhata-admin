@@ -1,6 +1,5 @@
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { NextRequest, NextResponse } from 'next/server'
+import { withAdmin } from '@/lib/with-admin'
 import { requireAdmin } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
 import { withTimeout, withNeonRetry } from '@/lib/resilience'
@@ -12,7 +11,9 @@ import { withTimeout, withNeonRetry } from '@/lib/resilience'
  *
  * Query: ?tab=overview|list
  */
-export async function GET(req: Request) {
+export const GET = withAdmin(
+  'admin/features',
+  async (req: NextRequest, ctx) => {
   try {
     const auth = await requireAdmin()
     if (!auth.ok) return auth.error
@@ -99,4 +100,5 @@ export async function GET(req: Request) {
     console.error('Fetch features error:', error)
     return NextResponse.json({ error: 'Failed to fetch features' }, { status: 500 })
   }
-}
+},
+)

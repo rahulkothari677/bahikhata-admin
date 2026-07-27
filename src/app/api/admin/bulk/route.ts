@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { logAdminAction } from '@/lib/audit'
 import { invalidateTokenVersionCacheBulk } from '@/lib/token-version-cache'
@@ -25,11 +24,10 @@ import { withNeonRetry } from '@/lib/resilience'
  *   - ban: Sets cancelledAt + plan='free' for all users
  *   - delete: Permanently deletes users (CAREFUL — irreversible)
  */
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/bulk',
+  async (req: NextRequest, ctx) => {
+  try {
     // Only founder can do bulk delete
     const body = await req.json()
     const { action, userIds, params = {} } = body
@@ -99,7 +97,7 @@ export async function POST(req: NextRequest) {
         await invalidateTokenVersionCacheBulk(userIds)
 
         await logAdminAction({
-          adminId: (session.user as any).id,
+          adminId: ctx.adminId,
           action: 'bulk_plan_change',
           description: `Bulk changed ${updated.count} users to ${params.plan} (tokenVersion bumped for all)`,
           targetType: 'user',
@@ -126,12 +124,12 @@ export async function POST(req: NextRequest) {
             type: params.type || 'info',
             isActive: true,
             startsAt: new Date(),
-            createdBy: (session.user as any).email,
+            createdBy: ctx.email,
           },
         })
 
         await logAdminAction({
-          adminId: (session.user as any).id,
+          adminId: ctx.adminId,
           action: 'bulk_message',
           description: `Sent "${params.title}" to ${userIds.length} users`,
           targetType: 'announcement',
@@ -166,7 +164,7 @@ export async function POST(req: NextRequest) {
         await invalidateTokenVersionCacheBulk(userIds)
 
         await logAdminAction({
-          adminId: (session.user as any).id,
+          adminId: ctx.adminId,
           action: 'bulk_ban',
           description: `Banned ${banned.count} users (set to free + cancelled, tokenVersion bumped)`,
           targetType: 'user',
@@ -182,7 +180,7 @@ export async function POST(req: NextRequest) {
 
       case 'delete': {
         // Only founder can delete
-        if ((session.user as any).role !== 'founder') {
+        if (ctx.role !== 'founder') {
           return NextResponse.json({ error: 'Only founder can delete users' }, { status: 403 })
         }
 
@@ -208,7 +206,7 @@ export async function POST(req: NextRequest) {
         await invalidateTokenVersionCacheBulk(userIds)
 
         await logAdminAction({
-          adminId: (session.user as any).id,
+          adminId: ctx.adminId,
           action: 'bulk_delete',
           description: `PERMANENTLY DELETED ${deleted.count} users`,
           targetType: 'user',
@@ -231,4 +229,5 @@ export async function POST(req: NextRequest) {
     console.error('Bulk operation error:', error)
     return NextResponse.json({ error: 'Failed to perform bulk operation' }, { status: 500 })
   }
-}
+},
+)

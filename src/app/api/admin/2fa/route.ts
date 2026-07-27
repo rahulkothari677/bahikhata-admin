@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { authenticator } from 'otplib'
 import { logAdminAction } from '@/lib/audit'
@@ -19,14 +18,13 @@ import { withNeonRetry } from '@/lib/resilience'
  * here — the existing logic "if not enabled, generate a new secret" already
  * does the right thing for grace sessions.
  */
-export async function GET() {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/2fa',
+  async (req: NextRequest, ctx) => {
+  try {
     const admin = await withNeonRetry(() =>
       db.adminUser.findUnique({
-        where: { id: (session.user as any).id },
+        where: { id: ctx.adminId },
         select: { totpEnabled: true, totpSecret: true, email: true },
       })
     )
@@ -51,7 +49,7 @@ export async function GET() {
     // 🐛 FIX (admin-login-fix-phase-1-followup-2): wrap with withNeonRetry
     await withNeonRetry(() =>
       db.adminUser.update({
-        where: { id: (session.user as any).id },
+        where: { id: ctx.adminId },
         data: { totpSecret: secret },
       })
     )
@@ -74,18 +72,18 @@ export async function GET() {
     console.error('2FA setup error:', error)
     return NextResponse.json({ error: 'Failed to setup 2FA' }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * POST /api/admin/2fa
  * Verify the TOTP code and enable 2FA.
  * Body: { code: "123456" }
  */
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/2fa',
+  async (req: NextRequest, ctx) => {
+  try {
     const body = await req.json()
     const { code } = body
 
@@ -95,7 +93,7 @@ export async function POST(req: NextRequest) {
 
     const admin = await withNeonRetry(() =>
       db.adminUser.findUnique({
-        where: { id: (session.user as any).id },
+        where: { id: ctx.adminId },
         select: { totpSecret: true, totpEnabled: true, email: true },
       })
     )
@@ -126,17 +124,17 @@ export async function POST(req: NextRequest) {
     // 🐛 FIX (admin-login-fix-phase-1-followup-2): wrap with withNeonRetry
     await withNeonRetry(() =>
       db.adminUser.update({
-        where: { id: (session.user as any).id },
+        where: { id: ctx.adminId },
         data: { totpEnabled: true },
       })
     )
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: '2fa_enabled',
       description: `Enabled 2FA on admin account`,
       targetType: 'admin_user',
-      targetId: (session.user as any).id,
+      targetId: ctx.adminId,
       ip: req.headers.get('x-forwarded-for')?.split(',')[0].trim() || undefined,
       userAgent: req.headers.get('user-agent') || undefined,
     })
@@ -149,24 +147,24 @@ export async function POST(req: NextRequest) {
     console.error('2FA verify error:', error)
     return NextResponse.json({ error: 'Failed to verify 2FA' }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * DELETE /api/admin/2fa
  * Disable 2FA (requires current TOTP code for security).
  * Body: { code: "123456" }
  */
-export async function DELETE(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const DELETE = withAdmin(
+  'admin/2fa',
+  async (req: NextRequest, ctx) => {
+  try {
     const body = await req.json()
     const { code } = body
 
     const admin = await withNeonRetry(() =>
       db.adminUser.findUnique({
-        where: { id: (session.user as any).id },
+        where: { id: ctx.adminId },
         select: { totpSecret: true, totpEnabled: true },
       })
     )
@@ -186,17 +184,17 @@ export async function DELETE(req: NextRequest) {
 
     await withNeonRetry(() =>
       db.adminUser.update({
-        where: { id: (session.user as any).id },
+        where: { id: ctx.adminId },
         data: { totpEnabled: false, totpSecret: null },
       })
     )
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: '2fa_disabled',
       description: `Disabled 2FA on admin account`,
       targetType: 'admin_user',
-      targetId: (session.user as any).id,
+      targetId: ctx.adminId,
       ip: req.headers.get('x-forwarded-for')?.split(',')[0].trim() || undefined,
       userAgent: req.headers.get('user-agent') || undefined,
     })
@@ -206,4 +204,5 @@ export async function DELETE(req: NextRequest) {
     console.error('2FA disable error:', error)
     return NextResponse.json({ error: 'Failed to disable 2FA' }, { status: 500 })
   }
-}
+},
+)

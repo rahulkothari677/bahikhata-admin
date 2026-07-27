@@ -1,6 +1,5 @@
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { NextRequest, NextResponse } from 'next/server'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 
@@ -20,11 +19,10 @@ import { withTimeout } from '@/lib/resilience'
  *
  * Returns 4 KPIs (today/week/month/all-time) + breakdowns + paginated lists.
  */
-export async function GET(req: Request) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/ai-usage',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'overview'
     const page = parseInt(url.searchParams.get('page') || '1', 10)
@@ -339,8 +337,7 @@ export async function GET(req: Request) {
     console.error('Admin AI usage fetch error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to fetch AI usage',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to fetch AI usage',    }, { status: 500 })
   }
-}
+},
+)

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -16,11 +15,10 @@ import { logAdminAction } from '@/lib/audit'
  *   - search: string
  *   - page: number (default 1)
  */
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/campaigns',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'overview'
     const status = url.searchParams.get('status') || 'all'
@@ -119,11 +117,10 @@ export async function GET(req: NextRequest) {
     console.error('Campaigns fetch error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to fetch campaigns',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to fetch campaigns',    }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * POST /api/admin/campaigns
@@ -137,11 +134,10 @@ export async function GET(req: NextRequest) {
  *   - startAt: ISO string (optional — if not set, status=draft)
  *   - steps: Array<{ templateId, delayMinutes }> (required, min 1 step)
  */
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/campaigns',
+  async (req: NextRequest, ctx) => {
+  try {
     const body = await req.json()
     const { name, description, targetSegmentId, targetUserIds, startAt, steps } = body
 
@@ -204,7 +200,7 @@ export async function POST(req: NextRequest) {
         targetUserIds: JSON.stringify(targetUserIds || []),
         startAt: startAtDate,
         endAt,
-        createdBy: (session.user as any).id,
+        createdBy: ctx.adminId,
         startedAt: status === 'running' ? new Date() : null,
         steps: {
           create: sortedSteps.map((s: any) => {
@@ -227,7 +223,7 @@ export async function POST(req: NextRequest) {
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'campaign_create',
       description: `Created campaign "${name}" with ${sortedSteps.length} step(s), status=${status}`,
       targetType: 'campaign',
@@ -239,8 +235,7 @@ export async function POST(req: NextRequest) {
     console.error('Create campaign error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to create campaign',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to create campaign',    }, { status: 500 })
   }
-}
+},
+)

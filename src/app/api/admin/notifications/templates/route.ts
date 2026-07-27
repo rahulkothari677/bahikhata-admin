@@ -1,6 +1,5 @@
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { NextRequest, NextResponse } from 'next/server'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 
@@ -14,11 +13,10 @@ import { withTimeout } from '@/lib/resilience'
  * Query params:
  *   - channel: 'all' | 'sms' | 'email' | 'push' (optional filter)
  */
-export async function GET(req: Request) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/notifications/templates',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const channel = url.searchParams.get('channel') || 'all'
 
@@ -56,4 +54,5 @@ export async function GET(req: Request) {
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch templates' }, { status: 500 })
   }
-}
+},
+)

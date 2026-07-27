@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { logAdminAction } from '@/lib/audit'
 
@@ -12,15 +11,11 @@ import { logAdminAction } from '@/lib/audit'
  *   - role: 'admin' | 'viewer' (cannot change to/from founder via API)
  *   - isActive: boolean
  */
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-    const currentRole = (session.user as any).role
+export const PATCH = withAdmin(
+  'admin/admin-users/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
+    const currentRole = ctx.role
     if (currentRole !== 'founder') {
       return NextResponse.json({ error: 'Only founders can modify admin users' }, { status: 403 })
     }
@@ -35,7 +30,7 @@ export async function PATCH(
     }
 
     // Cannot modify founder accounts (except self)
-    if (existing.role === 'founder' && existing.id !== (session.user as any).id) {
+    if (existing.role === 'founder' && existing.id !== ctx.adminId) {
       return NextResponse.json({ error: 'Cannot modify other founder accounts' }, { status: 403 })
     }
 
@@ -45,7 +40,7 @@ export async function PATCH(
     }
 
     // Prevent self-deactivation (founder locking themselves out)
-    if (isActive === false && existing.id === (session.user as any).id) {
+    if (isActive === false && existing.id === ctx.adminId) {
       return NextResponse.json({ error: 'Cannot deactivate your own account' }, { status: 400 })
     }
 
@@ -70,7 +65,7 @@ export async function PATCH(
     })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'admin_user_update',
       description: `Updated admin user "${existing.name}" (${existing.email}) — ${role ? `role: ${role}` : ''} ${isActive !== undefined ? `active: ${isActive}` : ''}`,
       targetType: 'admin_user',
@@ -82,21 +77,18 @@ export async function PATCH(
     console.error('Update admin user error:', error)
     return NextResponse.json({ error: 'Failed to update admin user' }, { status: 500 })
   }
-}
+},
+)
 
 /**
  * DELETE /api/admin/admin-users/[id]
  * Delete admin user (founder only, cannot delete self or other founders).
  */
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-    const currentRole = (session.user as any).role
+export const DELETE = withAdmin(
+  'admin/admin-users/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
+    const currentRole = ctx.role
     if (currentRole !== 'founder') {
       return NextResponse.json({ error: 'Only founders can delete admin users' }, { status: 403 })
     }
@@ -113,14 +105,14 @@ export async function DELETE(
     }
 
     // Cannot delete self
-    if (existing.id === (session.user as any).id) {
+    if (existing.id === ctx.adminId) {
       return NextResponse.json({ error: 'Cannot delete your own account' }, { status: 400 })
     }
 
     await db.adminUser.delete({ where: { id } })
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'admin_user_delete',
       description: `Deleted admin user "${existing.name}" (${existing.email})`,
       targetType: 'admin_user',
@@ -131,4 +123,5 @@ export async function DELETE(
   } catch (error) {
     return NextResponse.json({ error: 'Failed to delete admin user' }, { status: 500 })
   }
-}
+},
+)

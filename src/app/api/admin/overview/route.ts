@@ -1,6 +1,5 @@
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { NextRequest, NextResponse } from 'next/server'
+import { withAdmin } from '@/lib/with-admin'
 import { requireAdmin } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
 
@@ -11,7 +10,9 @@ import { db } from '@/lib/db'
  * Uses only count() and aggregate() — NO row fetching. Scales to millions.
  * Each query is wrapped in try-catch so one failure doesn't crash everything.
  */
-export async function GET() {
+export const GET = withAdmin(
+  'admin/overview',
+  async (req: NextRequest, ctx) => {
   try {
     const auth = await requireAdmin()
     if (!auth.ok) return auth.error
@@ -105,8 +106,7 @@ export async function GET() {
     console.error('Overview API error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to load overview data',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to load overview data',    }, { status: 500 })
   }
-}
+},
+)

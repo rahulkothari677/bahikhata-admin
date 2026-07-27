@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
@@ -15,14 +14,10 @@ import { logAdminAction } from '@/lib/audit'
  *   - message: string (required)
  *   - status: 'investigating' | 'identified' | 'monitoring' | 'resolved' (optional — if provided, updates incident status too)
  */
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/incidents/[id]/updates',
+  async (req: NextRequest, ctx, { params }) => {
+  try {
     const { id } = await params
     const body = await req.json()
     const { message, status } = body
@@ -42,7 +37,7 @@ export async function POST(
         incidentId: id,
         message: message.trim(),
         status: status || incident.status,
-        createdBy: (session.user as any).id,
+        createdBy: ctx.adminId,
       },
     })
 
@@ -59,7 +54,7 @@ export async function POST(
     }
 
     await logAdminAction({
-      adminId: (session.user as any).id,
+      adminId: ctx.adminId,
       action: 'incident_update_added',
       description: `Added update to incident "${incident.title}"${status ? ` (status → ${status})` : ''}`,
       targetType: 'incident',
@@ -71,8 +66,7 @@ export async function POST(
     console.error('Add incident update error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to add update',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to add update',    }, { status: 500 })
   }
-}
+},
+)

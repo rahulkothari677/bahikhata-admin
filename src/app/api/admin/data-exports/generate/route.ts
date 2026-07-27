@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withNeonRetry, withTimeout } from '@/lib/resilience'
 import { validateQuery, executeSafeQuery, exportToCsv } from '@/lib/database-admin'
@@ -22,11 +21,10 @@ const BULK_EXPORT_LIMIT = 10_000
  *
  * Body: { id: exportRequestId }
  */
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const POST = withAdmin(
+  'admin/data-exports/generate',
+  async (req: NextRequest, ctx) => {
+  try {
     const { id } = await req.json()
     if (!id) return NextResponse.json({ error: 'Export ID required' }, { status: 400 })
 
@@ -35,7 +33,7 @@ export async function POST(req: NextRequest) {
     if (exportReq.status !== 'pending') return NextResponse.json({ error: 'Export already processed' }, { status: 400 })
 
     // Mark as processing
-    await db.dataExportRequest.update({ where: { id }, data: { status: 'processing', processedBy: (session.user as any).id } })
+    await db.dataExportRequest.update({ where: { id }, data: { status: 'processing', processedBy: ctx.adminId } })
 
     let csvContent = ''
     let rowCount = 0
@@ -236,7 +234,7 @@ export async function POST(req: NextRequest) {
       })
 
       await logAdminAction({
-        adminId: (session.user as any).id,
+        adminId: ctx.adminId,
         action: 'data_export_complete',
         description: `Generated ${exportReq.type} export: ${fileName} (${rowCount} rows, ${(fileSizeBytes / 1024).toFixed(1)} KB)`,
         targetType: 'data_export',
@@ -264,8 +262,7 @@ export async function POST(req: NextRequest) {
     console.error('Export generation error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Export generation failed',
-      detail: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Export generation failed',    }, { status: 500 })
   }
-}
+},
+)

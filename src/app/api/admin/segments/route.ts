@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { getSegmentCounts, getSegmentUsers } from '@/lib/segments'
 
 /**
@@ -10,11 +9,10 @@ import { getSegmentCounts, getSegmentUsers } from '@/lib/segments'
  * GET /api/admin/segments?segmentId=xxx&page=1&search=ram
  *   → Returns paginated users for a specific segment (detail page)
  */
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
+export const GET = withAdmin(
+  'admin/segments',
+  async (req: NextRequest, ctx) => {
+  try {
     const url = new URL(req.url)
     const segmentId = url.searchParams.get('segmentId')
     const page = Number(url.searchParams.get('page') || '1')
@@ -33,8 +31,7 @@ export async function GET(req: NextRequest) {
     console.error('Segments API error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to fetch segments',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Failed to fetch segments',    }, { status: 500 })
   }
-}
+},
+)

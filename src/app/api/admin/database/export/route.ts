@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { withAdmin } from '@/lib/with-admin'
 import { requireAdmin } from '@/lib/admin-auth'
 import { validateQuery, executeSafeQuery, exportToCsv } from '@/lib/database-admin'
 import { logAdminAction } from '@/lib/audit'
@@ -19,7 +18,9 @@ import { isReadonlyClientConfigured } from '@/lib/db'
  * 🔒 AUDIT FIX V6 SC4: Same fail-closed behavior as /query endpoint.
  * In production, returns 503 if READONLY_DATABASE_URL is not set.
  */
-export async function POST(req: NextRequest) {
+export const POST = withAdmin(
+  'admin/database/export',
+  async (req: NextRequest, ctx) => {
   try {
     const auth = await requireAdmin()
     if (!auth.ok) return auth.error
@@ -72,8 +73,7 @@ export async function POST(req: NextRequest) {
     console.error('Export error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Export failed',
-      detail: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300),
-    }, { status: 500 })
+      error: 'Export failed',    }, { status: 500 })
   }
-}
+},
+)
