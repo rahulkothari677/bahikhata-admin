@@ -41,6 +41,31 @@ model User {
   email         String    @unique
   name          String?
   password      String // hashed with bcrypt
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 🔒 SOFT DELETION (audit 2026-07-27). A shopkeeper's account is NEVER
+  // hard-deleted. Two independent reasons:
+  //
+  //  1. 31 relations cascade from User (onDelete: Cascade). A single
+  //     db.user.deleteMany() therefore destroys every transaction, product,
+  //     party, payment and subscription that user ever recorded — their
+  //     entire books, irreversibly. /api/admin/bulk exposed exactly that.
+  //
+  //  2. It would be UNLAWFUL. GST s.36 requires the books to be retained for
+  //     72 months from the annual-return due date, and IT Rule 6F/46(9)
+  //     requires 6 years. That statutory duty is also the lawful answer to a
+  //     DPDP erasure request: personal data outside the statutory record can
+  //     be erased, the books themselves cannot.
+  //
+  // deletedAt marks the account inactive and hidden. retentionUntil is the
+  // date the statutory obligation expires — only after that may the row be
+  // considered for purge, and even then by a deliberate, audited job.
+  // ═══════════════════════════════════════════════════════════════════════
+  deletedAt       DateTime? // set = account closed; row and books retained
+  deletedBy       String? // admin id, or 'self' for user-initiated closure
+  deletionReason  String? // free text; required by the API
+  retentionUntil  DateTime? // statutory floor — no purge before this date
+  anonymisedAt    DateTime? // when DPDP-erasable identifiers were scrubbed
   phone         String? // for future phone OTP
   emailVerified DateTime? // for future email verification
   image         String? // profile picture URL
@@ -97,6 +122,9 @@ model User {
   @@index([plan])
   @@index([createdAt])
   @@index([updatedAt])
+  // Every admin list query filters deletedAt: null. Without this index that
+  // filter becomes a sequential scan once the table is large.
+  @@index([deletedAt])
 }
 model Shop {
   id        String   @id @default(cuid())

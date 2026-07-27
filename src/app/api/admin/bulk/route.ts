@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
 import { logAdminAction } from '@/lib/audit'
 import { invalidateTokenVersionCacheBulk } from '@/lib/token-version-cache'
 import { withNeonRetry } from '@/lib/resilience'
+import { computeRetentionUntil } from '@/lib/soft-delete'
 
 /**
  * POST /api/admin/bulk
@@ -27,7 +28,7 @@ import { withNeonRetry } from '@/lib/resilience'
 export const POST = withAdmin(
   'admin/bulk',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
     // Only founder can do bulk delete
     const body = await req.json()
     const { action, userIds, params = {} } = body
@@ -179,44 +180,91 @@ export const POST = withAdmin(
       }
 
       case 'delete': {
-        // Only founder can delete
+        // ═══════════════════════════════════════════════════════════════════
+        // 🔒 (audit 2026-07-27) This used to run:
+        //     db.user.deleteMany({ where: { id: { in: userIds } } })
+        // behind a `confirm: "DELETE_PERMANENTLY"` string.
+        //
+        // 31 relations cascade from User, so that call permanently destroyed
+        // every transaction, product, party, payment and subscription those
+        // shopkeepers had ever recorded. Irreversibly, from one API call.
+        //
+        // It was also unlawful. GST s.36 requires those books for 72 months
+        // and IT Rule 6F for 6 years. Destroying them exposes the SHOPKEEPER
+        // to penalties for records they are legally required to produce —
+        // for an action an admin took, not them.
+        //
+        // Closure is now a STATE CHANGE. The account is deactivated and hidden,
+        // the books are retained until the statutory obligation expires, and a
+        // separate anonymise step handles DPDP-erasable identifiers.
+        // ═══════════════════════════════════════════════════════════════════
         if (ctx.role !== 'founder') {
-          return NextResponse.json({ error: 'Only founder can delete users' }, { status: 403 })
+          return NextResponse.json(
+            { error: { code: 'FORBIDDEN', message: 'Only a founder may close accounts.', requestId: ctx.requestId } },
+            { status: 403 },
+          )
         }
 
-        // Double-confirm with reason
-        if (!params.confirm || params.confirm !== 'DELETE_PERMANENTLY') {
-          return NextResponse.json({
-            error: 'Confirmation required',
-            detail: 'Set params.confirm to "DELETE_PERMANENTLY" to confirm. This is IRREVERSIBLE.',
-          }, { status: 400 })
+        const reason = typeof params.reason === 'string' ? params.reason.trim() : ''
+        if (reason.length < 10) {
+          return NextResponse.json(
+            {
+              error: {
+                code: 'REASON_REQUIRED',
+                message:
+                  'Provide params.reason (min 10 chars) explaining why these accounts are being closed. ' +
+                  'It is written to the audit log.',
+                requestId: ctx.requestId,
+              },
+            },
+            { status: 400 },
+          )
         }
 
+        const closedAt = new Date()
         const deleted = await withNeonRetry(() =>
-          db.user.deleteMany({
-            where: { id: { in: userIds } },
+          db.user.updateMany({
+            where: { id: { in: userIds }, deletedAt: null },
+            data: {
+              deletedAt: closedAt,
+              deletedBy: ctx.adminId,
+              deletionReason: reason,
+              retentionUntil: computeRetentionUntil(closedAt),
+              // 🔒 ESSENTIAL. A hard delete revoked access as a side effect of
+              // the row vanishing. Soft delete leaves the row present, so
+              // without this bump the closed account's existing JWTs keep
+              // working in the main app until they expire — closure would be
+              // cosmetic. Bumping tokenVersion is what actually locks them out.
+              tokenVersion: { increment: 1 },
+            },
           })
         )
 
-        // 🐛 D.4: Invalidate the main app's Redis cache for deleted users.
-        // The main app's tokenVersion check returns null for non-existent
-        // users (treated as "revoke"), but the Redis cache might still hold
-        // an old non-null value for up to 5 seconds. Deleting the cache
-        // ensures the next request sees the deletion immediately.
+        // Drop the main app's cached tokenVersion so the bump above takes
+        // effect immediately rather than after the cache TTL.
         await invalidateTokenVersionCacheBulk(userIds)
 
         await logAdminAction({
           adminId: ctx.adminId,
-          action: 'bulk_delete',
-          description: `PERMANENTLY DELETED ${deleted.count} users`,
+          action: 'account_closed',
+          description:
+            `Closed ${deleted.count} account(s). Data RETAINED until ` +
+            `${computeRetentionUntil(closedAt).toISOString().slice(0, 10)} ` +
+            `(GST s.36 / IT Rule 6F). Reason: ${reason}`,
           targetType: 'user',
           targetId: 'bulk',
-          metadata: { userIds: userIds.slice(0, 50), count: deleted.count },
+          metadata: {
+            userIds: userIds.slice(0, 50),
+            count: deleted.count,
+            reason,
+            retentionUntil: computeRetentionUntil(closedAt).toISOString(),
+            destructive: false,
+          },
           ip: req.headers.get('x-forwarded-for')?.split(',')[0].trim() || undefined,
           userAgent: req.headers.get('user-agent') || undefined,
         })
 
-        result = { action: 'delete', count: deleted.count }
+        result = { action: 'delete', count: deleted.count, destructive: false, retainedUntil: computeRetentionUntil(closedAt).toISOString() }
         break
       }
 
