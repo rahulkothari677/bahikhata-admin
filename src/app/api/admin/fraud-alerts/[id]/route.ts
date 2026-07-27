@@ -1,73 +1,96 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { z } from 'zod'
 import { db } from '@/lib/db'
-import { withTimeout } from '@/lib/resilience'
-import { logAdminAction } from '@/lib/audit'
+import { withAdmin } from '@/lib/with-admin'
 
 /**
  * PATCH /api/admin/fraud-alerts/[id]
  *
- * Update alert status (acknowledge / resolve / mark false positive) + admin note.
+ * Triage a fraud alert: acknowledge, resolve, or mark it a false positive.
  *
- * Body:
- *   - status: 'open' | 'acknowledged' | 'resolved' | 'false_positive'
- *   - adminNote: string (optional)
+ * MIGRATED to withAdmin (audit 2026-07-26). Previously this checked only
+ * `getServerSession()` — "is anyone logged in?" — so any account including a
+ * read-only viewer could clear fraud alerts. Silently dismissing alerts is a
+ * quiet way to hide abuse: the alert disappears and nothing says who cleared
+ * it or why. Authorisation now comes from ROUTE_POLICY (analyst or founder).
+ *
+ * It also leaked internals: the 500 path returned
+ *     detail: String(error).slice(0, 300)
+ * straight to the client, which surfaces Prisma messages and column names.
+ * withAdmin returns a typed shape with a requestId; the detail goes to the log.
  */
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const { id } = await params
-    const body = await req.json()
-    const { status, adminNote } = body
+const PatchSchema = z
+  .object({
+    status: z.enum(['open', 'acknowledged', 'resolved', 'false_positive']).optional(),
+    adminNote: z.string().max(2000).optional(),
+  })
+  .refine((v) => v.status !== undefined || v.adminNote !== undefined, {
+    message: 'Provide status or adminNote.',
+  })
+
+export const PATCH = withAdmin(
+  'admin/fraud-alerts/[id]',
+  async (req: NextRequest, ctx, { params }) => {
+    const { id } = (await params) as { id: string }
+
+    const parsed = PatchSchema.safeParse(await req.json().catch(() => null))
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          error: {
+            code: 'INVALID_BODY',
+            message: 'status must be one of open|acknowledged|resolved|false_positive.',
+            requestId: ctx.requestId,
+          },
+        },
+        { status: 400 },
+      )
+    }
+    const { status, adminNote } = parsed.data
 
     const existing = await db.fraudAlert.findUnique({
       where: { id },
       include: { rule: { select: { name: true } } },
     })
     if (!existing) {
-      return NextResponse.json({ error: 'Alert not found' }, { status: 404 })
+      return NextResponse.json(
+        { error: { code: 'NOT_FOUND', message: 'Alert not found.', requestId: ctx.requestId } },
+        { status: 404 },
+      )
     }
 
-    const adminId = (session.user as any).id
     const now = new Date()
-
-    const updateData: any = {
+    const updateData: Record<string, unknown> = {
       ...(status !== undefined && { status }),
       ...(adminNote !== undefined && { adminNote }),
     }
 
+    // Attribution is written once and never overwritten, so the record shows
+    // who FIRST acknowledged or resolved an alert.
     if (status === 'acknowledged' && !existing.acknowledgedAt) {
-      updateData.acknowledgedBy = adminId
+      updateData.acknowledgedBy = ctx.adminId
       updateData.acknowledgedAt = now
     }
     if ((status === 'resolved' || status === 'false_positive') && !existing.resolvedAt) {
-      updateData.resolvedBy = adminId
+      updateData.resolvedBy = ctx.adminId
       updateData.resolvedAt = now
     }
 
     const updated = await db.fraudAlert.update({ where: { id }, data: updateData })
 
-    await logAdminAction({
-      adminId,
+    await ctx.audit({
       action: 'fraud_alert_status_change',
-      description: `Fraud alert for rule "${existing.rule?.name}" (user: ${existing.userName || existing.userId.slice(0, 8)}) status: ${existing.status} → ${status || existing.status}`,
+      description:
+        `Fraud alert for rule "${existing.rule?.name}" status: ` +
+        `${existing.status} -> ${status ?? existing.status}`,
       targetType: 'fraud_alert',
       targetId: id,
+      // The alert's subject is identified by id only. The audit entry does not
+      // need to restate the shopkeeper's name to be useful.
+      metadata: { before: existing.status, after: status ?? existing.status, noteChanged: adminNote !== undefined },
     })
 
     return NextResponse.json({ success: true, alert: updated })
-  } catch (error) {
-    console.error('Update fraud alert error:', error)
-    return NextResponse.json({
-      success: false,
-      error: 'Failed to update alert',
-      detail: String(error).slice(0, 300),
-    }, { status: 500 })
-  }
-}
+  },
+)

@@ -47,7 +47,13 @@ function routeKeyFor(file: string): string {
  * measurement being wrong in the optimistic direction is exactly why the
  * detector now parses code rather than text.)
  */
-const MAX_UNMIGRATED = 78
+const MAX_UNMIGRATED = 76
+
+/**
+ * Routes returning raw exception text to the client. Lower as routes migrate.
+ * 2026-07-26: 40.
+ */
+const MAX_ERROR_LEAKS = 40
 
 /**
  * Routes where a missing check is not a papercut. Unwrapping any of these
@@ -57,7 +63,12 @@ const MAX_UNMIGRATED = 78
  * exploited: a viewer disabled a global kill-switch for the whole shopkeeper
  * app and got 200 OK.
  */
-const MUST_ENFORCE = ['admin/features/[key]']
+const MUST_ENFORCE = [
+  'admin/features/[key]',
+  // Clearing these silently is how real abuse and real incidents go unnoticed.
+  'admin/fraud-alerts/[id]',
+  'admin/anomalies/[id]',
+]
 
 const routeFiles = findRouteFiles(API_ROOT)
 
@@ -122,6 +133,27 @@ describe('withAdmin adoption', () => {
       failures,
       `These routes MUST be wrapped in withAdmin():\n  ${failures.join('\n  ')}`,
     ).toEqual([])
+  })
+
+  it('no route leaks internal error text to clients (ratchet)', () => {
+    // 40 routes return the raw exception to the caller, e.g.
+    //     detail: String(error).slice(0, 300)
+    // which surfaces Prisma messages, column names and constraint names to
+    // anyone who can trigger a 500 — free schema reconnaissance. withAdmin()
+    // logs the detail server-side and returns a typed shape with a requestId,
+    // so each migrated route removes one. This caps the count so no new ones
+    // appear while the migration proceeds.
+    const leaking = routeFiles.filter((f) =>
+      /detail:\s*(String\(error\)|error instanceof Error)/.test(
+        codeOnly(readFileSync(f, 'utf8')),
+      ),
+    )
+    expect(
+      leaking.length,
+      `Routes leaking internal error text went UP to ${leaking.length} ` +
+        `(cap ${MAX_ERROR_LEAKS}). Return a typed error with a requestId and ` +
+        `log the detail server-side instead.`,
+    ).toBeLessThanOrEqual(MAX_ERROR_LEAKS)
   })
 
   it('no route reimplements authorisation by hand once wrapped', () => {
