@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { db } from '@/lib/db'
 import { isFounderEmail } from '@/lib/founders'
+import { timingSafeEqual } from 'crypto'
 import { z } from 'zod'
 import { withNeonRetry } from '@/lib/resilience'
 
@@ -31,6 +32,45 @@ const SetupSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
+    // ═══════════════════════════════════════════════════════════════════════
+    // 🔒 SETUP_SECRET (audit 2026-07-27).
+    //
+    // This endpoint mints a FOUNDER account. Its only guards were "no admins
+    // exist yet" and "the email is in FOUNDER_EMAILS" — and FOUNDER_EMAILS had
+    // a hardcoded fallback containing a real, publicly-known address.
+    //
+    // So the bootstrap window was: whenever AdminUser is empty. That is not a
+    // one-time event. It happens after a restore to a fresh branch, a failed
+    // migration, or someone clearing the table. Until 3ea51c1 an unauthenticated
+    // GET on this same route reported adminCount, so the window was observable
+    // from the internet.
+    //
+    // A second factor closes it: knowing the founder email is no longer enough,
+    // you must also hold a secret that exists only in the deployment env.
+    // ═══════════════════════════════════════════════════════════════════════
+    const setupSecret = process.env.SETUP_SECRET
+    if (process.env.NODE_ENV === 'production' && !setupSecret) {
+      console.error('[setup] SETUP_SECRET is not configured — refusing to bootstrap.')
+      return NextResponse.json({
+        error: 'Setup disabled',
+        detail: 'Bootstrap is not configured on this deployment.',
+      }, { status: 503 })
+    }
+    if (setupSecret) {
+      const presented = req.headers.get('x-setup-secret') ?? ''
+      const a = Buffer.from(presented)
+      const b = Buffer.from(setupSecret)
+      // Length check first: timingSafeEqual throws on a length mismatch.
+      if (a.length !== b.length || !timingSafeEqual(a, b)) {
+        // Deliberately identical to the "already complete" response below, so
+        // this cannot be used to probe whether the secret is even configured.
+        return NextResponse.json({
+          error: 'Setup already complete',
+          detail: 'Admin accounts already exist. Use /login instead.',
+        }, { status: 403 })
+      }
+    }
+
     // SECURITY: Only allow if no admin users exist
     // 🐛 FIX (admin-login-fix-phase-1-followup-2): wrap with withNeonRetry
     const adminCount = await withNeonRetry(() => db.adminUser.count())

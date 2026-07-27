@@ -107,17 +107,33 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // 🔒 V26 A1: In production, NEVER return the token — email it instead.
-    // In development, return it for testing convenience.
+    // ═══════════════════════════════════════════════════════════════════════
+    // 🔴 (audit 2026-07-27) This told the user
+    //     "If this email is authorized, a reset link has been sent."
+    // and sent nothing. No email provider is wired — the code says so itself —
+    // and /reset-password does not exist as a page, so even a delivered link
+    // would 404.
+    //
+    // The failure mode is the problem: a locked-out founder sits waiting for an
+    // email that will never arrive, believing recovery is in progress, while
+    // the real recovery path (reset the password row directly in the database)
+    // goes untried. During an incident that wasted time is the whole cost.
+    //
+    // 501 is the honest answer: the capability does not exist yet. It stays 501
+    // until BOTH an email provider and the /reset-password page are real.
+    // ═══════════════════════════════════════════════════════════════════════
     if (process.env.NODE_ENV === 'production') {
-      // TODO: wire Resend (or whatever email provider) to send the reset link:
-      //   https://admin.bahikhata.pro/reset-password?token=<resetToken>
-      // For now, just log success without returning the token.
-      console.log(`[forgot-password] Reset token generated for ${normalizedEmail}. Email sending not yet wired.`)
+      console.warn(
+        `[forgot-password] Reset requested for ${normalizedEmail} but self-service ` +
+          `recovery is not implemented. Token was stored but cannot be delivered.`,
+      )
       return NextResponse.json({
-        success: true,
-        message: 'If this email is authorized, a reset link has been sent.',
-      })
+        error: 'Password reset by email is not available',
+        message:
+          'Self-service password reset is not set up on this deployment. ' +
+          'Recover the account directly in the database, or ask another ' +
+          'founder-role admin to reset it for you.',
+      }, { status: 501 })
     }
 
     // Dev mode: return the token for testing

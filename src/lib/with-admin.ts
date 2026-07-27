@@ -45,7 +45,7 @@ export interface AdminContext {
     targetType?: string
     targetId?: string
     metadata?: unknown
-  }) => Promise<void>
+  }) => Promise<unknown>
 }
 
 type Handler = (

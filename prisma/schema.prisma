@@ -903,6 +903,9 @@ model AdminUser {
 model AdminAction {
   id            String   @id @default(cuid())
   adminId       String
+  // 🔒 onDelete: Cascade is deliberate but must NEVER fire in practice — the
+  // admin-role.sql grants revoke DELETE on AdminUser, so an admin cannot be
+  // deleted and take their audit trail with them. Deactivate instead.
   admin         AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
   action        String   // user_plan_change | user_ban | feature_toggle | data_export | etc.
   targetType    String?  // user | feature_flag | subscription | etc.
@@ -913,9 +916,34 @@ model AdminAction {
   userAgent     String?
   createdAt     DateTime @default(now())
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // 🔒 TAMPER-EVIDENT CHAIN (audit 2026-07-27).
+  //
+  // Each entry hashes its own contents TOGETHER WITH the previous entry's
+  // hash, so the log is a chain. Editing or deleting any historical row breaks
+  // every hash after it, and the break is detectable.
+  //
+  // Without this, the audit log is just a table. An admin with database access
+  // — which every admin implicitly has via the SQL console — could edit the
+  // record of what they did, and nothing would show it. An audit trail that
+  // the audited party can silently rewrite provides no assurance at all, which
+  // matters directly for DPDP Rule 6 and CERT-In log-retention obligations.
+  //
+  // This is DETECTION, not prevention. Prevention is the append-only GRANT in
+  // prisma/grants/admin-role.sql (INSERT + SELECT, no UPDATE/DELETE). The two
+  // are complementary: the grant stops the edit, the chain proves none happened.
+  //
+  // seq is a monotonic counter giving the chain a deterministic order —
+  // createdAt can collide at millisecond resolution under concurrent writes.
+  // ═══════════════════════════════════════════════════════════════════════
+  seq           BigInt   @default(autoincrement())
+  prevHash      String?  @db.VarChar(64) // null only for the very first entry
+  hash          String?  @db.VarChar(64) // sha256(seq|adminId|action|...|prevHash)
+
   @@index([adminId, createdAt])
   @@index([action, createdAt])
   @@index([targetType, targetId])
+  @@index([seq])
 }
 model SupportTicket {
   id         String    @id @default(cuid())
