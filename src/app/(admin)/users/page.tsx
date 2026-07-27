@@ -1,7 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useDebounce } from '@/hooks/use-debounce'
 import { Users as UsersIcon, Search, Crown, Loader2, Download, Send, Ban, Trash2, UserCog, CheckSquare, Square } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/utils'
@@ -16,16 +16,33 @@ export default function UsersPage() {
   const [bulkAction, setBulkAction] = useState('')
   const debouncedSearch = useDebounce(search, 300)
 
+  // 📊 Cursor pagination (audit 2026-07-27). The API moved from page numbers
+  // to keyset cursors, because SQL OFFSET makes deep pages progressively
+  // slower — page 5,000 reads five million rows to return twenty.
+  //
+  // The trade-off is that "jump to page 47" is gone. That is the right call
+  // for an admin panel: nobody navigates to page 47 of a million users, they
+  // filter. Next/previous is what actually gets used.
+  const [cursorStack, setCursorStack] = useState<string[]>([])
+  const currentCursor = cursorStack[cursorStack.length - 1] ?? null
+
   const { data, isLoading } = useQuery({
-    queryKey: ['admin-users', debouncedSearch, planFilter],
+    queryKey: ['admin-users', debouncedSearch, planFilter, currentCursor],
     queryFn: async () => {
       const params = new URLSearchParams()
       if (debouncedSearch) params.set('search', debouncedSearch)
       if (planFilter) params.set('plan', planFilter)
+      if (currentCursor) params.set('cursor', currentCursor)
       const r = await fetch(`/api/admin/users?${params}`)
       return r.json()
     },
   })
+
+  // A new search or filter invalidates the cursor trail — the old cursors
+  // point into a different result set.
+  useEffect(() => {
+    setCursorStack([])
+  }, [debouncedSearch, planFilter])
 
   // Fetch health scores for all users
   const { data: healthData } = useQuery({
@@ -119,9 +136,24 @@ export default function UsersPage() {
         bulkMutation.mutate({ action: 'ban', userIds: ids })
       }
     } else if (bulkAction === 'delete') {
-      if (confirm(`PERMANENTLY DELETE ${ids.length} users? This CANNOT be undone!`)) {
-        bulkMutation.mutate({ action: 'delete', userIds: ids, params: { confirm: 'DELETE_PERMANENTLY' } })
+      // 🔒 (audit 2026-07-27) This used to warn "PERMANENTLY DELETE ... CANNOT
+      // be undone" and send confirm:'DELETE_PERMANENTLY'. Both are now wrong:
+      // the API closes the account and RETAINS the books, because GST s.36
+      // requires 72 months and IT Rule 6F requires 6 years. A warning that
+      // overstates the damage is still a lie, and it trains operators to
+      // distrust the real warnings.
+      const reason = prompt(
+        `Close ${ids.length} account(s)?\n\n` +
+        `The account is deactivated and signed out immediately.\n` +
+        `Their books are RETAINED for 8 years — this is required by GST and ` +
+        `income-tax law and cannot be skipped.\n\n` +
+        `Enter the reason (recorded in the audit log, min 10 characters):`,
+      )
+      if (!reason || reason.trim().length < 10) {
+        if (reason !== null) sonnerToast.error('A reason of at least 10 characters is required.')
+        return
       }
+      bulkMutation.mutate({ action: 'delete', userIds: ids, params: { reason: reason.trim() } })
     }
   }
 
@@ -215,7 +247,9 @@ export default function UsersPage() {
             <option value="change_plan">🔄 Change Plan</option>
             <option value="message">💬 Send Notification</option>
             <option value="ban">🚫 Ban (free + cancelled)</option>
-            <option value="delete">🗑️ Delete Permanently</option>
+            {/* Not "Delete Permanently" — nothing is destroyed. The account is
+                closed and the books are retained for the statutory period. */}
+            <option value="delete">🔒 Close Account (books retained)</option>
           </select>
           <button
             onClick={handleBulkAction}
@@ -298,8 +332,20 @@ export default function UsersPage() {
                       {user.plan}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right text-sm tabular-nums">{user._count.transactions}</td>
-                  <td className="px-4 py-3 text-right text-sm tabular-nums">{user._count.aiUsageLogs}</td>
+                  {/* 📊 Denormalised counts, refreshed nightly. countsStale
+                      means the rollup has NEVER run for this user — that is not
+                      a count of zero, so it must render as "—". Showing "0"
+                      would state as fact something we have not computed. */}
+                  <td className="px-4 py-3 text-right text-sm tabular-nums">
+                    {user.countsStale
+                      ? <span className="text-muted-foreground" title="Not yet computed">—</span>
+                      : user.txnCount}
+                  </td>
+                  <td className="px-4 py-3 text-right text-sm tabular-nums">
+                    {user.countsStale
+                      ? <span className="text-muted-foreground" title="Not yet computed">—</span>
+                      : user.productCount}
+                  </td>
                   <td className="px-4 py-3">
                     {healthMap[user.id] ? (
                       <span className={`text-xs font-bold ${healthMap[user.id].color}`}>
@@ -326,11 +372,36 @@ export default function UsersPage() {
         )}
       </div>
 
-      {/* Pagination info */}
+      {/* Cursor pagination. There is deliberately no total and no page count:
+          COUNT(*) over the user table on every page load is the query that
+          stops working first at scale. Next/previous is what gets used. */}
       {data?.pagination && (
         <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>Showing {users.length} of {data.pagination.total} users</span>
-          <span>Page {data.pagination.page} of {data.pagination.totalPages}</span>
+          <span>
+            Showing {users.length} user{users.length === 1 ? '' : 's'}
+            {cursorStack.length > 0 && ` (page ${cursorStack.length + 1})`}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCursorStack((s) => s.slice(0, -1))}
+              disabled={cursorStack.length === 0}
+              className="rounded border px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-muted"
+            >
+              ← Previous
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                data.pagination.nextCursor &&
+                setCursorStack((s) => [...s, data.pagination.nextCursor])
+              }
+              disabled={!data.pagination.hasMore}
+              className="rounded border px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-muted"
+            >
+              Next →
+            </button>
+          </div>
         </div>
       )}
     </div>
