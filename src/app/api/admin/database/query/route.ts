@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAdmin } from '@/lib/with-admin'
-import { requireAdmin } from '@/lib/admin-auth'
 import { validateQuery, executeSafeQuery } from '@/lib/database-admin'
 import { logAdminAction } from '@/lib/audit'
 import { isReadonlyClientConfigured } from '@/lib/db'
@@ -27,9 +26,6 @@ export const POST = withAdmin(
   'admin/database/query',
   async (req: NextRequest, ctx) => {
   try {
-    const auth = await requireAdmin()
-    if (!auth.ok) return auth.error
-
     // 🔒 V6 SC4: Fail closed in production if READONLY_DATABASE_URL is not set.
     // This is the single most sensitive endpoint in the admin panel — it can
     // read every user's financial data. Belt and suspenders: whitelist + read-
@@ -61,7 +57,7 @@ export const POST = withAdmin(
 
     // Log to audit trail
     await logAdminAction({
-      adminId: (auth.session.user as any).id,
+      adminId: ctx.adminId,
       action: 'database_query',
       description: `Executed SELECT query (${result.rowCount} rows, ${result.durationMs}ms)`,
       targetType: 'database',

@@ -166,6 +166,21 @@ describe('withAdmin adoption', () => {
     ).toBeLessThanOrEqual(MAX_ERROR_LEAKS)
   })
 
+  it('no route runs a SECOND authorisation check of its own', () => {
+    // Five routes called both withAdmin() AND requireAdmin(). Two sources of
+    // truth for authorisation is how the original prefix-list guard drifted
+    // out of sync with the filesystem in the first place.
+    const offenders = routeFiles
+      .filter(isMigrated)
+      .filter((f) => /requireAdmin\s*\(/.test(codeOnly(readFileSync(f, 'utf8'))))
+      .map(routeKeyFor)
+    expect(
+      offenders,
+      `Wrapped routes still calling requireAdmin(): ${offenders.join(', ')}. ` +
+        `withAdmin already enforces ROUTE_POLICY; use ctx.`,
+    ).toEqual([])
+  })
+
   it('no route reimplements authorisation by hand once wrapped', () => {
     // A wrapped route that also calls getServerSession() is a sign the old
     // check was left behind, which is how two sources of truth reappear.

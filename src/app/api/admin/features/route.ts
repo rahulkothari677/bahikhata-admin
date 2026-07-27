@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAdmin } from '@/lib/with-admin'
-import { requireAdmin } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
 import { withTimeout, withNeonRetry } from '@/lib/resilience'
 
@@ -14,10 +13,7 @@ import { withTimeout, withNeonRetry } from '@/lib/resilience'
 export const GET = withAdmin(
   'admin/features',
   async (req: NextRequest, ctx) => {
-  try {
-    const auth = await requireAdmin()
-    if (!auth.ok) return auth.error
-
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'list'
 

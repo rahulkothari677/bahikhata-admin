@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAdmin } from '@/lib/with-admin'
-import { requireAdmin } from '@/lib/admin-auth'
 import { validateQuery, executeSafeQuery, exportToCsv } from '@/lib/database-admin'
 import { logAdminAction } from '@/lib/audit'
 import { isReadonlyClientConfigured } from '@/lib/db'
@@ -22,9 +21,6 @@ export const POST = withAdmin(
   'admin/database/export',
   async (req: NextRequest, ctx) => {
   try {
-    const auth = await requireAdmin()
-    if (!auth.ok) return auth.error
-
     // 🔒 V6 SC4: Fail closed in production if READONLY_DATABASE_URL is not set.
     if (!isReadonlyClientConfigured()) {
       return NextResponse.json({
@@ -50,7 +46,7 @@ export const POST = withAdmin(
 
     // Log export
     await logAdminAction({
-      adminId: (auth.session.user as any).id,
+      adminId: ctx.adminId,
       action: 'database_export',
       description: `Exported ${result.rowCount} rows as CSV (${result.durationMs}ms)`,
       targetType: 'database',

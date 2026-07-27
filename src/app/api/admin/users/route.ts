@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAdmin } from '@/lib/with-admin'
-import { requireAdmin } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
 import { clampPageSize, decodeCursor, keysetOrderBy, keysetPaginate, keysetWhere } from '@/lib/pagination'
 import { maskEmail, maskName, maskPhone } from '@/lib/pii'
@@ -34,8 +33,6 @@ export const GET = withAdmin(
   'admin/users',
   async (req: NextRequest, ctx) => {
   try {
-    const auth = await requireAdmin()
-    if (!auth.ok) return auth.error
 
     const url = new URL(req.url)
     const p = url.searchParams
