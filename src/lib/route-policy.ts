@@ -143,6 +143,16 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
     verdict: 'constrain',
     note: 'Only reveals 2FA state AFTER the password is verified, so not an enumeration oracle. But it double-consumes the rate limit: one UI login burns 2 of 5 slots.',
   },
+  'admin/step-up': {
+    GET: ['viewer', 'support', 'analyst', 'finance'],
+    POST: ['viewer', 'support', 'analyst', 'finance'],
+    selfScoped: true,
+    purpose: 'Re-prove possession of the second factor before a sensitive action',
+    pii: 'none',
+    lawfulBasis: LEGIT_OPS,
+    verdict: 'keep',
+    note: 'Must NOT itself require stepUp — that would be unsatisfiable. Self-scoped: it only ever acts on the calling operator.',
+  },
   'admin/2fa': {
     GET: ['viewer', 'support', 'analyst', 'finance'],
     POST: ['viewer', 'support', 'analyst', 'finance'],

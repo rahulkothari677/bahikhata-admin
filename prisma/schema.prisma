@@ -885,6 +885,21 @@ model AdminUser {
   // token happened to expire. The main app already solved this for shopkeepers
   // via User.tokenVersion; it was simply never applied to admins themselves.
   tokenVersion  Int       @default(0)
+
+  // 🔒 STEP-UP AUTHENTICATION (audit 2026-07-27).
+  //
+  // ROUTE_POLICY marks 11 routes `stepUp: true` — impersonation, exports, the
+  // SQL console, admin-user management, bulk operations. Until now that flag
+  // was documentation: nothing read it.
+  //
+  // A session lasts an hour. An unlocked laptop, a stolen cookie, or an
+  // operator walking away is enough to reach every one of those routes. Being
+  // logged in should not be the same as being present.
+  //
+  // Set when the operator re-enters a TOTP code; the routes above require it
+  // to be recent (STEP_UP_WINDOW_MS). It is deliberately NOT a second session:
+  // it expires in minutes, not hours.
+  stepUpVerifiedAt DateTime?
   lastLoginAt   DateTime?
   lastLoginIp   String?
   createdAt     DateTime  @default(now())

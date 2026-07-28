@@ -5,6 +5,7 @@ import { authOptions } from './auth'
 import { db } from './db'
 import { logAdminAction } from './audit'
 import { PageTooDeepError } from './pagination'
+import { isStepUpValid } from './step-up'
 import {
   ROUTE_POLICY,
   isRoleAllowed,
@@ -265,6 +266,32 @@ export function withAdmin(routeKey: string, handler: Handler) {
         `Your role (${admin.role}) cannot perform this action.`,
         requestId,
       )
+    }
+
+    // ── Step-up authentication ────────────────────────────────────────────
+    // 🔒 (audit 2026-07-27) ROUTE_POLICY has marked routes `stepUp: true` since
+    // the register was written, and nothing read the flag. Sessions last an
+    // hour, so an unlocked laptop or a stolen cookie reached impersonation,
+    // exports and the SQL console unchallenged. Being logged in is not the same
+    // as being present.
+    //
+    // Deliberately AFTER the role check: a viewer hitting a founder-only route
+    // gets FORBIDDEN, not a prompt for a code that would not have helped them.
+    // Asking for credentials you are going to refuse anyway is both confusing
+    // and a small oracle about what exists.
+    if (policy.stepUp) {
+      const fresh = await db.adminUser
+        .findUnique({ where: { id: adminId }, select: { stepUpVerifiedAt: true } })
+        .catch(() => null)
+
+      if (!isStepUpValid(fresh?.stepUpVerifiedAt)) {
+        return fail(
+          403,
+          'STEP_UP_REQUIRED',
+          'This action needs your authenticator code. Verify at /api/admin/step-up and retry.',
+          requestId,
+        )
+      }
     }
 
     const ip =

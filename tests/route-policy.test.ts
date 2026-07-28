@@ -170,10 +170,30 @@ describe('role enforcement', () => {
   it('only genuinely self-scoped routes claim the selfScoped exemption', () => {
     // Guards the escape hatch itself: selfScoped must not become a way to
     // quietly grant viewers write access to other people's data.
+    //
+    // Both entries act ONLY on the calling operator's own record:
+    //   admin/2fa      — manage your own second factor
+    //   admin/step-up  — re-verify your own second factor
+    //
+    // Both must be reachable by every role, including viewer, or the control
+    // becomes unsatisfiable: a viewer who cannot verify their own TOTP could
+    // never complete a step-up, and one who cannot manage their own 2FA would
+    // be permanently locked out by the mandatory-2FA policy.
+    //
+    // Adding a THIRD entry here should be treated as suspicious. This list is
+    // deliberately exhaustive rather than a pattern match.
     const selfScoped = Object.entries(ROUTE_POLICY)
       .filter(([, p]) => p.selfScoped)
       .map(([k]) => k)
-    expect(selfScoped).toEqual(['admin/2fa'])
+      .sort()
+    expect(selfScoped).toEqual(['admin/2fa', 'admin/step-up'])
+  })
+
+  it('the step-up route does not itself require step-up', () => {
+    // Otherwise the requirement is unsatisfiable: you would need a valid
+    // step-up to obtain a step-up. Easy to introduce by copying another
+    // sensitive route's policy entry.
+    expect(ROUTE_POLICY['admin/step-up'].stepUp).toBeFalsy()
   })
 
   it('finance cannot reach the shopkeeper ledger, support cannot reach money', () => {
