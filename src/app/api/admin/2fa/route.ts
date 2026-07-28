@@ -1,3 +1,4 @@
+import { checkTotpRate, resetTotpRate } from '@/lib/admin-rate-limit'
 import { NextRequest, NextResponse } from 'next/server'
 import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
@@ -21,7 +22,7 @@ import { withNeonRetry } from '@/lib/resilience'
 export const GET = withAdmin(
   'admin/2fa',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
     const admin = await withNeonRetry(() =>
       db.adminUser.findUnique({
         where: { id: ctx.adminId },
@@ -83,7 +84,7 @@ export const GET = withAdmin(
 export const POST = withAdmin(
   'admin/2fa',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
     const body = await req.json()
     const { code } = body
 
@@ -110,6 +111,17 @@ export const POST = withAdmin(
       return NextResponse.json({ error: 'No 2FA secret found. Visit GET /api/admin/2fa first.' }, { status: 400 })
     }
 
+    // 🔒 BRUTE-FORCE GUARD (audit 2026-07-28). Six digits, ~90 seconds of
+    // validity with the drift window. Unlimited guessing turns "something you
+    // have" into "something you can guess".
+    const enableRate = await checkTotpRate(ctx.adminId)
+    if (!enableRate.success) {
+      return NextResponse.json(
+        { error: `Too many incorrect codes. Try again in ${enableRate.retryAfterSec} seconds.` },
+        { status: 429, headers: { 'Retry-After': String(enableRate.retryAfterSec) } },
+      )
+    }
+
     // Verify the code
     const isValid = authenticator.verify({
       token: code,
@@ -119,6 +131,8 @@ export const POST = withAdmin(
     if (!isValid) {
       return NextResponse.json({ error: 'Invalid code. Try again.' }, { status: 400 })
     }
+
+    await resetTotpRate(ctx.adminId)
 
     // Enable 2FA
     // 🐛 FIX (admin-login-fix-phase-1-followup-2): wrap with withNeonRetry
@@ -158,7 +172,7 @@ export const POST = withAdmin(
 export const DELETE = withAdmin(
   'admin/2fa',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
     const body = await req.json()
     const { code } = body
 
@@ -173,6 +187,18 @@ export const DELETE = withAdmin(
       return NextResponse.json({ error: '2FA is not enabled' }, { status: 400 })
     }
 
+    // 🔒 THE MOST IMPORTANT ONE (audit 2026-07-28). This path REMOVES the
+    // second factor. Guessing it unprotected would let an attacker holding a
+    // stolen session strip 2FA off the account entirely and keep it — turning
+    // a temporary session theft into permanent access.
+    const disableRate = await checkTotpRate(ctx.adminId)
+    if (!disableRate.success) {
+      return NextResponse.json(
+        { error: `Too many incorrect codes. Try again in ${disableRate.retryAfterSec} seconds.` },
+        { status: 429, headers: { 'Retry-After': String(disableRate.retryAfterSec) } },
+      )
+    }
+
     const isValid = authenticator.verify({
       token: code,
       secret: admin.totpSecret!,
@@ -181,6 +207,8 @@ export const DELETE = withAdmin(
     if (!isValid) {
       return NextResponse.json({ error: 'Invalid code. Cannot disable 2FA without verification.' }, { status: 400 })
     }
+
+    await resetTotpRate(ctx.adminId)
 
     await withNeonRetry(() =>
       db.adminUser.update({

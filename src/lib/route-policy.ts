@@ -143,6 +143,14 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
     verdict: 'constrain',
     note: 'Only reveals 2FA state AFTER the password is verified, so not an enumeration oracle. But it double-consumes the rate limit: one UI login burns 2 of 5 slots.',
   },
+  'admin/backup-log': {
+    GET: ['finance'], POST: [], cron: true,
+    purpose: 'Record and prove daily India-resident backups (Income-tax Rule 46(8))',
+    pii: 'none',
+    lawfulBasis: LEGAL_DUTY,
+    verdict: 'keep',
+    note: 'Running the backup is half the obligation; proving the daily cadence is the other half. GET reports days-since-last-success so a job that silently stopped is visible.',
+  },
   'admin/retention/review': {
     GET: [],
     purpose: 'Report closed accounts whose statutory retention period has expired',

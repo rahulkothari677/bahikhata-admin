@@ -1,5 +1,6 @@
 'use client'
 
+import * as Sentry from '@sentry/nextjs'
 import { Component, ReactNode } from 'react'
 import { AlertCircle, RefreshCw } from 'lucide-react'
 
@@ -36,8 +37,20 @@ export class GlobalErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: any) {
-    // Log to console for debugging (in production, this goes to Sentry)
+    // 🐛 (audit 2026-07-28) This line previously carried the comment
+    // "(in production, this goes to Sentry)" — and Sentry was not installed.
+    // So every admin-panel crash went to a browser console nobody was
+    // watching, and nothing ever reached the founder. The comment described
+    // behaviour that did not exist, which is worse than no comment: it stopped
+    // anyone looking for the gap.
+    //
+    // Sentry is now wired (sentry.client.config.ts) and captures this
+    // automatically via the global handler. The explicit call below adds the
+    // React component stack, which the automatic capture does not include.
     console.error('[GlobalErrorBoundary]', error, errorInfo)
+    Sentry.captureException(error, {
+      contexts: { react: { componentStack: errorInfo.componentStack } },
+    })
   }
 
   handleRefresh = () => {

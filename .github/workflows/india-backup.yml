@@ -1,0 +1,138 @@
+name: Daily India Backup
+
+# ═══════════════════════════════════════════════════════════════════════════
+# WHY THIS EXISTS — Rule 46(8), Income-tax Rules 2026 (in force 1 Apr 2026)
+#
+# Electronic books of account must:
+#   - remain accessible in India at all times
+#   - be backed up on servers PHYSICALLY LOCATED IN INDIA
+#   - with backups updated at the close of each business day
+#
+# EkBook's primary database is Neon, which has no India region — the data sits
+# in Singapore. Neon's own backups are therefore also outside India.
+#
+# The obligation is the SHOPKEEPER's, not EkBook's: Rule 46 binds the person
+# required to maintain the books. But if every EkBook user is technically
+# non-compliant, that is a product defect, a sales objection from every CA who
+# reviews the app, and a competitor's marketing line.
+#
+# This satisfies the plain text of the rule cheaply: a nightly encrypted dump
+# written to AWS S3 in ap-south-1 (Mumbai), without migrating the database.
+#
+# ⚠️ The reading is not uniform. Most professional commentary treats 46(8) as
+# a hard daily-India-backup requirement; at least one CA firm argues otherwise.
+# Treat it as a live risk with a cheap mitigation, and get your own CA's
+# written opinion before making a compliance claim in marketing.
+# ═══════════════════════════════════════════════════════════════════════════
+
+on:
+  schedule:
+    # 18:00 UTC = 23:30 IST — close of the Indian business day.
+    # "Close of each business day" is the wording; IST is what matters, not UTC.
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+    # Manual run, for the first test and for restore drills.
+
+concurrency:
+  # Two overlapping dumps would compete for the same database connections that
+  # shopkeepers are using. Never run two.
+  group: india-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Dump to S3 Mumbai
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        # The dump must be taken with a pg_dump matching the server's major
+        # version, or it refuses. Neon runs PG 17.
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+
+      - name: Take the dump
+        env:
+          # Use the DIRECT (non-pooled) URL. PgBouncer in transaction mode
+          # cannot hold the session state pg_dump requires.
+          DIRECT_URL: ${{ secrets.BACKUP_DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          STAMP=$(TZ=Asia/Kolkata date +%Y-%m-%d)
+          echo "IST business date: $STAMP"
+
+          # --no-owner / --no-acl so the dump restores into any role, including
+          # a fresh Neon branch that has different role names.
+          pg_dump "$DIRECT_URL" \
+            --format=custom \
+            --no-owner --no-acl \
+            --file="ekbook-$STAMP.dump"
+
+          ls -lh "ekbook-$STAMP.dump"
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+
+      - name: Encrypt
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          # The dump contains every shopkeeper's books. It must never sit in
+          # object storage readable by anyone who obtains the bucket.
+          gpg --batch --yes --symmetric --cipher-algo AES256 \
+            --passphrase "$BACKUP_PASSPHRASE" \
+            --output "ekbook-${STAMP}.dump.gpg" \
+            "ekbook-${STAMP}.dump"
+          rm -f "ekbook-${STAMP}.dump"
+          ls -lh "ekbook-${STAMP}.dump.gpg"
+
+      - name: Upload to S3 Mumbai (ap-south-1)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ap-south-1
+          BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+        run: |
+          set -euo pipefail
+          aws s3 cp "ekbook-${STAMP}.dump.gpg" \
+            "s3://${BUCKET}/daily/ekbook-${STAMP}.dump.gpg" \
+            --region ap-south-1 \
+            --storage-class STANDARD_IA
+
+          # Prove it landed. An upload that silently failed is the whole
+          # failure mode this job exists to prevent.
+          aws s3 ls "s3://${BUCKET}/daily/ekbook-${STAMP}.dump.gpg" --region ap-south-1
+
+      - name: Record the run in the audit trail
+        # So daily cadence can be PROVEN, not asserted. A backup policy you
+        # cannot evidence is not a defence.
+        env:
+          ADMIN_URL: ${{ secrets.ADMIN_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -s -X POST "${ADMIN_URL}/api/admin/backup-log" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "Content-Type: application/json" \
+            -d "{\"date\":\"${STAMP}\",\"location\":\"s3://ap-south-1\",\"status\":\"success\"}" \
+            || echo "Audit log call failed — backup itself succeeded"
+
+      - name: Alert on failure
+        if: failure()
+        env:
+          ADMIN_URL: ${{ secrets.ADMIN_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          # A backup that stops running silently is worse than no backup, because
+          # you believe you have one. GitHub also emails on workflow failure.
+          curl -s -X POST "${ADMIN_URL}/api/admin/backup-log" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "Content-Type: application/json" \
+            -d "{\"date\":\"$(TZ=Asia/Kolkata date +%Y-%m-%d)\",\"location\":\"s3://ap-south-1\",\"status\":\"failed\"}" \
+            || true
+          echo "::error::India backup FAILED. Rule 46(8) requires a daily India-resident backup."
+          exit 1

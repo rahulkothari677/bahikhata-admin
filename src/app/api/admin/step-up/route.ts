@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { db } from '@/lib/db'
 import { withAdmin } from '@/lib/with-admin'
 import { isStepUpValid, stepUpRemainingSeconds } from '@/lib/step-up'
+import { checkTotpRate, resetTotpRate } from '@/lib/admin-rate-limit'
 
 /**
  * Step-up authentication: re-prove possession of the second factor.
@@ -51,6 +52,30 @@ export const POST = withAdmin('admin/step-up', async (req: NextRequest, ctx) => 
     )
   }
 
+  // 🔒 BRUTE-FORCE GUARD (audit 2026-07-28). A TOTP code is six digits and
+  // stays valid ~90 seconds with the drift window. Without a limit, an
+  // attacker holding a stolen session could simply guess until one lands,
+  // which turns the second factor into a formality.
+  const rate = await checkTotpRate(ctx.adminId)
+  if (!rate.success) {
+    await ctx.audit({
+      action: 'step_up_rate_limited',
+      description: `Step-up blocked by rate limit — too many incorrect codes`,
+      targetType: 'admin_user',
+      targetId: ctx.adminId,
+    })
+    return NextResponse.json(
+      {
+        error: {
+          code: 'TOO_MANY_ATTEMPTS',
+          message: `Too many incorrect codes. Try again in ${rate.retryAfterSec} seconds.`,
+          requestId: ctx.requestId,
+        },
+      },
+      { status: 429, headers: { 'Retry-After': String(rate.retryAfterSec) } },
+    )
+  }
+
   const admin = await db.adminUser.findUnique({
     where: { id: ctx.adminId },
     select: { totpSecret: true, totpEnabled: true },
@@ -94,6 +119,10 @@ export const POST = withAdmin('admin/step-up', async (req: NextRequest, ctx) => 
       { status: 401 },
     )
   }
+
+  // Clear the counter on success so a legitimate operator who mistyped once
+  // is not still carrying those failures into their next step-up.
+  await resetTotpRate(ctx.adminId)
 
   await db.adminUser.update({
     where: { id: ctx.adminId },
