@@ -88,7 +88,12 @@ export const POST = withAdmin(
   async (req: NextRequest, ctx, { params }) => {
     const { key } = (await params) as { key: string }
 
-    const parsed = CreateSchema.safeParse(await req.json().catch(ctx.degrade('featureFlag.update', null)))
+    // NOT ctx.degrade — a malformed request body is the CALLER's mistake, not a
+    // degraded system. Reporting it as degradation would put "featureFlag.update"
+    // in the response's degraded[] on every bad request and train operators to
+    // ignore that list. (A codemod wrapped this by mistake; only DB calls belong
+    // in ctx.degrade.)
+    const parsed = CreateSchema.safeParse(await req.json().catch(() => null))
     if (!parsed.success) {
       return NextResponse.json(
         {

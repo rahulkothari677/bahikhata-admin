@@ -4,6 +4,7 @@ import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { toPaise } from '@/lib/money'
+import { maskEmail, maskName } from '@/lib/pii'
 
 /**
  * 🔴 MONEY (audit 2026-07-26): the money extension does NOT convert `where`
@@ -43,7 +44,7 @@ const HIGH_VALUE_TXN_THRESHOLD_PAISE = toPaise(HIGH_VALUE_TXN_THRESHOLD_RUPEES)
 export const GET = withAdmin(
   'admin/risk',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'overview'
     const page = assertPageDepth(url.searchParams.get('page'))
@@ -237,6 +238,51 @@ export const GET = withAdmin(
     if (tab === 'fraud') {
       const skip = (page - 1) * pageSize
 
+      // Resolve the drill-down scope. Without a valid, open fraud alert there
+      // is no case to investigate, so no individual transactions are returned.
+      const alertId = url.searchParams.get('alertId')
+      let alertScope: { userId: string; alertId: string } | null = null
+
+      if (alertId) {
+        const alert = await db.fraudAlert.findUnique({
+          where: { id: alertId },
+          select: { id: true, userId: true, status: true },
+        }).catch(ctx.degrade('fraudAlert.findUnique', null))
+
+        if (!alert) {
+          return NextResponse.json(
+            { error: { code: 'ALERT_NOT_FOUND', message: 'No such fraud alert.', requestId: ctx.requestId } },
+            { status: 404 },
+          )
+        }
+        // A dismissed or resolved alert is a closed case. Reopen it if you need
+        // to look again — that leaves a record; silently reading does not.
+        if (alert.status === 'resolved' || alert.status === 'false_positive') {
+          return NextResponse.json(
+            {
+              error: {
+                code: 'ALERT_CLOSED',
+                message: `This alert is ${alert.status}. Reopen it to inspect the account again.`,
+                requestId: ctx.requestId,
+              },
+            },
+            { status: 409 },
+          )
+        }
+
+        alertScope = { userId: alert.userId, alertId: alert.id }
+
+        // Reading a named shopkeeper's transactions is itself an act worth
+        // recording — it is the most sensitive read in the panel.
+        await ctx.audit({
+          action: 'fraud_drilldown',
+          description: `Inspected transactions for the account behind fraud alert ${alert.id}`,
+          targetType: 'fraud_alert',
+          targetId: alert.id,
+          metadata: { subjectUserId: alert.userId },
+        })
+      }
+
       // Parallel: duplicate phones (paginated) + high-value txns (paginated)
       const [phoneGroups, highValueTxns, phoneGroupTotal, highValueTxnTotal] = await Promise.all([
         // Duplicate phones — groupBy returns only groups, then we paginate in JS
@@ -253,28 +299,50 @@ export const GET = withAdmin(
         ).catch(ctx.degrade('user.groupBy', []))
           .then((r: any[]) => r.filter(g => g._count > 1)),
 
-        // High-value transactions (paginated)
-        withTimeout(
-          db.transaction.findMany({
-            where: {
-              totalAmount: { gte: HIGH_VALUE_TXN_THRESHOLD_PAISE },
-              createdAt: { gte: sevenDaysAgo },
-            },
-            select: {
-              id: true, userId: true, totalAmount: true, type: true, date: true,
-              user: { select: { email: true, name: true } },
-            },
-            orderBy: { totalAmount: 'desc' },
-            skip,
-            take: pageSize,
-          }),
-          5000
-        ).catch(ctx.degrade('transaction.findMany', [])),
+        // ═══════════════════════════════════════════════════════════════════
+        // 🔒 DRILL-DOWN IS GATED (audit 2026-07-27).
+        //
+        // This returned a browsable list of high-value transactions with
+        // userEmail and userName attached — an identifiable window into
+        // shopkeepers' trade, reachable by anyone who opened the Risk tab.
+        //
+        // Fraud detection IS a lawful purpose, so the DETECTION stays: counts,
+        // scores and the duplicate-phone signal are all still here. What is
+        // removed is general BROWSING. Seeing an individual shopkeeper's
+        // transactions now requires naming a confirmed fraud alert
+        // (?alertId=...), which scopes the results to that alert's subject and
+        // writes an audit entry.
+        //
+        // That is the difference between investigating a case and watching
+        // everyone: one has a reason attached to it, the other does not.
+        // ═══════════════════════════════════════════════════════════════════
+        alertScope
+          ? withTimeout(
+              db.transaction.findMany({
+                where: {
+                  userId: alertScope.userId,
+                  totalAmount: { gte: HIGH_VALUE_TXN_THRESHOLD_PAISE },
+                  createdAt: { gte: sevenDaysAgo },
+                },
+                select: {
+                  id: true, userId: true, totalAmount: true, type: true, date: true,
+                  user: { select: { email: true, name: true } },
+                },
+                orderBy: { totalAmount: 'desc' },
+                skip,
+                take: pageSize,
+              }),
+              5000
+            ).catch(ctx.degrade('transaction.findMany', []))
+          : Promise.resolve([]),
 
-        // Total count of high-value txns (for pagination)
+        // Total count of high-value txns (for pagination).
+        // Scoped to the alert's subject when drilling down; otherwise it is the
+        // platform-wide COUNT, which is an aggregate and identifies nobody.
         withTimeout(
           db.transaction.count({
             where: {
+              ...(alertScope ? { userId: alertScope.userId } : {}),
               totalAmount: { gte: HIGH_VALUE_TXN_THRESHOLD_PAISE },
               createdAt: { gte: sevenDaysAgo },
             },
@@ -295,14 +363,26 @@ export const GET = withAdmin(
         success: true,
         duplicatePhones,
         duplicatePhonesTotal: (phoneGroups as any[]).length,
+        // Empty unless a specific open alert was named. The UI must show
+        // "select an alert to investigate" rather than an empty table, or an
+        // operator reads it as "no high-value transactions".
+        drillDownScope: alertScope
+          ? { alertId: alertScope.alertId }
+          : null,
+        drillDownHint: alertScope
+          ? null
+          : 'Individual transactions are only shown when investigating a specific open fraud alert. Pass ?alertId= to inspect one.',
         highValueTransactions: (highValueTxns as any[]).map((t: any) => ({
           id: t.id,
           userId: t.userId,
           totalAmount: t.totalAmount,
           type: t.type,
           date: t.date.toISOString(),
-          userEmail: t.user?.email,
-          userName: t.user?.name,
+          // Identifiers stay MASKED even inside an authorised drill-down. The
+          // investigator needs to correlate rows, not to read an address book;
+          // the account itself is already identified by the alert.
+          userEmail: maskEmail(t.user?.email),
+          userName: maskName(t.user?.name),
         })),
         highValueTxnTotal,
         page,
