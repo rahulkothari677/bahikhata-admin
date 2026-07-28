@@ -143,6 +143,14 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
     verdict: 'constrain',
     note: 'Only reveals 2FA state AFTER the password is verified, so not an enumeration oracle. But it double-consumes the rate limit: one UI login burns 2 of 5 slots.',
   },
+  'admin/retention/review': {
+    GET: [],
+    purpose: 'Report closed accounts whose statutory retention period has expired',
+    pii: 'identifiers',
+    lawfulBasis: LEGAL_DUTY,
+    verdict: 'keep',
+    note: 'REPORTS ONLY — deletes nothing, and the admin DB role has DELETE revoked. An unattended purge job is the most dangerous code that could exist here; a date bug destroys books that are still legally required, with no undo.',
+  },
   'admin/step-up': {
     GET: ['viewer', 'support', 'analyst', 'finance'],
     POST: ['viewer', 'support', 'analyst', 'finance'],
