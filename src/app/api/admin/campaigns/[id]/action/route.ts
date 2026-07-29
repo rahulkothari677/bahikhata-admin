@@ -31,10 +31,21 @@ import { sendNotification, substituteVariables } from '@/lib/notification-provid
  * synchronously for immediate feedback. Scheduled future steps would be
  * handled by cron in production.
  */
+/**
+ * How many people one campaign step will message in a single request.
+ *
+ * A FUSE, not pagination. This used to be applied as a silent
+ * `userIds.slice(0, 1000)`; it is now a refusal threshold, because a campaign
+ * that reports "sent" after reaching a fifth of its audience is worse than one
+ * that refuses — you cannot tell afterwards who was missed, and re-running
+ * double-messages everyone who already received it.
+ */
+const MAX_STEP_RECIPIENTS = 1_000
+
 export const POST = withAdmin(
   'admin/campaigns/[id]/action',
   async (req: NextRequest, ctx, { params }) => {
-  try {
+  try {
     const { id } = await params
     const body = await req.json()
     const { action, stepId } = body
@@ -200,6 +211,11 @@ export const POST = withAdmin(
           db.userSegmentCache.findMany({
             where: { segmentId: campaign.targetSegmentId },
             select: { userId: true },
+            // 🐛 SCALE (audit 2026-07-29): unbounded. A segment is an arbitrary
+            // slice of the user base — "all free users" is every free user. The
+            // +1 makes an over-limit segment DETECTABLE rather than silently
+            // exactly at the cap.
+            take: MAX_STEP_RECIPIENTS + 1,
           }),
           5000
         ).catch(ctx.degrade('campaignStep.update', []))
@@ -223,8 +239,37 @@ export const POST = withAdmin(
         })
       }
 
-      // Cap at 1000 for synchronous execution (production: background job for larger batches)
-      const cappedUserIds = userIds.slice(0, 1000)
+      // 🐛 FIX (audit 2026-07-29): this was `userIds.slice(0, 1000)` with no
+      // signal — the same silent-truncation bug as bulk-jobs/execute. A campaign
+      // step aimed at 5,000 people messaged 1,000 of them, marked itself sent,
+      // and reported a count that read as the whole step. Nobody could say
+      // afterwards which 4,000 were missed, and re-running double-messages the
+      // 1,000 who already received it.
+      //
+      // A partial send must never look finished.
+      if (userIds.length > MAX_STEP_RECIPIENTS) {
+        const msg =
+          `This step targets ${userIds.length > MAX_STEP_RECIPIENTS ? `${MAX_STEP_RECIPIENTS}+` : userIds.length} recipients, ` +
+          `above the ${MAX_STEP_RECIPIENTS} that can be sent in one request. Nothing was sent. ` +
+          `Narrow the segment, or split this into smaller campaigns.`
+
+        await db.campaignStep.update({
+          where: { id: stepId },
+          data: { status: 'failed', errorMessage: msg.slice(0, 500) },
+        })
+        await ctx.audit({
+          action: 'campaign_step_refused',
+          description: `${msg} (campaign "${campaign.name}", step ${stepId})`,
+          targetType: 'campaign',
+          targetId: id,
+        })
+        return NextResponse.json(
+          { success: false, error: msg, code: 'TOO_MANY_RECIPIENTS' },
+          { status: 422 },
+        )
+      }
+
+      const cappedUserIds = userIds
 
       // Fetch user data
       const users = await withTimeout(
@@ -348,7 +393,8 @@ export const POST = withAdmin(
     console.error('Campaign action error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to execute action',    }, { status: 500 })
+      error: 'Failed to execute action',
+    }, { status: 500 })
   }
 },
 )

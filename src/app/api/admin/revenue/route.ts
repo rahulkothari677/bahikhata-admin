@@ -25,60 +25,97 @@ export const GET = withAdmin(
     // in subsequent weeks. "Active" = has a transaction or AI call in that week.
     const eightWeeksAgo = new Date(now.getTime() - 8 * 7 * 24 * 60 * 60 * 1000)
 
-    const usersInLast8Weeks = await dbRead.user.findMany({
-      where: { createdAt: { gte: eightWeeksAgo } },
-      select: { id: true, createdAt: true },
-      orderBy: { createdAt: 'asc' },
-    })
+    // 🐛 SCALE FIX (audit 2026-07-29). This was the worst query in the panel.
+    //
+    // It loaded EVERY user who signed up in the last 8 weeks, grouped them into
+    // cohorts in JavaScript, and then ran a `user.count` per cohort per week —
+    // up to 40 follow-up queries, each carrying the cohort's entire id list in
+    // an `IN (...)`. During a strong quarter that is the whole new user base
+    // fetched, then posted back to Postgres forty times.
+    //
+    // One statement now. It returns at most 8 cohorts x 5 offsets = 40 small
+    // rows however large the business gets, and no id list ever leaves the
+    // database.
+    //
+    // WEEK BOUNDARY: Postgres date_trunc('week') starts on MONDAY; the previous
+    // getWeekStart() started on SUNDAY. Shifting by a day before truncating and
+    // back after preserves the original Sunday-start cohorts exactly — changing
+    // it silently would move every historical cohort by one day and make this
+    // quarter's retention incomparable with last quarter's.
+    const cohortRows = await dbRead.$queryRaw<Array<{
+      cohort_week: Date
+      cohort_size: bigint
+      week_offset: number | null
+      active_users: bigint
+    }>>`
+      WITH cohort AS (
+        SELECT
+          "id" AS user_id,
+          date_trunc('week', "createdAt" + INTERVAL '1 day') - INTERVAL '1 day' AS cohort_week
+        FROM "User"
+        WHERE "createdAt" >= ${eightWeeksAgo}
+      ),
+      sizes AS (
+        SELECT cohort_week, COUNT(*)::bigint AS cohort_size
+        FROM cohort GROUP BY cohort_week
+      ),
+      acts AS (
+        SELECT "userId" AS user_id, "createdAt" AS ts
+        FROM "Transaction" WHERE "createdAt" >= ${eightWeeksAgo}
+        UNION ALL
+        SELECT "userId", "createdAt"
+        FROM "AiUsageLog" WHERE "createdAt" >= ${eightWeeksAgo}
+      ),
+      active AS (
+        SELECT DISTINCT
+          c.cohort_week,
+          c.user_id,
+          (EXTRACT(EPOCH FROM (
+            (date_trunc('week', a.ts + INTERVAL '1 day') - INTERVAL '1 day') - c.cohort_week
+          )) / 604800)::int AS week_offset
+        FROM cohort c
+        JOIN acts a ON a.user_id = c.user_id
+      )
+      SELECT
+        s.cohort_week,
+        s.cohort_size,
+        act.week_offset,
+        COUNT(act.user_id)::bigint AS active_users
+      FROM sizes s
+      LEFT JOIN active act
+        ON act.cohort_week = s.cohort_week
+       AND act.week_offset BETWEEN 0 AND 4
+      GROUP BY s.cohort_week, s.cohort_size, act.week_offset
+      ORDER BY s.cohort_week
+    `
 
-    // Group users by signup week (week 0 = this week, week -1 = last week, etc.)
-    const cohorts: Record<string, string[]> = {} // weekKey -> userIds
-    for (const user of usersInLast8Weeks) {
-      const weekStart = getWeekStart(user.createdAt)
-      const weekKey = weekStart.toISOString().split('T')[0]
-      if (!cohorts[weekKey]) cohorts[weekKey] = []
-      cohorts[weekKey].push(user.id)
+    // Reshape into one row per cohort with a 5-slot retention array.
+    const byCohort = new Map<string, { cohortSize: number; active: Map<number, number> }>()
+    for (const row of cohortRows) {
+      const key = new Date(row.cohort_week).toISOString().split('T')[0]
+      let entry = byCohort.get(key)
+      if (!entry) {
+        entry = { cohortSize: Number(row.cohort_size), active: new Map() }
+        byCohort.set(key, entry)
+      }
+      if (row.week_offset !== null) {
+        entry.active.set(row.week_offset, Number(row.active_users))
+      }
     }
 
-    // For each cohort, calculate retention for weeks 0, 1, 2, 3, 4
-    const cohortRetention = await Promise.all(
-      Object.entries(cohorts).map(async ([weekKey, userIds]) => {
-        const cohortDate = new Date(weekKey)
-        const cohortSize = userIds.length
-
-        // Calculate retention for weeks 0-4 after signup
-        const retention: number[] = []
-        for (let weekOffset = 0; weekOffset <= 4; weekOffset++) {
-          const weekStart = new Date(cohortDate.getTime() + weekOffset * 7 * 24 * 60 * 60 * 1000)
-          const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000)
-
-          // Can't measure future weeks
-          if (weekStart > now) {
-            retention.push(-1) // -1 = not yet measurable
-            continue
-          }
-
-          // Count how many users from this cohort were active in this week
-          const activeUsers = await dbRead.user.count({
-            where: {
-              id: { in: userIds },
-              OR: [
-                { transactions: { some: { createdAt: { gte: weekStart, lt: weekEnd } } } },
-                { aiUsageLogs: { some: { createdAt: { gte: weekStart, lt: weekEnd } } } },
-              ],
-            },
-          })
-
-          retention.push(cohortSize > 0 ? Math.round((activeUsers / cohortSize) * 100) : 0)
-        }
-
-        return {
-          cohortWeek: weekKey,
-          cohortSize,
-          retention, // [week0%, week1%, week2%, week3%, week4%]
-        }
-      })
-    )
+    const cohortRetention = [...byCohort.entries()].map(([weekKey, entry]) => {
+      const cohortDate = new Date(weekKey)
+      const retention: number[] = []
+      for (let weekOffset = 0; weekOffset <= 4; weekOffset++) {
+        const weekStart = new Date(cohortDate.getTime() + weekOffset * 7 * 24 * 60 * 60 * 1000)
+        // -1 means "not yet measurable", not "nobody came back". Collapsing the
+        // two would render a brand-new cohort as 0% retained.
+        if (weekStart > now) { retention.push(-1); continue }
+        const activeUsers = entry.active.get(weekOffset) ?? 0
+        retention.push(entry.cohortSize > 0 ? Math.round((activeUsers / entry.cohortSize) * 100) : 0)
+      }
+      return { cohortWeek: weekKey, cohortSize: entry.cohortSize, retention }
+    })
 
     // ===== 2. CHURN TRACKING =====
     // Users who cancelled their subscription
@@ -234,37 +271,54 @@ export const GET = withAdmin(
 
     // ===== 7. MRR MOVEMENT ANALYSIS =====
     // Breaks down MRR changes into: New, Expansion, Contraction, Churn
-    const thisMonthSubsDetailed = await dbRead.subscription.findMany({
-      where: { createdAt: { gte: thisMonthStart } },
-      select: { amount: true, plan: true, status: true, startDate: true, endDate: true },
-    })
+    // 🐛 TWO FIXES (audit 2026-07-29), one of them a wrong number on the
+    // dashboard rather than a slow query.
+    //
+    // 1. CORRECTNESS. `churnedSubsThisMonth` was
+    //        where: { status: 'cancelled' }   // Check if user's cancelledAt is this month
+    //    — a comment describing a filter that was never written. It summed
+    //    EVERY cancellation in the product's history and reported it as "churn
+    //    this month". Because churnedMrr feeds netMrrMovement, that figure was
+    //    not merely wrong but drifted further negative every month, for good
+    //    and bad months alike. Subscription has no cancelledAt of its own; the
+    //    cancellation date lives on User, which is what the comment meant.
+    //
+    // 2. SCALE. Both queries loaded every matching row to sum them in JS.
+    //
+    // 💰 $queryRaw BYPASSES the money extension — these come back in PAISE and
+    // the /100 below is required. Same convention as the LTV query above.
+    const [mrrRow] = await dbRead.$queryRaw<Array<{
+      new_paise: bigint | null
+      expansion_paise: bigint | null
+    }>>`
+      SELECT
+        COALESCE(SUM(
+          CASE WHEN "endDate" - "startDate" > INTERVAL '60 days'
+               THEN "amount" / 12.0 ELSE "amount" END
+        ), 0)::bigint AS new_paise,
+        COALESCE(SUM(
+          CASE WHEN "plan" = 'elite' THEN "amount" ELSE 0 END
+        ), 0)::bigint AS expansion_paise
+      FROM "Subscription"
+      WHERE "status" = 'active' AND "createdAt" >= ${thisMonthStart}
+    `
 
-    const newMrr = thisMonthSubsDetailed
-      .filter(s => s.status === 'active')
-      .reduce((sum, s) => {
-        const isYearly = s.endDate?.getTime() - s.startDate?.getTime() > 60 * 24 * 60 * 60 * 1000
-        return sum + (isYearly ? s.amount / 12 : s.amount)
-      }, 0)
+    const newMrr = Number(mrrRow?.new_paise ?? 0) / 100
+    const expansionMrr = Number(mrrRow?.expansion_paise ?? 0) / 100
 
-    // Churned MRR: subscriptions that were cancelled this month
-    const churnedSubsThisMonth = await dbRead.subscription.findMany({
-      where: {
-        status: 'cancelled',
-        // Check if user's cancelledAt is this month
-      },
-      select: { amount: true, plan: true, startDate: true, endDate: true },
-    })
+    // Churned MRR: subscriptions whose OWNER cancelled during this month.
+    const [churnRow] = await dbRead.$queryRaw<Array<{ churned_paise: bigint | null }>>`
+      SELECT COALESCE(SUM(
+        CASE WHEN s."endDate" - s."startDate" > INTERVAL '60 days'
+             THEN s."amount" / 12.0 ELSE s."amount" END
+      ), 0)::bigint AS churned_paise
+      FROM "Subscription" s
+      JOIN "User" u ON u."id" = s."userId"
+      WHERE s."status" = 'cancelled'
+        AND u."cancelledAt" >= ${thisMonthStart}
+    `
 
-    const churnedMrr = churnedSubsThisMonth.reduce((sum, s) => {
-      const isYearly = s.endDate.getTime() - s.startDate.getTime() > 60 * 24 * 60 * 60 * 1000
-      return sum + (isYearly ? s.amount / 12 : s.amount)
-    }, 0)
-
-    // Expansion MRR: users who upgraded (pro → elite) this month
-    // Simplified: count elite subscriptions started this month as expansion
-    const expansionMrr = thisMonthSubsDetailed
-      .filter(s => s.plan === 'elite' && s.status === 'active')
-      .reduce((sum, s) => sum + s.amount, 0)
+    const churnedMrr = Number(churnRow?.churned_paise ?? 0) / 100
 
     // Net MRR movement
     const netMrrMovement = newMrr + expansionMrr - churnedMrr
@@ -318,9 +372,9 @@ export const GET = withAdmin(
 },
 )
 
-function getWeekStart(date: Date): Date {
-  const d = new Date(date)
-  const day = d.getDay()
-  const diff = d.getDate() - day // Sunday = 0
-  return new Date(d.setDate(diff))
-}
+// getWeekStart() was removed on 2026-07-29 when cohort bucketing moved into
+// SQL. Keeping it would leave two definitions of "which week is this?" in the
+// codebase, and the next person to need one would reach for the JavaScript
+// version and silently produce Sunday-start weeks where the query produces
+// Monday-shifted ones. The equivalent lives in the cohort CTE above, as
+//   date_trunc('week', ts + INTERVAL '1 day') - INTERVAL '1 day'

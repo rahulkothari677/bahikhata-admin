@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'fs'
+import { readFileSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
 
 /**
@@ -96,5 +96,120 @@ describe('bulk jobs cannot silently act on a subset', () => {
 
   it('audits the refusal', () => {
     expect(src).toMatch(/bulk_job_refused/)
+  })
+})
+
+describe('the sweep is complete — no uncapped findMany remains', () => {
+  // 2026-07-29: this is the backstop for the whole class. Adding a findMany
+  // without a `take` anywhere under src/app/api now fails here, rather than
+  // being found later by a dashboard timing out in production.
+  //
+  // Exemptions are deliberate and narrow: a query bounded by `in: [...]` is
+  // bounded by whatever built that list, and the pager helpers pass `take`
+  // through as a shorthand variable.
+  it('every findMany is bounded, by a take or by an id list', () => {
+    const walk = (dir: string): string[] => {
+      const out: string[] = []
+      for (const e of readdirSync(dir)) {
+        const full = join(dir, e)
+        if (statSync(full).isDirectory()) out.push(...walk(full))
+        else if (e.endsWith('.ts')) out.push(full)
+      }
+      return out
+    }
+
+    const offenders: string[] = []
+    for (const file of walk(join(__dirname, '..', 'src', 'app', 'api'))) {
+      const src = codeOnly(readFileSync(file, 'utf8'))
+      const lines = src.split('\n')
+      lines.forEach((line, i) => {
+        if (!/\bdb(?:Read)?\.[a-zA-Z]+\.findMany\(/.test(line)) return
+        const head = lines.slice(i, i + 16).join('\n')
+        if (/\btake\b/.test(head)) return
+        const where = /where:\s*\{([\s\S]{0,140}?)\}/.exec(head)
+        if (where && /\bin:\s/.test(where[1])) return
+        offenders.push(`${file.split(/api[\/]/)[1]}:${i + 1}`)
+      })
+    }
+    expect(offenders).toEqual([])
+  })
+})
+
+describe('cohort retention is computed in one query', () => {
+  const src = codeOnly(read('revenue/route.ts'))
+
+  it('no longer loads every user from the last 8 weeks', () => {
+    // Was: findMany(all users in 8 weeks), then up to 40 follow-up counts, each
+    // carrying the cohort's whole id list in an IN clause.
+    expect(src).not.toMatch(/user\.findMany\(\s*\{\s*where:\s*\{\s*createdAt:\s*\{\s*gte:\s*eightWeeksAgo/)
+    expect(src).toMatch(/WITH cohort AS/)
+  })
+
+  it('preserves SUNDAY-start weeks, so old cohorts stay comparable', () => {
+    // Postgres date_trunc('week') starts on Monday. Shifting a day either side
+    // reproduces the previous getWeekStart() behaviour exactly — changing it
+    // silently would move every historical cohort and make this quarter
+    // incomparable with last.
+    expect(src).toMatch(/date_trunc\('week', "createdAt" \+ INTERVAL '1 day'\) - INTERVAL '1 day'/)
+  })
+
+  it('still distinguishes "not yet measurable" from "nobody returned"', () => {
+    // Collapsing -1 into 0 would render every brand-new cohort as 0% retained.
+    expect(src).toMatch(/retention\.push\(-1\)/)
+  })
+
+  it('removed the JS week helper rather than leaving two definitions', () => {
+    expect(src).not.toMatch(/function getWeekStart/)
+  })
+})
+
+describe('churned MRR counts THIS month, not all of history', () => {
+  const src = read('revenue/route.ts')
+
+  it('filters on the owner’s cancellation date', () => {
+    // The old query was `where: { status: 'cancelled' }` with a comment saying
+    // it should check cancelledAt — a filter described but never written. It
+    // summed every cancellation ever and reported it as this month's churn, so
+    // netMrrMovement drifted further negative every month regardless of
+    // performance. Subscription has no cancelledAt; the date lives on User.
+    expect(src).toMatch(/JOIN "User" u ON u\."id" = s\."userId"/)
+    expect(src).toMatch(/u\."cancelledAt" >= /)
+  })
+
+  it('converts paise on every raw money query in this route', () => {
+    const rawSums = src.match(/_paise/g) ?? []
+    expect(rawSums.length).toBeGreaterThanOrEqual(3)
+    // Double-escaped: inside a TEMPLATE LITERAL `\s` collapses to a plain `s`,
+    // so the pattern would silently look for the letters s and S instead of
+    // whitespace — a regex that compiles, runs, and matches nothing.
+    for (const alias of ['monthly_paise', 'new_paise', 'expansion_paise', 'churned_paise']) {
+      expect(src, alias).toMatch(new RegExp(`${alias}[\\s\\S]{0,200}\\/\\s*100`))
+    }
+  })
+})
+
+describe('campaign steps cannot half-send', () => {
+  const src = read('campaigns/[id]/action/route.ts')
+
+  it('refuses an oversized step instead of slicing it', () => {
+    expect(codeOnly(src)).not.toMatch(/userIds\.slice\(0,\s*1000\)/)
+    expect(src).toMatch(/MAX_STEP_RECIPIENTS/)
+    expect(src).toMatch(/TOO_MANY_RECIPIENTS/)
+  })
+
+  it('says nothing was sent, and audits the refusal', () => {
+    // Re-running a half-sent step double-messages everyone who already got it.
+    expect(src).toMatch(/Nothing was sent/)
+    expect(src).toMatch(/campaign_step_refused/)
+  })
+})
+
+describe('offset pagination is depth-guarded everywhere', () => {
+  it('the support queue has the guard the other twenty routes have', () => {
+    const src = read('support/route.ts')
+    expect(src).toMatch(/assertPageDepth/)
+    // And it must not swallow the refusal into a generic 500 — that message
+    // sends an operator hunting an outage that is not happening.
+    expect(src).toMatch(/instanceof PageTooDeepError\) throw error/)
   })
 })

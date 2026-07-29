@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { assertPageDepth, PageTooDeepError } from '@/lib/pagination'
 import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
@@ -22,14 +23,26 @@ import { logAdminAction } from '@/lib/audit'
 export const GET = withAdmin(
   'admin/support',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
+
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'list'
     const status = url.searchParams.get('status')
     const priority = url.searchParams.get('priority')
     const category = url.searchParams.get('category')
     const search = url.searchParams.get('search') || ''
-    const page = Math.max(1, Number(url.searchParams.get('page') || '1'))
+    // 🐛 SCALE (audit 2026-07-29): this was the ONLY offset-paginated route in
+    // the panel without a depth guard — the other twenty all have one.
+    //
+    // OFFSET makes Postgres walk and discard every skipped row, so page N costs
+    // O(N x pageSize). Page 2 is free; page 5,000 reads a million rows to show
+    // twenty, while holding a connection the shopkeepers' app also needs.
+    //
+    // Kept as OFFSET rather than converted to keyset: the sort is (priority,
+    // createdAt) and the UI navigates by page number, so keyset would change
+    // the API contract for a queue nobody pages deeply through. The honest fix
+    // is to refuse the depth that is actually harmful.
+    const page = assertPageDepth(url.searchParams.get('page'))
     const limit = Math.min(100, Number(url.searchParams.get('limit') || '20'))
 
     // ============ OVERVIEW TAB ============
@@ -172,10 +185,16 @@ export const GET = withAdmin(
       },
     })
   } catch (error) {
+    // A too-deep page is the CALLER's mistake, not a server fault. Let it reach
+    // withAdmin, which renders it as a 400 saying which page is the maximum.
+    // Swallowing it here would report "Failed to fetch tickets" — a message
+    // that sends an operator looking for an outage that is not happening.
+    if (error instanceof PageTooDeepError) throw error
     console.error('Support tickets fetch error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to fetch tickets',    }, { status: 500 })
+      error: 'Failed to fetch tickets',
+    }, { status: 500 })
   }
 },
 )
@@ -187,7 +206,8 @@ export const GET = withAdmin(
 export const POST = withAdmin(
   'admin/support',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
+
     const body = await req.json()
     const { userId, subject, message, category, priority } = body
 

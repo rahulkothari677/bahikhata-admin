@@ -11,7 +11,7 @@ import { logAdminAction } from '@/lib/audit'
 export const GET = withAdmin(
   'admin/campaigns/[id]',
   async (req: NextRequest, ctx, { params }) => {
-  try {
+  try {
     const { id } = await params
     const campaign = await withTimeout(
       db.campaign.findUnique({
@@ -61,7 +61,7 @@ export const GET = withAdmin(
 export const PATCH = withAdmin(
   'admin/campaigns/[id]',
   async (req: NextRequest, ctx, { params }) => {
-  try {
+  try {
     const { id } = await params
     const body = await req.json()
     const { name, description, startAt } = body
@@ -89,6 +89,9 @@ export const PATCH = withAdmin(
         const steps = await db.campaignStep.findMany({
           where: { campaignId: id },
           select: { delayMinutes: true },
+          // Fuse. A campaign is a handful of steps by design; reading unbounded
+          // here only pays off when the data is already corrupt.
+          take: 500,
         })
         const maxDelay = Math.max(...steps.map(s => s.delayMinutes || 0), 0)
         endAt = new Date(startAtDate.getTime() + maxDelay * 60 * 1000)
@@ -101,6 +104,7 @@ export const PATCH = withAdmin(
         const stepsWithDelay = await db.campaignStep.findMany({
           where: { campaignId: id },
           select: { id: true, delayMinutes: true },
+          take: 500, // same fuse as above
         })
         for (const step of stepsWithDelay) {
           await db.campaignStep.update({
@@ -150,7 +154,7 @@ export const PATCH = withAdmin(
 export const DELETE = withAdmin(
   'admin/campaigns/[id]',
   async (req: NextRequest, ctx, { params }) => {
-  try {
+  try {
     const { id } = await params
     const existing = await db.campaign.findUnique({ where: { id } })
     if (!existing) {

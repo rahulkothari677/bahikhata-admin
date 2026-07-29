@@ -14,7 +14,7 @@ import { getExperimentResults } from '@/lib/ab-testing'
 export const GET = withAdmin(
   'admin/experiments',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
     const url = new URL(req.url)
     const tab = url.searchParams.get('tab') || 'overview'
     const status = url.searchParams.get('status') || 'all'
@@ -32,6 +32,9 @@ export const GET = withAdmin(
           db.experiment.findMany({
             where: { status: 'running' },
             select: { id: true, name: true, metric: true, targetEvent: true },
+            // Fuse. Hundreds of simultaneously RUNNING experiments would itself
+            // be the finding, not a list worth rendering.
+            take: 200,
           }),
           5000
         ).catch(ctx.degrade('experiment.findMany', [])),
@@ -136,7 +139,7 @@ export const GET = withAdmin(
 export const POST = withAdmin(
   'admin/experiments',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
     const body = await req.json()
     const { name, description, metric, metricGoal, targetEvent, trafficPct, variants, startAt, endAt } = body
 

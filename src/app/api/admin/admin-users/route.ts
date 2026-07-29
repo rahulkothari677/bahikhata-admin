@@ -14,7 +14,7 @@ import { logAdminAction } from '@/lib/audit'
 export const GET = withAdmin(
   'admin/admin-users',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
     // Only founders can view admin team
     const role = ctx.role
     if (role !== 'founder') {
@@ -52,6 +52,10 @@ export const GET = withAdmin(
     const admins = await withNeonRetry(() =>
       db.adminUser.findMany({
         orderBy: { createdAt: 'desc' },
+        // Fuse, not pagination. This is the list of people who can see every
+        // shopkeeper's data — if it ever exceeds 500, the number itself is the
+        // security finding, and silently rendering page one would hide it.
+        take: 500,
         select: {
           id: true,
           email: true,
@@ -96,7 +100,7 @@ export const GET = withAdmin(
 export const POST = withAdmin(
   'admin/admin-users',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
     const role = ctx.role
     if (role !== 'founder') {
       return NextResponse.json({ error: 'Only founders can create admin users' }, { status: 403 })
