@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { assertPageDepth, PageTooDeepError } from '@/lib/pagination'
 import { withAdmin } from '@/lib/with-admin'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 
 /**
@@ -57,7 +57,7 @@ export const GET = withAdmin(
       ] = await Promise.all([
         // Active subscription count
         withTimeout(
-          db.subscription.count({ where: { status: 'active' } }),
+          dbRead.subscription.count({ where: { status: 'active' } }),
           5000
         ).catch(ctx.degrade('subscription.count', 0)),
 
@@ -65,7 +65,7 @@ export const GET = withAdmin(
         // NOTE: this is the sum of all active subscription amounts. For monthly MRR,
         // yearly subscriptions are divided by 12 in JS (DB can't do conditional math easily).
         withTimeout(
-          db.subscription.aggregate({
+          dbRead.subscription.aggregate({
             where: { status: 'active' },
             _sum: { amount: true },
             _avg: { amount: true },
@@ -75,19 +75,19 @@ export const GET = withAdmin(
 
         // Cancelled count
         withTimeout(
-          db.subscription.count({ where: { status: 'cancelled' } }),
+          dbRead.subscription.count({ where: { status: 'cancelled' } }),
           5000
         ).catch(ctx.degrade('subscription.count', 0)),
 
         // Expired count
         withTimeout(
-          db.subscription.count({ where: { status: 'expired' } }),
+          dbRead.subscription.count({ where: { status: 'expired' } }),
           5000
         ).catch(ctx.degrade('subscription.count', 0)),
 
         // Plan distribution (active only)
         withTimeout(
-          db.subscription.groupBy({
+          dbRead.subscription.groupBy({
             by: ['plan'],
             where: { status: 'active' },
             _count: true,
@@ -98,7 +98,7 @@ export const GET = withAdmin(
 
         // New subscriptions in last 30 days (growth signal)
         withTimeout(
-          db.subscription.count({
+          dbRead.subscription.count({
             where: {
               createdAt: { gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) },
             },
@@ -161,7 +161,7 @@ export const GET = withAdmin(
       // Parallel: paginated rows + total count
       const [activeSubs, total] = await Promise.all([
         withTimeout(
-          db.subscription.findMany({
+          dbRead.subscription.findMany({
             where,
             orderBy: { createdAt: 'desc' },
             skip,
@@ -173,7 +173,7 @@ export const GET = withAdmin(
           5000
         ).catch(ctx.degrade('subscription.findMany', [])),
         withTimeout(
-          db.subscription.count({ where }),
+          dbRead.subscription.count({ where }),
           5000
         ).catch(ctx.degrade('subscription.count', 0)),
       ])
@@ -218,7 +218,7 @@ export const GET = withAdmin(
       // Parallel: paginated rows + total count
       const [recentSubs, total] = await Promise.all([
         withTimeout(
-          db.subscription.findMany({
+          dbRead.subscription.findMany({
             where,
             orderBy: { createdAt: 'desc' },
             skip,
@@ -230,7 +230,7 @@ export const GET = withAdmin(
           5000
         ).catch(ctx.degrade('subscription.findMany', [])),
         withTimeout(
-          db.subscription.count({ where }),
+          dbRead.subscription.count({ where }),
           5000
         ).catch(ctx.degrade('subscription.count', 0)),
       ])

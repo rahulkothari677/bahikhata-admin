@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAdmin } from '@/lib/with-admin'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 
 /**
  * GET /api/admin/revenue
@@ -25,7 +25,7 @@ export const GET = withAdmin(
     // in subsequent weeks. "Active" = has a transaction or AI call in that week.
     const eightWeeksAgo = new Date(now.getTime() - 8 * 7 * 24 * 60 * 60 * 1000)
 
-    const usersInLast8Weeks = await db.user.findMany({
+    const usersInLast8Weeks = await dbRead.user.findMany({
       where: { createdAt: { gte: eightWeeksAgo } },
       select: { id: true, createdAt: true },
       orderBy: { createdAt: 'asc' },
@@ -59,7 +59,7 @@ export const GET = withAdmin(
           }
 
           // Count how many users from this cohort were active in this week
-          const activeUsers = await db.user.count({
+          const activeUsers = await dbRead.user.count({
             where: {
               id: { in: userIds },
               OR: [
@@ -82,7 +82,7 @@ export const GET = withAdmin(
 
     // ===== 2. CHURN TRACKING =====
     // Users who cancelled their subscription
-    const churnedUsers = await db.user.count({
+    const churnedUsers = await dbRead.user.count({
       where: { cancelledAt: { not: null } },
     })
 
@@ -90,14 +90,14 @@ export const GET = withAdmin(
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
 
-    const active30DaysAgo = await db.user.count({
+    const active30DaysAgo = await dbRead.user.count({
       where: {
         updatedAt: { gte: thirtyDaysAgo, lt: sevenDaysAgo },
       },
     })
 
     // Active users who haven't been seen in 7+ days (at-risk)
-    const atRiskUsers = await db.user.count({
+    const atRiskUsers = await dbRead.user.count({
       where: {
         updatedAt: { lt: sevenDaysAgo },
         createdAt: { lt: sevenDaysAgo }, // exclude new signups
@@ -121,7 +121,7 @@ export const GET = withAdmin(
     // PAISE, not rupees. The division by 100 below is therefore REQUIRED and
     // must not be "cleaned up" — the extension converts findMany/aggregate
     // results, and this is neither. Same convention as anomaly-detection.ts.
-    const [ltvRow] = await db.$queryRaw<Array<{ paying_users: bigint; monthly_paise: bigint | null }>>`
+    const [ltvRow] = await dbRead.$queryRaw<Array<{ paying_users: bigint; monthly_paise: bigint | null }>>`
       SELECT
         COUNT(*)::bigint AS paying_users,
         COALESCE(SUM(
@@ -148,12 +148,12 @@ export const GET = withAdmin(
     const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1)
 
     const [lastMonthSubs, thisMonthSubs] = await Promise.all([
-      db.subscription.aggregate({
+      dbRead.subscription.aggregate({
         where: { createdAt: { gte: lastMonthStart, lt: thisMonthStart } },
         _sum: { amount: true },
         _count: true,
       }),
-      db.subscription.aggregate({
+      dbRead.subscription.aggregate({
         where: { createdAt: { gte: thisMonthStart } },
         _sum: { amount: true },
         _count: true,
@@ -188,7 +188,7 @@ export const GET = withAdmin(
     // groupBy does the same work in the database and returns one row per
     // status, regardless of whether there are a hundred subscriptions or ten
     // million.
-    const statusCounts = await db.subscription.groupBy({
+    const statusCounts = await dbRead.subscription.groupBy({
       by: ['status'],
       _count: { _all: true },
     }).catch(ctx.degrade('subscription.groupBy', [] as Array<{ status: string; _count: { _all: number } }>))
@@ -216,7 +216,7 @@ export const GET = withAdmin(
     //
     // A revenue breakdown where every row is the same figure is worse than no
     // breakdown: it looks like data.
-    const planBreakdown = await db.subscription.groupBy({
+    const planBreakdown = await dbRead.subscription.groupBy({
       by: ['plan'],
       where: { status: 'active' },
       _sum: { amount: true },
@@ -234,7 +234,7 @@ export const GET = withAdmin(
 
     // ===== 7. MRR MOVEMENT ANALYSIS =====
     // Breaks down MRR changes into: New, Expansion, Contraction, Churn
-    const thisMonthSubsDetailed = await db.subscription.findMany({
+    const thisMonthSubsDetailed = await dbRead.subscription.findMany({
       where: { createdAt: { gte: thisMonthStart } },
       select: { amount: true, plan: true, status: true, startDate: true, endDate: true },
     })
@@ -247,7 +247,7 @@ export const GET = withAdmin(
       }, 0)
 
     // Churned MRR: subscriptions that were cancelled this month
-    const churnedSubsThisMonth = await db.subscription.findMany({
+    const churnedSubsThisMonth = await dbRead.subscription.findMany({
       where: {
         status: 'cancelled',
         // Check if user's cancelledAt is this month

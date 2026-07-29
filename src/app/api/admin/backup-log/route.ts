@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 import { withAdmin } from '@/lib/with-admin'
 
 /**
@@ -48,7 +48,7 @@ export const POST = withAdmin('admin/backup-log', async (req: NextRequest, ctx) 
 })
 
 export const GET = withAdmin('admin/backup-log', async (_req: NextRequest, ctx) => {
-  const entries = await db.adminAction.findMany({
+  const entries = await dbRead.adminAction.findMany({
     where: { action: { in: ['backup_completed', 'backup_failed'] } },
     orderBy: { createdAt: 'desc' },
     take: 60,

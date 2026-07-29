@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { assertPageDepth, PageTooDeepError } from '@/lib/pagination'
 import { withAdmin } from '@/lib/with-admin'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { toPaise } from '@/lib/money'
 import { maskEmail, maskName } from '@/lib/pii'
@@ -73,7 +73,7 @@ export const GET = withAdmin(
         // Count of phones used by >1 user (DB-side groupBy + filter)
         // Prisma doesn't support HAVING, so we groupBy then filter in JS (only the GROUPED rows, not all users)
         withTimeout(
-          db.user.groupBy({
+          dbRead.user.groupBy({
             by: ['phone'],
             where: { phone: { not: null } },
             _count: true,
@@ -84,7 +84,7 @@ export const GET = withAdmin(
 
         // Inactive new users (created >7 days ago, no transactions, no AI usage)
         withTimeout(
-          db.user.count({
+          dbRead.user.count({
             where: {
               createdAt: { lt: sevenDaysAgo },
               transactions: { none: {} },
@@ -96,7 +96,7 @@ export const GET = withAdmin(
 
         // High-value transactions count (₹1L+ in last 7 days)
         withTimeout(
-          db.transaction.count({
+          dbRead.transaction.count({
             where: {
               totalAmount: { gte: HIGH_VALUE_TXN_THRESHOLD_PAISE },
               createdAt: { gte: sevenDaysAgo },
@@ -107,7 +107,7 @@ export const GET = withAdmin(
 
         // Failed logins (24h)
         withTimeout(
-          db.auditLog.count({
+          dbRead.auditLog.count({
             where: { action: 'login_failure', createdAt: { gte: twentyFourHoursAgo } },
           }),
           5000
@@ -115,7 +115,7 @@ export const GET = withAdmin(
 
         // Successful logins (24h)
         withTimeout(
-          db.auditLog.count({
+          dbRead.auditLog.count({
             where: { action: 'login_success', createdAt: { gte: twentyFourHoursAgo } },
           }),
           5000
@@ -123,7 +123,7 @@ export const GET = withAdmin(
 
         // Brute force IP count (DB-side groupBy on failed logins, filter _count >= 5)
         withTimeout(
-          db.auditLog.groupBy({
+          dbRead.auditLog.groupBy({
             by: ['ip'],
             where: {
               action: 'login_failure',
@@ -138,25 +138,25 @@ export const GET = withAdmin(
 
         // Admin actions (30 days)
         withTimeout(
-          db.adminAction.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
+          dbRead.adminAction.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
           5000
         ).catch(ctx.degrade('adminAction.count', 0)),
 
         // Data export requests
         withTimeout(
-          db.auditLog.count({ where: { action: 'data_export' } }),
+          dbRead.auditLog.count({ where: { action: 'data_export' } }),
           5000
         ).catch(ctx.degrade('auditLog.count', 0)),
 
         // Data delete requests
         withTimeout(
-          db.auditLog.count({ where: { action: 'data_delete' } }),
+          dbRead.auditLog.count({ where: { action: 'data_delete' } }),
           5000
         ).catch(ctx.degrade('auditLog.count', 0)),
 
         // Recent data requests (30 days)
         withTimeout(
-          db.auditLog.count({
+          dbRead.auditLog.count({
             where: {
               action: { in: ['data_export', 'data_delete'] },
               createdAt: { gte: thirtyDaysAgo },
@@ -168,7 +168,7 @@ export const GET = withAdmin(
 
       // Users with data (for DPDP consent ratio) — separate query
       const usersWithData = await withTimeout(
-        db.user.count({
+        dbRead.user.count({
           where: {
             OR: [
               { transactions: { some: {} } },
@@ -244,7 +244,7 @@ export const GET = withAdmin(
       let alertScope: { userId: string; alertId: string } | null = null
 
       if (alertId) {
-        const alert = await db.fraudAlert.findUnique({
+        const alert = await dbRead.fraudAlert.findUnique({
           where: { id: alertId },
           select: { id: true, userId: true, status: true },
         }).catch(ctx.degrade('fraudAlert.findUnique', null))
@@ -289,7 +289,7 @@ export const GET = withAdmin(
         // (Prisma groupBy doesn't support skip/take on the group result cleanly,
         // so we get all groups >1 and slice — at scale this is bounded by distinct phones, not users)
         withTimeout(
-          db.user.groupBy({
+          dbRead.user.groupBy({
             by: ['phone'],
             where: { phone: { not: null } },
             _count: true,
@@ -318,7 +318,7 @@ export const GET = withAdmin(
         // ═══════════════════════════════════════════════════════════════════
         alertScope
           ? withTimeout(
-              db.transaction.findMany({
+              dbRead.transaction.findMany({
                 where: {
                   userId: alertScope.userId,
                   totalAmount: { gte: HIGH_VALUE_TXN_THRESHOLD_PAISE },
@@ -340,7 +340,7 @@ export const GET = withAdmin(
         // Scoped to the alert's subject when drilling down; otherwise it is the
         // platform-wide COUNT, which is an aggregate and identifies nobody.
         withTimeout(
-          db.transaction.count({
+          dbRead.transaction.count({
             where: {
               ...(alertScope ? { userId: alertScope.userId } : {}),
               totalAmount: { gte: HIGH_VALUE_TXN_THRESHOLD_PAISE },
@@ -399,7 +399,7 @@ export const GET = withAdmin(
       const [bruteForceGroups, adminActionsByType, failedLoginIpsTotal] = await Promise.all([
         // Brute force IPs (DB-side groupBy, filter _count >= 5)
         withTimeout(
-          db.auditLog.groupBy({
+          dbRead.auditLog.groupBy({
             by: ['ip'],
             where: {
               action: 'login_failure',
@@ -415,7 +415,7 @@ export const GET = withAdmin(
 
         // Admin actions by type (last 30 days)
         withTimeout(
-          db.adminAction.groupBy({
+          dbRead.adminAction.groupBy({
             by: ['action'],
             where: { createdAt: { gte: thirtyDaysAgo } },
             _count: true,

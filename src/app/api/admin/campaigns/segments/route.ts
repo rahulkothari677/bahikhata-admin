@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAdmin } from '@/lib/with-admin'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 import { withTimeout, withNeonRetry } from '@/lib/resilience'
 
 /**
@@ -18,7 +18,7 @@ export const GET = withAdmin(
   try {
     // Group by segmentId to get count per segment
     const segments = await withNeonRetry(() =>
-      db.userSegmentCache.groupBy({
+      dbRead.userSegmentCache.groupBy({
         by: ['segmentId'],
         _count: true,
         orderBy: { _count: { segmentId: 'desc' } },

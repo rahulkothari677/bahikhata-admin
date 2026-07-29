@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAdmin } from '@/lib/with-admin'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 import { Degradable } from '@/lib/degradable'
 import { maskEmail, maskName } from '@/lib/pii'
 
@@ -45,22 +45,22 @@ export const GET = withAdmin(
       totalUsers, todayActiveUsers, totalGmv, totalTransactions,
       monthAiCost, payingUsers, monthRevenue, todaySignups, totalAiCalls,
     ] = await Promise.all([
-      count('totalUsers', () => db.user.count({ where: { deletedAt: null } })),
-      count('todayActiveUsers', () => db.user.count({ where: { updatedAt: { gte: todayStart }, deletedAt: null } })),
-      agg('totalGmv', () => db.transaction.aggregate({ _sum: { totalAmount: true } }), 'totalAmount'),
-      count('totalTransactions', () => db.transaction.count()),
-      agg('monthAiCost', () => db.aiUsageLog.aggregate({ where: { createdAt: { gte: monthStart } }, _sum: { costInr: true } }), 'costInr'),
-      count('payingUsers', () => db.user.count({ where: { plan: { in: ['pro', 'elite'] }, deletedAt: null } })),
-      agg('monthRevenue', () => db.subscription.aggregate({ where: { status: 'active' }, _sum: { amount: true } }), 'amount'),
-      count('todaySignups', () => db.user.count({ where: { createdAt: { gte: todayStart }, deletedAt: null } })),
-      count('totalAiCalls', () => db.aiUsageLog.count()),
+      count('totalUsers', () => dbRead.user.count({ where: { deletedAt: null } })),
+      count('todayActiveUsers', () => dbRead.user.count({ where: { updatedAt: { gte: todayStart }, deletedAt: null } })),
+      agg('totalGmv', () => dbRead.transaction.aggregate({ _sum: { totalAmount: true } }), 'totalAmount'),
+      count('totalTransactions', () => dbRead.transaction.count()),
+      agg('monthAiCost', () => dbRead.aiUsageLog.aggregate({ where: { createdAt: { gte: monthStart } }, _sum: { costInr: true } }), 'costInr'),
+      count('payingUsers', () => dbRead.user.count({ where: { plan: { in: ['pro', 'elite'] }, deletedAt: null } })),
+      agg('monthRevenue', () => dbRead.subscription.aggregate({ where: { status: 'active' }, _sum: { amount: true } }), 'amount'),
+      count('todaySignups', () => dbRead.user.count({ where: { createdAt: { gte: todayStart }, deletedAt: null } })),
+      count('totalAiCalls', () => dbRead.aiUsageLog.count()),
     ])
 
     // Activity feed — bounded queries (take: 10 each, 7-day window)
     let activity: { events: any[]; summary: { total: number } } = { events: [], summary: { total: 0 } }
     try {
       const [recentSignups, recentTransactions, recentAiCalls, recentSubscriptions, recentAdminActions] = await Promise.all([
-        db.user.findMany({
+        dbRead.user.findMany({
           where: { createdAt: { gte: sevenDaysAgo } },
           select: { id: true, email: true, name: true, plan: true, createdAt: true },
           orderBy: { createdAt: 'desc' }, take: 10,
@@ -73,19 +73,19 @@ export const GET = withAdmin(
         // relationship with EkBook. `totalTransactions` above is the number a
         // founder actually needs.
         Promise.resolve([] as any[]),
-        db.aiUsageLog.findMany({
+        dbRead.aiUsageLog.findMany({
           where: { createdAt: { gte: sevenDaysAgo } },
           select: { id: true, feature: true, provider: true, success: true, costInr: true, createdAt: true,
             user: { select: { email: true, name: true } } },
           orderBy: { createdAt: 'desc' }, take: 10,
         }),
-        db.subscription.findMany({
+        dbRead.subscription.findMany({
           where: { createdAt: { gte: sevenDaysAgo } },
           select: { id: true, plan: true, amount: true, status: true, createdAt: true,
             User: { select: { email: true, name: true } } },
           orderBy: { createdAt: 'desc' }, take: 10,
         }),
-        db.adminAction.findMany({
+        dbRead.adminAction.findMany({
           where: { createdAt: { gte: sevenDaysAgo } },
           select: { id: true, action: true, description: true, createdAt: true,
             admin: { select: { email: true, name: true } } },

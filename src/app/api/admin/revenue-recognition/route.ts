@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { assertPageDepth, PageTooDeepError } from '@/lib/pagination'
 import { withAdmin } from '@/lib/with-admin'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { getRevenueOverview, getMonthlyBreakdown } from '@/lib/revenue-recognition'
 
@@ -58,7 +58,7 @@ export const GET = withAdmin(
 
       const [schedules, total] = await Promise.all([
         withTimeout(
-          db.revenueSchedule.findMany({
+          dbRead.revenueSchedule.findMany({
             where,
             orderBy: { periodStart: 'desc' },
             skip,
@@ -66,7 +66,7 @@ export const GET = withAdmin(
           }),
           5000
         ).catch(ctx.degrade('revenueSchedule.findMany', [])),
-        withTimeout(db.revenueSchedule.count({ where }), 5000).catch(ctx.degrade('revenueSchedule.count', 0)),
+        withTimeout(dbRead.revenueSchedule.count({ where }), 5000).catch(ctx.degrade('revenueSchedule.count', 0)),
       ])
 
       return NextResponse.json({

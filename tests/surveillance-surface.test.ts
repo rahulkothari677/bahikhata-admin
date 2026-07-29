@@ -38,22 +38,35 @@ function codeOnly(src: string): string {
     .replace(/^\s*\/\/.*$/gm, '')
 }
 
+/**
+ * 🔒 NOTE (audit 2026-07-28): these patterns match `db.` OR `dbRead.`.
+ *
+ * §D5 moved read-only analytics onto a replica client, renaming `db.x.find...`
+ * to `dbRead.x.find...` in 22 route files. The NEGATIVE guards below — "no
+ * route streams identifiable transactions" — matched only `db.`, so after that
+ * rename they would have passed while `dbRead.transaction.findMany` sat right
+ * there in the file. A privacy guard quietly weakened by an unrelated
+ * performance refactor is the worst kind: still green, no longer guarding.
+ *
+ * Any future client alias must be added here too.
+ */
+
 describe('no route streams identifiable transactions', () => {
   it('the activity feed has no transaction event block', () => {
     const code = codeOnly(read('admin', 'activity', 'route.ts'))
-    expect(code).not.toMatch(/db\.transaction\.findMany/)
+    expect(code).not.toMatch(/db(?:Read)?\.transaction\.findMany/)
   })
 
   it('the dashboard has no transaction event block', () => {
     const code = codeOnly(read('admin', 'overview', 'route.ts'))
-    expect(code).not.toMatch(/db\.transaction\.findMany/)
+    expect(code).not.toMatch(/db(?:Read)?\.transaction\.findMany/)
   })
 
   it('both still report the transaction COUNT — detection is not the problem', () => {
     // Over-correcting would be its own failure. A founder needs "1,240
     // transactions today"; they do not need to know whose.
-    expect(codeOnly(read('admin', 'activity', 'route.ts'))).toMatch(/db\.transaction\.count/)
-    expect(codeOnly(read('admin', 'overview', 'route.ts'))).toMatch(/db\.transaction\.count/)
+    expect(codeOnly(read('admin', 'activity', 'route.ts'))).toMatch(/db(?:Read)?\.transaction\.count/)
+    expect(codeOnly(read('admin', 'overview', 'route.ts'))).toMatch(/db(?:Read)?\.transaction\.count/)
   })
 })
 
@@ -62,7 +75,7 @@ describe('the risk drill-down requires a case', () => {
 
   it('resolves an alertId before returning any transaction rows', () => {
     expect(code).toMatch(/alertId/)
-    expect(code).toMatch(/db\.fraudAlert\.findUnique/)
+    expect(code).toMatch(/db(?:Read)?\.fraudAlert\.findUnique/)
     expect(code).toMatch(/alertScope/)
   })
 
@@ -119,3 +132,4 @@ describe('ctx.degrade is only used for database calls', () => {
     ).toEqual([])
   })
 })
+

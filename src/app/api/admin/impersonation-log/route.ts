@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { assertPageDepth, PageTooDeepError } from '@/lib/pagination'
 import { withAdmin } from '@/lib/with-admin'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 import { withTimeout, withNeonRetry } from '@/lib/resilience'
 
 /**
@@ -28,9 +28,9 @@ export const GET = withAdmin(
 
     if (tab === 'overview') {
       const [totalCount, todayCount, weekCount, uniqueAdmins, uniqueUsers] = await Promise.all([
-        withTimeout(db.adminAction.count({ where: { action: 'user_impersonate' } }), 5000).catch(ctx.degrade('adminAction.count', 0)),
+        withTimeout(dbRead.adminAction.count({ where: { action: 'user_impersonate' } }), 5000).catch(ctx.degrade('adminAction.count', 0)),
         withTimeout(
-          db.adminAction.count({
+          dbRead.adminAction.count({
             where: {
               action: 'user_impersonate',
               createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
@@ -39,7 +39,7 @@ export const GET = withAdmin(
           5000
         ).catch(ctx.degrade('adminAction.count', 0)),
         withTimeout(
-          db.adminAction.count({
+          dbRead.adminAction.count({
             where: {
               action: 'user_impersonate',
               createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
@@ -48,7 +48,7 @@ export const GET = withAdmin(
           5000
         ).catch(ctx.degrade('adminAction.count', 0)),
         withTimeout(
-          db.adminAction.groupBy({
+          dbRead.adminAction.groupBy({
             by: ['adminId'],
             where: { action: 'user_impersonate' },
             _count: true,
@@ -56,7 +56,7 @@ export const GET = withAdmin(
           5000
         ).catch(ctx.degrade('adminAction.groupBy', [])),
         withTimeout(
-          db.adminAction.groupBy({
+          dbRead.adminAction.groupBy({
             by: ['targetId'],
             where: { action: 'user_impersonate', targetId: { not: null } },
             _count: true,
@@ -82,7 +82,7 @@ export const GET = withAdmin(
 
     const [logs, total] = await Promise.all([
       withNeonRetry(() =>
-        db.adminAction.findMany({
+        dbRead.adminAction.findMany({
           where: { action: 'user_impersonate' },
           orderBy: { createdAt: 'desc' },
           skip,
@@ -91,7 +91,7 @@ export const GET = withAdmin(
         })
       ).catch(ctx.degrade('adminAction.findMany', [])),
       withTimeout(
-        db.adminAction.count({ where: { action: 'user_impersonate' } }),
+        dbRead.adminAction.count({ where: { action: 'user_impersonate' } }),
         5000
       ).catch(ctx.degrade('adminAction.count', 0)),
     ])

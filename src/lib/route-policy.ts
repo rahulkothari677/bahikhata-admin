@@ -159,6 +159,32 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
     verdict: 'keep',
     note: 'REPORTS ONLY — deletes nothing, and the admin DB role has DELETE revoked. An unattended purge job is the most dangerous code that could exist here; a date bug destroys books that are still legally required, with no undo.',
   },
+  'admin/break-glass': {
+    // Founder-only. Listing no other role is how this file expresses that:
+    // `founder` is implicitly permitted everywhere and never appears in a list.
+    GET: [],
+    POST: [],
+    purpose: 'Open and review time-boxed emergency access when the normal controls lock an operator out',
+    pii: 'none',
+    lawfulBasis: LEGIT_OPS,
+    verdict: 'keep',
+    note:
+      'Must NOT require stepUp: break-glass verifies a fresh TOTP inside the handler itself, and requiring ' +
+      'step-up as well would make it unusable in the exact situation it exists for. The 60-minute ceiling, ' +
+      'mandatory written reason and single-active-session rule are enforced in src/lib/break-glass.ts.',
+  },
+  'admin/break-glass/revoke': {
+    GET: [],
+    POST: [],
+    purpose: 'Close an active emergency-access session early',
+    pii: 'none',
+    lawfulBasis: LEGIT_OPS,
+    verdict: 'keep',
+    note:
+      'Deliberately the lowest-friction operation here — no TOTP, no reason. Making it harder than activation ' +
+      'would leave emergency windows open out of inconvenience. Any founder may revoke, not only the opener: ' +
+      'if a session was opened by a compromised account, whoever shuts it down is by definition not that account.',
+  },
   'admin/step-up': {
     GET: ['viewer', 'support', 'analyst', 'finance'],
     POST: ['viewer', 'support', 'analyst', 'finance'],

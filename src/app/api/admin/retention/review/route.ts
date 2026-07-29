@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 import { withAdmin } from '@/lib/with-admin'
 import { isPurgeEligible, STATUTORY_RETENTION_YEARS } from '@/lib/soft-delete'
 
@@ -30,7 +30,7 @@ import { isPurgeEligible, STATUTORY_RETENTION_YEARS } from '@/lib/soft-delete'
 export const GET = withAdmin('admin/retention/review', async (_req: NextRequest, ctx) => {
   const now = new Date()
 
-  const closed = await db.user.findMany({
+  const closed = await dbRead.user.findMany({
     where: { deletedAt: { not: null } },
     select: {
       id: true,

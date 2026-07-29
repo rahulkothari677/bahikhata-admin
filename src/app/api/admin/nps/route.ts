@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { assertPageDepth, PageTooDeepError } from '@/lib/pagination'
 import { withAdmin } from '@/lib/with-admin'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 
 /**
@@ -43,29 +43,29 @@ export const GET = withAdmin(
       // 5 parallel queries — all O(1)
       const [total, promoters, passives, detractors, avgAgg] = await Promise.all([
         // Total feedback count
-        withTimeout(db.npsFeedback.count(), 5000).catch(ctx.degrade('npsFeedback.count', 0)),
+        withTimeout(dbRead.npsFeedback.count(), 5000).catch(ctx.degrade('npsFeedback.count', 0)),
 
         // Promoters (score 9-10)
         withTimeout(
-          db.npsFeedback.count({ where: { score: { gte: 9 } } }),
+          dbRead.npsFeedback.count({ where: { score: { gte: 9 } } }),
           5000
         ).catch(ctx.degrade('npsFeedback.count', 0)),
 
         // Passives (score 7-8)
         withTimeout(
-          db.npsFeedback.count({ where: { score: { gte: 7, lte: 8 } } }),
+          dbRead.npsFeedback.count({ where: { score: { gte: 7, lte: 8 } } }),
           5000
         ).catch(ctx.degrade('npsFeedback.count', 0)),
 
         // Detractors (score 0-6)
         withTimeout(
-          db.npsFeedback.count({ where: { score: { lte: 6 } } }),
+          dbRead.npsFeedback.count({ where: { score: { lte: 6 } } }),
           5000
         ).catch(ctx.degrade('npsFeedback.count', 0)),
 
         // Average score
         withTimeout(
-          db.npsFeedback.aggregate({ _avg: { score: true } }),
+          dbRead.npsFeedback.aggregate({ _avg: { score: true } }),
           5000
         ).catch(ctx.degrade('npsFeedback.aggregate', ({ _avg: { score: 0 } }))),
       ])
@@ -78,13 +78,13 @@ export const GET = withAdmin(
       // Recent feedback count (last 7 days — growth signal)
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
       const newFeedback7d = await withTimeout(
-        db.npsFeedback.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
+        dbRead.npsFeedback.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
         5000
       ).catch(ctx.degrade('npsFeedback.count', 0))
 
       // Score distribution (how many 0s, 1s, 2s... 10s)
       const scoreDistribution = await withTimeout(
-        db.npsFeedback.groupBy({
+        dbRead.npsFeedback.groupBy({
           by: ['score'],
           _count: true,
           orderBy: { score: 'asc' },
@@ -136,7 +136,7 @@ export const GET = withAdmin(
 
     const [feedback, total] = await Promise.all([
       withTimeout(
-        db.npsFeedback.findMany({
+        dbRead.npsFeedback.findMany({
           where,
           orderBy: { createdAt: 'desc' },
           skip,
@@ -148,7 +148,7 @@ export const GET = withAdmin(
         5000
       ).catch(ctx.degrade('npsFeedback.findMany', [])),
       withTimeout(
-        db.npsFeedback.count({ where }),
+        dbRead.npsFeedback.count({ where }),
         5000
       ).catch(ctx.degrade('npsFeedback.count', 0)),
     ])

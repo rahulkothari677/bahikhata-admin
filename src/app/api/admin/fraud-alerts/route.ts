@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { assertPageDepth, PageTooDeepError } from '@/lib/pagination'
 import { withAdmin } from '@/lib/with-admin'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 
 /**
@@ -34,7 +34,7 @@ export const GET = withAdmin(
 
     const [alerts, total] = await Promise.all([
       withTimeout(
-        db.fraudAlert.findMany({
+        dbRead.fraudAlert.findMany({
           where,
           orderBy: { detectedAt: 'desc' },
           skip,
@@ -47,7 +47,7 @@ export const GET = withAdmin(
         }),
         5000
       ).catch(ctx.degrade('fraudAlert.findMany', [])),
-      withTimeout(db.fraudAlert.count({ where }), 5000).catch(ctx.degrade('fraudAlert.count', 0)),
+      withTimeout(dbRead.fraudAlert.count({ where }), 5000).catch(ctx.degrade('fraudAlert.count', 0)),
     ])
 
     return NextResponse.json({

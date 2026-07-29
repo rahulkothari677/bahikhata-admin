@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { assertPageDepth, PageTooDeepError } from '@/lib/pagination'
 import { withAdmin } from '@/lib/with-admin'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { getMetricConfigs } from '@/lib/anomaly-detection'
 
@@ -32,21 +32,21 @@ export const GET = withAdmin(
     // ============ OVERVIEW TAB ============
     if (tab === 'overview') {
       const [openCount, acknowledgedCount, resolvedCount, criticalOpenCount, recent24h, metricDist] = await Promise.all([
-        withTimeout(db.anomaly.count({ where: { status: 'open' } }), 5000).catch(ctx.degrade('anomaly.count', 0)),
-        withTimeout(db.anomaly.count({ where: { status: 'acknowledged' } }), 5000).catch(ctx.degrade('anomaly.count', 0)),
-        withTimeout(db.anomaly.count({ where: { status: 'resolved' } }), 5000).catch(ctx.degrade('anomaly.count', 0)),
+        withTimeout(dbRead.anomaly.count({ where: { status: 'open' } }), 5000).catch(ctx.degrade('anomaly.count', 0)),
+        withTimeout(dbRead.anomaly.count({ where: { status: 'acknowledged' } }), 5000).catch(ctx.degrade('anomaly.count', 0)),
+        withTimeout(dbRead.anomaly.count({ where: { status: 'resolved' } }), 5000).catch(ctx.degrade('anomaly.count', 0)),
         withTimeout(
-          db.anomaly.count({ where: { status: 'open', severity: 'critical' } }),
+          dbRead.anomaly.count({ where: { status: 'open', severity: 'critical' } }),
           5000
         ).catch(ctx.degrade('anomaly.count', 0)),
         withTimeout(
-          db.anomaly.count({
+          dbRead.anomaly.count({
             where: { detectedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
           }),
           5000
         ).catch(ctx.degrade('anomaly.count', 0)),
         withTimeout(
-          db.anomaly.groupBy({
+          dbRead.anomaly.groupBy({
             by: ['metric'],
             where: { status: 'open' },
             _count: true,
@@ -83,7 +83,7 @@ export const GET = withAdmin(
 
     const [anomalies, total] = await Promise.all([
       withTimeout(
-        db.anomaly.findMany({
+        dbRead.anomaly.findMany({
           where,
           orderBy: { detectedAt: 'desc' },
           skip,
@@ -91,7 +91,7 @@ export const GET = withAdmin(
         }),
         5000
       ).catch(ctx.degrade('anomaly.findMany', [])),
-      withTimeout(db.anomaly.count({ where }), 5000).catch(ctx.degrade('anomaly.count', 0)),
+      withTimeout(dbRead.anomaly.count({ where }), 5000).catch(ctx.degrade('anomaly.count', 0)),
     ])
 
     return NextResponse.json({

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAdmin } from '@/lib/with-admin'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 import { clampPageSize, decodeCursor, keysetOrderBy, keysetPaginate, keysetWhere } from '@/lib/pagination'
 import { maskEmail, maskName, maskPhone } from '@/lib/pii'
 
@@ -148,7 +148,7 @@ export const GET = withAdmin(
 
     const page = await keysetPaginate(
       (take) =>
-        db.user.findMany({
+        dbRead.user.findMany({
           where: { ...where, ...keysetWhere(sortBy, cursor, sortOrder) },
           orderBy: keysetOrderBy(sortBy, sortOrder),
           take,

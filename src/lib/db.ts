@@ -65,6 +65,7 @@ function createExtendedClient() {
 
 const globalForPrisma = globalThis as unknown as {
   prisma: ReturnType<typeof createExtendedClient> | undefined
+  prismaRead: ReturnType<typeof createExtendedClient> | undefined
   prismaReadonly: PrismaClient | undefined
 }
 
@@ -73,6 +74,69 @@ export const db = globalForPrisma.prisma ?? createExtendedClient()
 
 // Cache the client in dev to prevent connection exhaustion on hot reload
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+
+/**
+ * 🔒 §D5 — READ REPLICA (audit 2026-07-28).
+ *
+ * THE PROBLEM: the admin panel and the shopkeepers' app share one database. An
+ * expensive admin query competes for the same connections and CPU that a
+ * shopkeeper's "Save bill" needs. Yours is a report and can wait; theirs is a
+ * customer standing at a counter.
+ *
+ * That is not theoretical here. This project has already seen 2–5 second GETs
+ * under pool contention, which is what exhausted Prisma's transaction budget
+ * mid-edit and surfaced as "Failed to update transaction" on every attempt.
+ *
+ * `dbRead` is for dashboards, lists, exports and analytics — anything that only
+ * reads. When READ_DATABASE_URL is set it points at a Neon read replica, so
+ * that work stops competing with the shopkeepers entirely.
+ *
+ * ⚠️ IT FALLS BACK TO THE PRIMARY when READ_DATABASE_URL is unset, which is the
+ * state today. That is deliberate: shipping the split now means switching it on
+ * later is one environment variable and a redeploy, with no code change and no
+ * risky big-bang rewrite. But it also means adding `dbRead` to a route buys
+ * NOTHING until the variable exists — see isReadReplicaConfigured(), which is
+ * surfaced rather than assumed, for the same reason the rate limiter reports
+ * whether Redis actually backs it.
+ *
+ * STALENESS: none worth worrying about. Neon replicas in the same region share
+ * the storage layer, so a committed write is immediately visible on the
+ * replica. This is not the usual streaming-replication lag trade-off.
+ *
+ * NEVER use `dbRead` for a write. It is typed as the same client, so nothing
+ * stops you at compile time — the guard is the test in tests/read-replica.test.ts
+ * asserting no mutation verb appears alongside it.
+ */
+function createReadClient() {
+  const url = process.env.READ_DATABASE_URL
+  return withMoneyConversion(
+    new PrismaClient({
+      ...(url ? { datasources: { db: { url } } } : {}),
+      log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
+    }),
+  )
+}
+
+/**
+ * Read-only workload client. Points at the replica when configured, otherwise
+ * at the primary. Money-converted, exactly like `db`, so swapping a dashboard
+ * query from `db` to `dbRead` cannot change the numbers it returns.
+ */
+export const dbRead = globalForPrisma.prismaRead ?? createReadClient()
+
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prismaRead = dbRead
+
+/**
+ * Whether reads are ACTUALLY going somewhere separate.
+ *
+ * Exposed because the failure mode is silence: without it, `dbRead` appears
+ * everywhere in the code, everyone believes admin load is isolated, and every
+ * query is still landing on the primary. Same reasoning as
+ * isRateLimitBackedByRedis().
+ */
+export function isReadReplicaConfigured(): boolean {
+  return !!process.env.READ_DATABASE_URL
+}
 
 /**
  * 🔒 AUDIT FIX C5 (V6) + V6 SC4: Read-only Prisma client for the SQL runner.

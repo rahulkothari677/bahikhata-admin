@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAdmin } from '@/lib/with-admin'
 import { computeHealthScore } from '@/lib/health-score'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 
 /**
  * GET /api/admin/health?userId=xxx  → single user health score
@@ -37,7 +37,7 @@ export const GET = withAdmin(
     // Single user detail — unchanged
     if (userId) {
       const score = await computeHealthScore(userId)
-      const user = await db.user.findUnique({
+      const user = await dbRead.user.findUnique({
         where: { id: userId },
         select: { email: true, name: true, plan: true },
       })
@@ -45,7 +45,7 @@ export const GET = withAdmin(
     }
 
     // 🔒 V6 SC2: Paginated all-users summary.
-    // Was: db.user.findMany() with no take → loaded every user.
+    // Was: dbRead.user.findMany() with no take → loaded every user.
     // Now: cursor pagination, max 200 per page.
     const cursor = url.searchParams.get('cursor')
     const requestedLimit = parseInt(url.searchParams.get('limit') || String(DEFAULT_PAGE_SIZE), 10)
@@ -53,7 +53,7 @@ export const GET = withAdmin(
     const planFilter = url.searchParams.get('plan') // optional: free/pro/elite
 
     // Fetch one page of users (bounded)
-    const users = await db.user.findMany({
+    const users = await dbRead.user.findMany({
       where: planFilter ? { plan: planFilter } : undefined,
       select: {
         id: true, email: true, name: true, plan: true,

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { assertPageDepth, PageTooDeepError } from '@/lib/pagination'
 import { withAdmin } from '@/lib/with-admin'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 
 /**
@@ -30,7 +30,7 @@ export const GET = withAdmin(
 
     const [deliveries, total] = await Promise.all([
       withTimeout(
-        db.webhookDelivery.findMany({
+        dbRead.webhookDelivery.findMany({
           where,
           orderBy: { createdAt: 'desc' },
           skip,
@@ -44,7 +44,7 @@ export const GET = withAdmin(
         }),
         5000
       ).catch(ctx.degrade('webhookDelivery.findMany', [])),
-      withTimeout(db.webhookDelivery.count({ where }), 5000).catch(ctx.degrade('webhookDelivery.count', 0)),
+      withTimeout(dbRead.webhookDelivery.count({ where }), 5000).catch(ctx.degrade('webhookDelivery.count', 0)),
     ])
 
     return NextResponse.json({

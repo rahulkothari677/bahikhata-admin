@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAdmin } from '@/lib/with-admin'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 
 /**
  * GET /api/admin/growth
@@ -27,11 +27,11 @@ export const GET = withAdmin(
       usersWithSales,
       usersRetained7Days,
     ] = await Promise.all([
-      db.user.count(),
-      db.product.groupBy({ by: ['userId'], _count: true }).then(g => g.length),
-      db.transaction.groupBy({ by: ['userId'], where: { type: 'sale' } }).then(g => g.length),
+      dbRead.user.count(),
+      dbRead.product.groupBy({ by: ['userId'], _count: true }).then(g => g.length),
+      dbRead.transaction.groupBy({ by: ['userId'], where: { type: 'sale' } }).then(g => g.length),
       // Users who signed up 7+ days ago AND were active in the last 7 days
-      db.user.count({
+      dbRead.user.count({
         where: {
           createdAt: { lt: sevenDaysAgo },
           OR: [
@@ -43,7 +43,7 @@ export const GET = withAdmin(
     ])
 
     // Users who signed up 7+ days ago (denominator for retention)
-    const usersOldEnoughForRetention = await db.user.count({
+    const usersOldEnoughForRetention = await dbRead.user.count({
       where: { createdAt: { lt: sevenDaysAgo } },
     })
 
@@ -68,7 +68,7 @@ export const GET = withAdmin(
       powerUsers,       // 50+ transactions
       newUsers,         // Signed up in last 7 days
     ] = await Promise.all([
-      db.user.count({
+      dbRead.user.count({
         where: {
           OR: [
             { transactions: { some: { createdAt: { gte: sevenDaysAgo } } } },
@@ -76,7 +76,7 @@ export const GET = withAdmin(
           ],
         },
       }),
-      db.user.count({
+      dbRead.user.count({
         where: {
           createdAt: { lt: sevenDaysAgo },
           updatedAt: { gte: thirtyDaysAgo, lt: sevenDaysAgo },
@@ -88,7 +88,7 @@ export const GET = withAdmin(
           },
         },
       }),
-      db.user.count({
+      dbRead.user.count({
         where: {
           createdAt: { lt: thirtyDaysAgo },
           updatedAt: { lt: thirtyDaysAgo },
@@ -100,12 +100,12 @@ export const GET = withAdmin(
           },
         },
       }),
-      db.transaction.groupBy({
+      dbRead.transaction.groupBy({
         by: ['userId'],
         _count: { id: true },
         having: { id: { _count: { gte: 50 } } },
       }).then(g => g.length),
-      db.user.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
+      dbRead.user.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
     ])
 
     const segments = {
@@ -123,10 +123,10 @@ export const GET = withAdmin(
       rewardedReferrals,
       referralUsers,
     ] = await Promise.all([
-      db.referral.count(),
-      db.referral.count({ where: { status: 'completed' } }),
-      db.referral.count({ where: { rewardGiven: true } }),
-      db.referral.groupBy({
+      dbRead.referral.count(),
+      dbRead.referral.count({ where: { status: 'completed' } }),
+      dbRead.referral.count({ where: { rewardGiven: true } }),
+      dbRead.referral.groupBy({
         by: ['referrerId'],
         where: { status: 'completed' },
         _count: true,
@@ -140,7 +140,7 @@ export const GET = withAdmin(
 
     // Top referrers
     const topReferrerIds = referralUsers.sort((a, b) => b._count - a._count).slice(0, 5).map(r => r.referrerId)
-    const topReferrerDetails = await db.user.findMany({
+    const topReferrerDetails = await dbRead.user.findMany({
       where: { id: { in: topReferrerIds } },
       select: { id: true, email: true, name: true },
     })
@@ -173,7 +173,7 @@ export const GET = withAdmin(
     // indexed column, so it does not defeat index usage — the range filter
     // still does the narrowing. (See docs/SCALE-PLAN.md: a function on the
     // filtered column is what breaks partition pruning; this is not that.)
-    const signupRows = await db.$queryRaw<Array<{ day: Date; signups: bigint }>>`
+    const signupRows = await dbRead.$queryRaw<Array<{ day: Date; signups: bigint }>>`
       SELECT date_trunc('day', "createdAt") AS day, COUNT(*)::bigint AS signups
       FROM "User"
       WHERE "createdAt" >= ${thirtyDaysAgo}

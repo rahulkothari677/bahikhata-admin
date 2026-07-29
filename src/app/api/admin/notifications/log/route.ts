@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { assertPageDepth, PageTooDeepError } from '@/lib/pagination'
 import { withAdmin } from '@/lib/with-admin'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 
 /**
@@ -34,24 +34,24 @@ export const GET = withAdmin(
       // 5 parallel count queries — all O(1)
       const [sentCount, failedCount, skippedCount, totalCount, channelDist] = await Promise.all([
         withTimeout(
-          db.notificationLog.count({ where: { status: 'sent' } }),
+          dbRead.notificationLog.count({ where: { status: 'sent' } }),
           5000
         ).catch(ctx.degrade('notificationLog.count', 0)),
 
         withTimeout(
-          db.notificationLog.count({ where: { status: 'failed' } }),
+          dbRead.notificationLog.count({ where: { status: 'failed' } }),
           5000
         ).catch(ctx.degrade('notificationLog.count', 0)),
 
         withTimeout(
-          db.notificationLog.count({ where: { status: 'skipped' } }),
+          dbRead.notificationLog.count({ where: { status: 'skipped' } }),
           5000
         ).catch(ctx.degrade('notificationLog.count', 0)),
 
-        withTimeout(db.notificationLog.count(), 5000).catch(ctx.degrade('notificationLog.count', 0)),
+        withTimeout(dbRead.notificationLog.count(), 5000).catch(ctx.degrade('notificationLog.count', 0)),
 
         withTimeout(
-          db.notificationLog.groupBy({
+          dbRead.notificationLog.groupBy({
             by: ['channel'],
             _count: true,
           }),
@@ -62,7 +62,7 @@ export const GET = withAdmin(
       // Recent sends (last 7 days)
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
       const recent7d = await withTimeout(
-        db.notificationLog.count({ where: { sentAt: { gte: sevenDaysAgo } } }),
+        dbRead.notificationLog.count({ where: { sentAt: { gte: sevenDaysAgo } } }),
         5000
       ).catch(ctx.degrade('notificationLog.count', 0))
 
@@ -104,7 +104,7 @@ export const GET = withAdmin(
 
     const [logs, total] = await Promise.all([
       withTimeout(
-        db.notificationLog.findMany({
+        dbRead.notificationLog.findMany({
           where,
           orderBy: { sentAt: 'desc' },
           skip,
@@ -113,7 +113,7 @@ export const GET = withAdmin(
         5000
       ).catch(ctx.degrade('notificationLog.findMany', [])),
       withTimeout(
-        db.notificationLog.count({ where }),
+        dbRead.notificationLog.count({ where }),
         5000
       ).catch(ctx.degrade('notificationLog.count', 0)),
     ])

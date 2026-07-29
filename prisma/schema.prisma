@@ -1711,3 +1711,34 @@ model CommunicationPreference {
   @@unique([userId, channel, category])
   @@index([userId])
 }
+
+
+/// Time-boxed emergency access (master report §C4).
+///
+/// Exists precisely BECAUSE the normal controls are strict. Designed so that
+/// using it is safe but impossible to hide: every session has a written
+/// reason, a hard expiry, and a critical audit entry. There is no way to
+/// activate one quietly.
+model BreakGlassSession {
+  id         String    @id @default(cuid())
+  adminId    String
+  adminEmail String
+  /// Free text, mandatory. A break-glass with no stated reason is
+  /// indistinguishable from an intruder, months later when someone asks.
+  reason     String    @db.Text
+  /// Null when a single founder self-approved. Recorded either way so the
+  /// unapproved ones are countable rather than invisible — the "I am the only
+  /// founder at 3am" case is legitimate and must still be reviewable.
+  approvedBy String?
+  startedAt  DateTime  @default(now())
+  /// Hard ceiling of 60 minutes, enforced in code at activation.
+  expiresAt  DateTime
+  /// Set when ended early. Expiry is by time; this is by choice.
+  revokedAt  DateTime?
+  revokedBy  String?
+
+  /// Finding an ACTIVE session is the hot path — the admin UI asks on every
+  /// page load so the banner cannot be missed.
+  @@index([expiresAt, revokedAt])
+  @@index([adminId, startedAt])
+}

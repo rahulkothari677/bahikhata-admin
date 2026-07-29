@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { assertPageDepth, PageTooDeepError } from '@/lib/pagination'
 import { withAdmin } from '@/lib/with-admin'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 
 /**
@@ -43,7 +43,7 @@ export const GET = withAdmin(
       // 4 parallel aggregate queries (NOT findMany) — O(1) regardless of row count
       const [todayAgg, weekAgg, monthAgg, allTimeAgg] = await Promise.all([
         withTimeout(
-          db.aiUsageLog.aggregate({
+          dbRead.aiUsageLog.aggregate({
             where: { createdAt: { gte: todayStart } },
             _sum: { inputTokens: true, outputTokens: true, totalTokens: true, costInr: true },
             _count: true,
@@ -56,7 +56,7 @@ export const GET = withAdmin(
           _avg: { durationMs: 0 },
         }))) as any,
         withTimeout(
-          db.aiUsageLog.aggregate({
+          dbRead.aiUsageLog.aggregate({
             where: { createdAt: { gte: weekStart } },
             _sum: { totalTokens: true, costInr: true },
             _count: true,
@@ -64,7 +64,7 @@ export const GET = withAdmin(
           5000
         ).catch(ctx.degrade('aiUsageLog.aggregate', ({ _sum: { totalTokens: 0, costInr: 0 }, _count: 0 }))) as any,
         withTimeout(
-          db.aiUsageLog.aggregate({
+          dbRead.aiUsageLog.aggregate({
             where: { createdAt: { gte: monthStart } },
             _sum: { totalTokens: true, costInr: true },
             _count: true,
@@ -72,7 +72,7 @@ export const GET = withAdmin(
           5000
         ).catch(ctx.degrade('aiUsageLog.aggregate', ({ _sum: { totalTokens: 0, costInr: 0 }, _count: 0 }))) as any,
         withTimeout(
-          db.aiUsageLog.aggregate({
+          dbRead.aiUsageLog.aggregate({
             _sum: { inputTokens: true, outputTokens: true, totalTokens: true, costInr: true },
             _count: true,
           }),
@@ -86,7 +86,7 @@ export const GET = withAdmin(
       // 2 parallel groupBy queries for breakdowns (NOT JS-side filtering)
       const [featureGroup, providerGroup] = await Promise.all([
         withTimeout(
-          db.aiUsageLog.groupBy({
+          dbRead.aiUsageLog.groupBy({
             by: ['feature'],
             where: { createdAt: { gte: monthStart } },
             _sum: { costInr: true, totalTokens: true },
@@ -95,7 +95,7 @@ export const GET = withAdmin(
           5000
         ).catch(ctx.degrade('aiUsageLog.groupBy', [])),
         withTimeout(
-          db.aiUsageLog.groupBy({
+          dbRead.aiUsageLog.groupBy({
             by: ['provider'],
             where: { createdAt: { gte: monthStart } },
             _sum: { costInr: true, totalTokens: true },
@@ -108,25 +108,25 @@ export const GET = withAdmin(
       // Success/fail counts (2 parallel count queries)
       const [todaySuccess, todayFail, monthSuccess, monthFail] = await Promise.all([
         withTimeout(
-          db.aiUsageLog.count({
+          dbRead.aiUsageLog.count({
             where: { createdAt: { gte: todayStart }, success: true },
           }),
           5000
         ).catch(ctx.degrade('aiUsageLog.count', 0)),
         withTimeout(
-          db.aiUsageLog.count({
+          dbRead.aiUsageLog.count({
             where: { createdAt: { gte: todayStart }, success: false },
           }),
           5000
         ).catch(ctx.degrade('aiUsageLog.count', 0)),
         withTimeout(
-          db.aiUsageLog.count({
+          dbRead.aiUsageLog.count({
             where: { createdAt: { gte: monthStart }, success: true },
           }),
           5000
         ).catch(ctx.degrade('aiUsageLog.count', 0)),
         withTimeout(
-          db.aiUsageLog.count({
+          dbRead.aiUsageLog.count({
             where: { createdAt: { gte: monthStart }, success: false },
           }),
           5000
@@ -216,7 +216,7 @@ export const GET = withAdmin(
       // Parallel: groupBy for top users + count of distinct users
       const [topUsersAgg, distinctUserCount] = await Promise.all([
         withTimeout(
-          db.aiUsageLog.groupBy({
+          dbRead.aiUsageLog.groupBy({
             by: ['userId'],
             where,
             _sum: { costInr: true, totalTokens: true },
@@ -228,7 +228,7 @@ export const GET = withAdmin(
           5000
         ).catch(ctx.degrade('aiUsageLog.groupBy', [])),
         withTimeout(
-          db.aiUsageLog.groupBy({
+          dbRead.aiUsageLog.groupBy({
             by: ['userId'],
             where,
             _count: true,
@@ -243,7 +243,7 @@ export const GET = withAdmin(
       // Fetch user details (only for current page — not all users)
       const userDetails = userIds.length > 0
         ? await withTimeout(
-            db.user.findMany({
+            dbRead.user.findMany({
               where: { id: { in: userIds } },
               select: { id: true, email: true, name: true, plan: true },
             }),
@@ -291,7 +291,7 @@ export const GET = withAdmin(
       // Parallel: paginated rows + total count
       const [recentCalls, total] = await Promise.all([
         withTimeout(
-          db.aiUsageLog.findMany({
+          dbRead.aiUsageLog.findMany({
             where,
             orderBy: { createdAt: 'desc' },
             skip,
@@ -303,7 +303,7 @@ export const GET = withAdmin(
           5000
         ).catch(ctx.degrade('aiUsageLog.findMany', [])),
         withTimeout(
-          db.aiUsageLog.count({ where }),
+          dbRead.aiUsageLog.count({ where }),
           5000
         ).catch(ctx.degrade('aiUsageLog.count', 0)),
       ])

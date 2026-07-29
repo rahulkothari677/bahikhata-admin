@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAdmin } from '@/lib/with-admin'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 import { maskEmail, maskName } from '@/lib/pii'
 
 /**
@@ -45,11 +45,11 @@ export const GET = withAdmin(
     }
 
     const [signupCount, txnCount, aiCallCount, subCount, adminActionCount] = await Promise.all([
-      safeCount(() => db.user.count({ where: { createdAt: { gte: rangeStart } } })),
-      safeCount(() => db.transaction.count({ where: { createdAt: { gte: rangeStart } } })),
-      safeCount(() => db.aiUsageLog.count({ where: { createdAt: { gte: rangeStart } } })),
-      safeCount(() => db.subscription.count({ where: { createdAt: { gte: rangeStart } } })),
-      safeCount(() => db.adminAction.count({ where: { createdAt: { gte: rangeStart } } })),
+      safeCount(() => dbRead.user.count({ where: { createdAt: { gte: rangeStart } } })),
+      safeCount(() => dbRead.transaction.count({ where: { createdAt: { gte: rangeStart } } })),
+      safeCount(() => dbRead.aiUsageLog.count({ where: { createdAt: { gte: rangeStart } } })),
+      safeCount(() => dbRead.subscription.count({ where: { createdAt: { gte: rangeStart } } })),
+      safeCount(() => dbRead.adminAction.count({ where: { createdAt: { gte: rangeStart } } })),
     ])
 
     const summary = {
@@ -99,7 +99,7 @@ export const GET = withAdmin(
 
     if (type === 'all' || type === 'signup') {
       try {
-        const items = await db.user.findMany({
+        const items = await dbRead.user.findMany({
           where: { createdAt: { gte: rangeStart } },
           select: { id: true, email: true, name: true, plan: true, createdAt: true },
           orderBy: { createdAt: 'desc' },
@@ -147,7 +147,7 @@ export const GET = withAdmin(
 
     if (type === 'all' || type === 'ai_call') {
       try {
-        const items = await db.aiUsageLog.findMany({
+        const items = await dbRead.aiUsageLog.findMany({
           where: { createdAt: { gte: rangeStart } },
           select: { id: true, feature: true, provider: true, success: true, costInr: true, createdAt: true,
             user: { select: { email: true, name: true } } },
@@ -165,7 +165,7 @@ export const GET = withAdmin(
 
     if (type === 'all' || type === 'subscription') {
       try {
-        const items = await db.subscription.findMany({
+        const items = await dbRead.subscription.findMany({
           where: { createdAt: { gte: rangeStart } },
           select: { id: true, plan: true, amount: true, status: true, createdAt: true,
             User: { select: { email: true, name: true } } },
@@ -183,7 +183,7 @@ export const GET = withAdmin(
 
     if (type === 'all' || type === 'admin_action') {
       try {
-        const items = await db.adminAction.findMany({
+        const items = await dbRead.adminAction.findMany({
           where: { createdAt: { gte: rangeStart } },
           select: { id: true, action: true, description: true, createdAt: true,
             admin: { select: { email: true, name: true } } },

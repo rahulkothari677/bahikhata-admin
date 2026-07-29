@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { assertPageDepth, PageTooDeepError } from '@/lib/pagination'
 import { withAdmin } from '@/lib/with-admin'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 import { withTimeout, withNeonRetry } from '@/lib/resilience'
 
 /**
@@ -43,12 +43,12 @@ export const GET = withAdmin(
       const monthStart = new Date(todayStart.getTime() - 30 * 24 * 60 * 60 * 1000)
 
       const [todayCount, weekCount, monthCount, totalCount, topActions, topTargetTypes] = await Promise.all([
-        withTimeout(db.adminAction.count({ where: { createdAt: { gte: todayStart } } }), 5000).catch(ctx.degrade('adminAction.count', 0)),
-        withTimeout(db.adminAction.count({ where: { createdAt: { gte: weekStart } } }), 5000).catch(ctx.degrade('adminAction.count', 0)),
-        withTimeout(db.adminAction.count({ where: { createdAt: { gte: monthStart } } }), 5000).catch(ctx.degrade('adminAction.count', 0)),
-        withTimeout(db.adminAction.count(), 5000).catch(ctx.degrade('adminAction.count', 0)),
+        withTimeout(dbRead.adminAction.count({ where: { createdAt: { gte: todayStart } } }), 5000).catch(ctx.degrade('adminAction.count', 0)),
+        withTimeout(dbRead.adminAction.count({ where: { createdAt: { gte: weekStart } } }), 5000).catch(ctx.degrade('adminAction.count', 0)),
+        withTimeout(dbRead.adminAction.count({ where: { createdAt: { gte: monthStart } } }), 5000).catch(ctx.degrade('adminAction.count', 0)),
+        withTimeout(dbRead.adminAction.count(), 5000).catch(ctx.degrade('adminAction.count', 0)),
         withTimeout(
-          db.adminAction.groupBy({
+          dbRead.adminAction.groupBy({
             by: ['action'],
             where: { createdAt: { gte: monthStart } },
             _count: true,
@@ -58,7 +58,7 @@ export const GET = withAdmin(
           5000
         ).catch(ctx.degrade('adminAction.groupBy', [])),
         withTimeout(
-          db.adminAction.groupBy({
+          dbRead.adminAction.groupBy({
             by: ['targetType'],
             where: { createdAt: { gte: monthStart } },
             _count: true,
@@ -109,7 +109,7 @@ export const GET = withAdmin(
 
     const [actions, total, actionTypes] = await Promise.all([
       withNeonRetry(() =>
-        db.adminAction.findMany({
+        dbRead.adminAction.findMany({
           where,
           orderBy: { createdAt: 'desc' },
           skip,
@@ -119,10 +119,10 @@ export const GET = withAdmin(
           },
         })
       ).catch(ctx.degrade('adminAction.findMany', [])),
-      withTimeout(db.adminAction.count({ where }), 5000).catch(ctx.degrade('adminAction.count', 0)),
+      withTimeout(dbRead.adminAction.count({ where }), 5000).catch(ctx.degrade('adminAction.count', 0)),
       // Fetch distinct action types for filter dropdown
       withTimeout(
-        db.adminAction.groupBy({
+        dbRead.adminAction.groupBy({
           by: ['action'],
           _count: true,
           orderBy: { _count: { action: 'desc' } },

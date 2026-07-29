@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAdmin } from '@/lib/with-admin'
-import { db } from '@/lib/db'
+import { dbRead } from '@/lib/db'
 import { safeCount, validateStat, checkDbHealth, type ValidationResult } from '@/lib/resilience'
 
 /**
@@ -35,7 +35,7 @@ export const GET = withAdmin(
     }
 
     // Get latest DailyStats (displayed values)
-    const latestStats = await db.dailyStats.findFirst({
+    const latestStats = await dbRead.dailyStats.findFirst({
       orderBy: { date: 'desc' },
     })
 
@@ -46,10 +46,10 @@ export const GET = withAdmin(
       actualTotalTxns,
       actualAiCalls,
     ] = await Promise.all([
-      safeCount(() => db.user.count(), 'totalUsers'),
-      safeCount(() => db.user.count({ where: { plan: { in: ['pro', 'elite'] } } }), 'payingUsers'),
-      safeCount(() => db.transaction.count(), 'totalTxns'),
-      safeCount(() => db.aiUsageLog.count(), 'aiCalls'),
+      safeCount(() => dbRead.user.count(), 'totalUsers'),
+      safeCount(() => dbRead.user.count({ where: { plan: { in: ['pro', 'elite'] } } }), 'payingUsers'),
+      safeCount(() => dbRead.transaction.count(), 'totalTxns'),
+      safeCount(() => dbRead.aiUsageLog.count(), 'aiCalls'),
     ])
 
     const results: ValidationResult[] = []
@@ -72,8 +72,8 @@ export const GET = withAdmin(
     // Get live active/new today
     const todayStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()))
     const [liveActive, liveNew] = await Promise.all([
-      safeCount(() => db.user.count({ where: { updatedAt: { gte: todayStart } } }), 'activeToday'),
-      safeCount(() => db.user.count({ where: { createdAt: { gte: todayStart } } }), 'newToday'),
+      safeCount(() => dbRead.user.count({ where: { updatedAt: { gte: todayStart } } }), 'activeToday'),
+      safeCount(() => dbRead.user.count({ where: { createdAt: { gte: todayStart } } }), 'newToday'),
     ])
     liveMetrics[0].value = liveActive.value
     liveMetrics[1].value = liveNew.value
