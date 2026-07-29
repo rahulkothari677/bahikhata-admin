@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withNeonRetry, withTimeout } from '@/lib/resilience'
-import { validateQuery, executeSafeQuery, exportToCsv } from '@/lib/database-admin'
+import { validateQuery, executeSafeQuery, exportToCsv, escapeCsv } from '@/lib/database-admin'
 import { logAdminAction } from '@/lib/audit'
-import { fetchAllPaged, fetchWithTruncationFlag } from '@/lib/export-pagination'
+import { streamAllPaged, fetchWithTruncationFlag } from '@/lib/export-pagination'
 
 /**
  * Row cap for BULK (analytics) exports. These are operational extracts, not
@@ -59,74 +59,149 @@ export const POST = withAdmin(
 
           const targetUserId = exportReq.userId!
 
-          // 🔴 DPDP s.11 (audit 2026-07-26). This previously read:
-          //     findMany({ where: { userId }, take: 1000 }).catch(() => [])
-          // Two separate legal defects in one line. `take: 1000` silently
-          // truncated — a shopkeeper with 4,000 transactions received 1,000
-          // with no indication the rest existed. And `.catch(() => [])` meant
-          // a failed query produced an export MISSING that section entirely,
-          // indistinguishable from "this user has no transactions".
+          // 🐛 STREAMED (audit 2026-07-28). This case used to fetch every row
+          // into arrays and then concatenate them into one `csvContent` string
+          // — two full copies of the shopkeeper's ledger alive at once inside a
+          // serverless function with a fixed memory ceiling. It worked for a
+          // corner shop and would be killed for a successful one, which is the
+          // opposite of who you want it to work for. And it failed on a legal
+          // access request, for the users with the most data.
           //
-          // A subject access request must return ALL of the Data Principal's
-          // data, or fail loudly. It must never quietly be neither. Failures
-          // now propagate to the catch below, which marks the request `failed`
-          // rather than delivering a partial document that looks complete.
-          const [transactions, products, parties] = await Promise.all([
-            fetchAllPaged('transactions', (cursor, take) =>
-              withNeonRetry(() =>
-                db.transaction.findMany({
-                  where: { userId: targetUserId },
-                  take,
-                  orderBy: { id: 'asc' },
-                  ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-                }),
-              ),
-            ),
-            fetchAllPaged('products', (cursor, take) =>
-              withNeonRetry(() =>
-                db.product.findMany({
-                  where: { userId: targetUserId },
-                  take,
-                  orderBy: { id: 'asc' },
-                  ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-                }),
-              ),
-            ),
-            fetchAllPaged('parties', (cursor, take) =>
-              withNeonRetry(() =>
-                db.party.findMany({
-                  where: { userId: targetUserId },
-                  take,
-                  orderBy: { id: 'asc' },
-                  ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-                }),
-              ),
-            ),
-          ])
+          // Now the response IS the stream: rows are written as they are read
+          // and never accumulated, so memory stays flat at one batch (1,000
+          // rows) whatever the total.
+          //
+          // TRUNCATION IS THE HAZARD STREAMING INTRODUCES. Headers go out
+          // before the body, so a mid-stream failure cannot change the status
+          // code — the recipient would hold a file that looks fine and is
+          // short. This route exists because exports used to be silently
+          // incomplete, so that is precisely the failure it must not
+          // reintroduce. Two defences:
+          //   1. an explicit end marker with the row count. No marker = not a
+          //      complete export, and it is checkable by eye.
+          //   2. controller.error() on failure, which aborts the HTTP response
+          //      mid-body so the client sees a broken download rather than a
+          //      plausible file.
+          // The request is marked `completed` only after the last byte.
+          const encoder = new TextEncoder()
+          const csvRow = (values: unknown[]) => values.map(escapeCsv).join(',') + '\n'
 
-          // Build CSV: user profile + sections
-          csvContent = '=== USER PROFILE ===\n'
-          csvContent += Object.keys(user).join(',') + '\n'
-          csvContent += Object.values(user).map((v: any) => String(v || '')).join(',') + '\n\n'
-          csvContent += `=== TRANSACTIONS (${transactions.length}) ===\n`
-          if (transactions.length > 0) {
-            csvContent += Object.keys(transactions[0]).join(',') + '\n'
-            for (const t of transactions) csvContent += Object.values(t).map((v: any) => String(v || '')).join(',') + '\n'
-          }
-          csvContent += `\n=== PRODUCTS (${products.length}) ===\n`
-          if (products.length > 0) {
-            csvContent += Object.keys(products[0]).join(',') + '\n'
-            for (const p of products) csvContent += Object.values(p).map((v: any) => String(v || '')).join(',') + '\n'
-          }
-          csvContent += `\n=== PARTIES (${parties.length}) ===\n`
-          if (parties.length > 0) {
-            csvContent += Object.keys(parties[0]).join(',') + '\n'
-            for (const p of parties) csvContent += Object.values(p).map((v: any) => String(v || '')).join(',') + '\n'
-          }
+          let streamedRows = 0
+          let streamedBytes = 0
+          const fName = `user_data_${targetUserId.slice(0, 8)}_${new Date().toISOString().slice(0, 10)}.csv`
 
-          rowCount = 1 + transactions.length + products.length + parties.length
-          fileName = `user_data_${exportReq.userId!.slice(0, 8)}_${new Date().toISOString().slice(0, 10)}.csv`
-          break
+          const stream = new ReadableStream<Uint8Array>({
+            async start(controller) {
+              const write = (s: string) => {
+                const bytes = encoder.encode(s)
+                streamedBytes += bytes.byteLength
+                controller.enqueue(bytes)
+              }
+
+              try {
+                write('=== USER PROFILE ===\n')
+                write(csvRow(Object.keys(user)))
+                write(csvRow(Object.values(user)))
+                streamedRows += 1
+
+                const sections: Array<[string, (cursor: string | undefined, take: number) => Promise<Array<Record<string, unknown> & { id: string }>>]> = [
+                  ['TRANSACTIONS', (cursor, take) =>
+                    withNeonRetry(() => db.transaction.findMany({
+                      where: { userId: targetUserId },
+                      take, orderBy: { id: 'asc' },
+                      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+                    })) as Promise<Array<Record<string, unknown> & { id: string }>>],
+                  ['PRODUCTS', (cursor, take) =>
+                    withNeonRetry(() => db.product.findMany({
+                      where: { userId: targetUserId },
+                      take, orderBy: { id: 'asc' },
+                      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+                    })) as Promise<Array<Record<string, unknown> & { id: string }>>],
+                  ['PARTIES', (cursor, take) =>
+                    withNeonRetry(() => db.party.findMany({
+                      where: { userId: targetUserId },
+                      take, orderBy: { id: 'asc' },
+                      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+                    })) as Promise<Array<Record<string, unknown> & { id: string }>>],
+                ]
+
+                for (const [label, fetchBatch] of sections) {
+                  // The count is not known up front any more — that was only
+                  // possible because everything was in memory. It is reported
+                  // after the section instead, which is the honest order.
+                  write(`\n=== ${label} ===\n`)
+                  let headerWritten = false
+
+                  const count = await streamAllPaged(label.toLowerCase(), fetchBatch, batch => {
+                    if (batch.length === 0) return
+                    if (!headerWritten) {
+                      write(csvRow(Object.keys(batch[0])))
+                      headerWritten = true
+                    }
+                    // Built per batch rather than per row so the encoder is not
+                    // called thousands of times for a few bytes each.
+                    write(batch.map(r => csvRow(Object.values(r))).join(''))
+                  })
+
+                  write(`--- ${label} ROW COUNT: ${count} ---\n`)
+                  streamedRows += count
+                }
+
+                // The marker that makes truncation detectable.
+                write(`\n=== END OF EXPORT — ${streamedRows} ROWS TOTAL ===\n`)
+
+                await db.dataExportRequest.update({
+                  where: { id },
+                  data: {
+                    status: 'completed',
+                    fileName: fName,
+                    fileSizeBytes: streamedBytes,
+                    rowCount: streamedRows,
+                    completedAt: new Date(),
+                  },
+                })
+
+                await logAdminAction({
+                  adminId: ctx.adminId,
+                  action: 'data_export_complete',
+                  description: `Generated ${exportReq.type} export: ${fName} (${streamedRows} rows, ${(streamedBytes / 1024).toFixed(1)} KB, streamed)`,
+                  targetType: 'data_export',
+                  targetId: id,
+                })
+
+                controller.close()
+              } catch (err) {
+                // Mark failed, then abort the body so the operator cannot mistake
+                // a partial file for a finished one.
+                try {
+                  await db.dataExportRequest.update({
+                    where: { id },
+                    data: {
+                      status: 'failed',
+                      errorMessage: err instanceof Error ? err.message.slice(0, 500) : String(err).slice(0, 500),
+                    },
+                  })
+                } catch (recordErr) {
+                  // The export has already failed. Failing to RECORD that must
+                  // not mask the original error, which is about to reach the
+                  // client via controller.error() — but it must still be
+                  // visible, or the request is left stuck on "processing" with
+                  // no explanation anywhere.
+                  console.error('[data-export] could not mark export failed:', recordErr)
+                }
+                controller.error(err)
+              }
+            },
+          })
+
+          return new NextResponse(stream, {
+            headers: {
+              'Content-Type': 'text/csv; charset=utf-8',
+              'Content-Disposition': `attachment; filename="${fName}"`,
+              // Streamed: length is unknown until the last row is read.
+              'Cache-Control': 'no-store',
+            },
+          })
         }
 
         // NOTE on the bulk exports below (audit 2026-07-26): each applied a
@@ -267,7 +342,8 @@ export const POST = withAdmin(
     console.error('Export generation error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Export generation failed',    }, { status: 500 })
+      error: 'Export generation failed',
+    }, { status: 500 })
   }
 },
 )

@@ -191,9 +191,40 @@ export function exportToCsv(result: QueryResult): string {
   return lines.join('\n')
 }
 
-function escapeCsv(value: any): string {
+/**
+ * Formats one value as a CSV cell.
+ *
+ * Exported (audit 2026-07-28) because the DSAR export route was building its
+ * CSV by hand with `String(v || '')`, which is wrong in three ways this
+ * function is not:
+ *
+ *   - `v || ''` turns 0 into an EMPTY CELL. On a money column that is silent
+ *     corruption: a zero-value transaction exported as blank, in a document
+ *     produced to satisfy a legal access request. `false` vanished the same way.
+ *   - No quoting, so a party named `Sharma, Ram` split into two columns and
+ *     shifted every following field on that row.
+ *   - No formula guard (below).
+ *
+ * There must be one of these, not two.
+ */
+export function escapeCsv(value: unknown): string {
   if (value === null || value === undefined) return ''
-  const str = String(value)
+
+  // Dates must not depend on the server's locale.
+  let str = value instanceof Date ? value.toISOString() : String(value)
+
+  // CSV injection: a cell beginning =, +, @ or a control character is executed
+  // as a formula when the file is opened in Excel or Sheets. These exports
+  // carry shopkeeper-supplied text (party names, notes), so the content is
+  // untrusted by definition, and the person opening the file is an operator or
+  // a regulator. Prefixing an apostrophe makes the cell literal text.
+  //
+  // Applied only to strings: a negative amount arrives as the NUMBER -500 and
+  // must stay numeric, while the string "-500" from a text column is guarded.
+  if (typeof value === 'string' && /^[=+@\t\r]/.test(str)) {
+    str = `'${str}`
+  }
+
   // Escape quotes by doubling them, wrap in quotes if contains comma/quote/newline
   if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
     return `"${str.replace(/"/g, '""')}"`

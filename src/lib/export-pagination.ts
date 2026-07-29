@@ -80,6 +80,55 @@ export async function fetchAllPaged<T extends { id: string }>(
 }
 
 /**
+ * Same guarantees as fetchAllPaged, but hands each batch to the caller and
+ * FORGETS it instead of accumulating every row in an array.
+ *
+ * WHY (audit 2026-07-28): fetchAllPaged fixed the correctness problem — an
+ * export is complete or it says so — but it still materialised the entire
+ * result set in memory, and the caller then concatenated it into one giant
+ * string. Two full copies of a shopkeeper's ledger, live at once, inside a
+ * serverless function with a fixed memory ceiling.
+ *
+ * That is survivable for a corner shop and fatal for the successful ones. The
+ * failure also lands in the worst possible place: a DPDP s.11 access request
+ * dying with an out-of-memory kill, for the users with the most data.
+ *
+ * Streaming keeps memory flat at one batch regardless of total size.
+ */
+export async function streamAllPaged<T extends { id: string }>(
+  section: string,
+  fetchBatch: (cursor: string | undefined, take: number) => Promise<T[]>,
+  onBatch: (batch: T[]) => void | Promise<void>,
+  batchSize = 1000,
+): Promise<number> {
+  let cursor: string | undefined
+  let total = 0
+
+  // Keyset, not OFFSET — see fetchAllPaged.
+  for (;;) {
+    const batch = await fetchBatch(cursor, batchSize)
+    total += batch.length
+
+    await onBatch(batch)
+
+    if (batch.length < batchSize) break
+
+    if (total > DSAR_HARD_CEILING) {
+      throw new ExportIncompleteError(
+        `Export exceeded ${DSAR_HARD_CEILING.toLocaleString()} rows in section "${section}". ` +
+          `Refusing to produce a document that would be silently incomplete. ` +
+          `Investigate before retrying.`,
+        section,
+      )
+    }
+
+    cursor = batch[batch.length - 1].id
+  }
+
+  return total
+}
+
+/**
  * Runs a bounded query and reports HONESTLY whether more rows exist, by asking
  * for one more row than the limit. Replaces hardcoding `truncated: false`.
  */

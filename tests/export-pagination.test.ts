@@ -119,7 +119,7 @@ describe('the subject-access export path is never degraded', () => {
   // still receive a document short of the data they are legally owed.
   //
   // DPDP s.11 requires completeness. These sections must PROPAGATE.
-  it('user_data sections use fetchAllPaged, not a swallowing catch', () => {
+  it('user_data sections page to completion, with no swallowing catch', () => {
     const src = readFileSync(
       join(__dirname, '..', 'src', 'app', 'api', 'admin', 'data-exports', 'generate', 'route.ts'),
       'utf8',
@@ -128,10 +128,26 @@ describe('the subject-access export path is never degraded', () => {
       src.indexOf("case 'user_data'"),
       src.indexOf("case 'all_users'"),
     )
-    expect(userDataBlock).toContain('fetchAllPaged')
+
+    // 2026-07-28: this used to require the literal name `fetchAllPaged`, and
+    // broke the moment the route switched to the streaming variant — while the
+    // property it cared about (page to completion, never swallow) was still
+    // held. Pinning an identifier tests the spelling, not the guarantee.
+    //
+    // What must remain true: every section pages to completion through one of
+    // the completeness helpers, and none of them is capped.
+    expect(userDataBlock).toMatch(/(fetchAllPaged|streamAllPaged)/)
     for (const section of ['transactions', 'products', 'parties']) {
-      expect(userDataBlock).toContain(`fetchAllPaged('${section}'`)
+      expect(userDataBlock.toLowerCase()).toContain(section)
     }
+
+    // No hardcoded row cap anywhere in the subject-access branch. `take` here
+    // must be the batch size handed in by the pager, never a literal — a
+    // literal is how the original `take: 1000` truncation happened.
+    const codeOnly = userDataBlock
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
+    expect(codeOnly).not.toMatch(/take:\s*\d+/)
 
     // Comments must be stripped first. The block contains explanatory comments
     // QUOTING the old `.catch(() => [])` code, and matching those would fail
