@@ -3,6 +3,12 @@ import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { sendNotification, substituteVariables, type Channel } from '@/lib/notification-providers'
+import {
+  checkSendAllowed,
+  normaliseCategory,
+  partitionByConsent,
+  ensureStopInstruction,
+} from '@/lib/comms-compliance'
 import { logAdminAction } from '@/lib/audit'
 
 /**
@@ -38,7 +44,7 @@ const MAX_RECIPIENTS = 1000
 export const POST = withAdmin(
   'admin/notifications/send',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
     const body = await req.json()
     const {
       mode,
@@ -107,6 +113,18 @@ export const POST = withAdmin(
       finalChannel = channel as Channel
       finalSubject = subject || null
       finalBody = rawBody
+      // 🐛 FIX (audit 2026-07-28): direct mode used to leave `category` at its
+      // 'general' default, which normalises to "service" — so the entire TRAI
+      // gate was skipped for direct sends. An admin could paste promotional
+      // copy, target raw phone numbers, and send at 3am with no DLT template,
+      // no consent check and no window, simply by not using a template.
+      //
+      // The category must now be DECLARED. It still defaults to service, but
+      // declaring it promotional is what makes the refusal below reachable, and
+      // every direct send is audited with the category claimed — so a
+      // mislabelled blast is attributable to whoever sent it rather than
+      // invisible.
+      category = typeof body.category === 'string' ? body.category : 'service'
     }
 
     // ============ BUILD RECIPIENT LIST ============
@@ -186,10 +204,121 @@ export const POST = withAdmin(
       }))
     }
 
+    // ============ TRAI / DPDP COMPLIANCE GATE ============
+    // 🔒 §B6 (audit 2026-07-28). Nothing here existed before: a promotional SMS
+    // blast at 2am, to users who never opted in, on an unregistered DLT
+    // template, was three clicks away in this panel. That is exposure for the
+    // company, not a bug in a screen.
+    //
+    // Placed AFTER the recipient list is built and BEFORE the first send, so a
+    // refusal costs nothing and a partial blast is impossible.
+    //
+    // Transactional and service messages pass straight through — they are
+    // contract performance, and gating a payment receipt would be both wrong
+    // and the fastest way to get this whole gate deleted.
+    const messageCategory = normaliseCategory(category)
+
+    // Checked FIRST, because it is the more fundamental refusal: a raw phone
+    // number has no user behind it, so its consent cannot be looked up at all.
+    // Running the DLT check first would answer "no DLT template id" — true, but
+    // misleading, since direct mode has no template to attach one to, and it
+    // would send the operator off to the DLT portal instead of to template mode.
+    if (messageCategory === 'promotional' && mode === 'direct') {
+      await ctx.audit({
+        action: 'notification_send_refused',
+        description: `Refused promotional ${finalChannel} send to ${recipientList.length} raw address(es): consent cannot be established for addresses with no user`,
+        targetType: 'notification',
+      })
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Promotional messages cannot be sent to raw addresses.',
+          code: 'PROMOTIONAL_REQUIRES_KNOWN_USERS',
+          remedy:
+            'Send promotional messages in template mode to selected users, so each recipient’s opt-in can be checked.',
+        },
+        { status: 422 },
+      )
+    }
+
+    const refusal = checkSendAllowed(
+      {
+        category,
+        channel: finalChannel,
+        dltTemplateId: template?.dltTemplateId,
+        dltHeaderId: template?.dltHeaderId,
+        approvalStatus: template?.approvalStatus,
+      },
+      new Date(),
+    )
+
+    if (refusal) {
+      // Refused sends are audited too. "We tried to blast at 2am and the system
+      // stopped us" is exactly the record you want to be able to produce.
+      await ctx.audit({
+        action: 'notification_send_refused',
+        description: `Refused ${messageCategory} ${finalChannel} send to ${recipientList.length} recipient(s): ${refusal.code}`,
+        targetType: 'notification_template',
+        targetId: template?.id ?? null,
+      })
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: refusal.message,
+          code: refusal.code,
+          remedy: refusal.remedy,
+        },
+        { status: 422 },
+      )
+    }
+
+    // Consent filtering. Absence of a preference row means NO promotional
+    // consent — silence is not opt-in under DPDP. Direct-mode recipients have
+    // no userId, so they cannot be consent-checked; promotional direct sends
+    // are therefore refused outright rather than sent to unknown consent state.
+    let consentBlocked: Array<{ userId: string | null; address: string }> = []
+
+    if (messageCategory === 'promotional') {
+      const prefs = await withTimeout(
+        db.communicationPreference.findMany({
+          where: {
+            userId: { in: recipientList.map(r => r.userId).filter((v): v is string => !!v) },
+            channel: finalChannel,
+            category: 'promotional',
+          },
+          select: { userId: true, channel: true, category: true, optedIn: true },
+        }),
+        5000,
+      )
+
+      const withUser = recipientList.filter((r): r is typeof r & { userId: string } => !!r.userId)
+      const { allowed, blocked } = partitionByConsent(withUser, 'promotional', finalChannel, prefs)
+
+      consentBlocked = blocked.map(b => ({ userId: b.userId, address: b.address }))
+      recipientList = allowed
+    }
+
+    // Direct mode has no per-recipient identity, so nothing about it is
+    // reviewable after the fact unless it is recorded here. Audited for every
+    // direct send, not just refused ones: the category is a CLAIM by the
+    // sender, and a claim nobody wrote down is a claim nobody can check.
+    if (mode === 'direct') {
+      await ctx.audit({
+        action: 'notification_direct_send',
+        description: `Direct ${finalChannel} send to ${recipientList.length} raw address(es), declared category "${messageCategory}"`,
+        targetType: 'notification',
+      })
+    }
+
     if (recipientList.length === 0) {
       return NextResponse.json({
         success: false,
-        error: 'No valid recipients found. Users may be missing phone (SMS) or email or device token (Push).',
+        error:
+          consentBlocked.length > 0
+            ? `All ${consentBlocked.length} recipient(s) were skipped: no promotional opt-in on record.`
+            : 'No valid recipients found. Users may be missing phone (SMS) or email or device token (Push).',
+        ...(consentBlocked.length > 0 ? { code: 'NO_CONSENTING_RECIPIENTS', consentBlocked: consentBlocked.length } : {}),
       }, { status: 400 })
     }
 
@@ -211,7 +340,15 @@ export const POST = withAdmin(
 
     for (const r of recipientList) {
       // Substitute variables in body
-      const substitutedBody = substituteVariables(finalBody, r.variables)
+      // 🔒 §B6: every promotional SMS must carry a way out. Appended
+      // server-side rather than trusted to the template — a template
+      // missing it is a compliance breach, and templates get edited in a
+      // hurry by people who are not thinking about TRAI.
+      const substitutedBody = ensureStopInstruction(
+        substituteVariables(finalBody, r.variables),
+        messageCategory,
+        finalChannel,
+      )
       const substitutedSubject = finalSubject
         ? substituteVariables(finalSubject, r.variables)
         : null
@@ -292,7 +429,8 @@ export const POST = withAdmin(
     console.error('Send notification error:', error)
     return NextResponse.json({
       success: false,
-      error: 'Failed to send notifications',    }, { status: 500 })
+      error: 'Failed to send notifications',
+    }, { status: 500 })
   }
 },
 )

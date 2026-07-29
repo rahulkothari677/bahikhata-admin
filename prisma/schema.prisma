@@ -1053,6 +1053,15 @@ model NotificationTemplate {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+
+  // 🔒 TRAI TCCCPR / DLT (audit 2026-07-28, master report §B6).
+  // A promotional SMS may only be sent on a template registered on a DLT
+  // portal, under a registered header (sender ID). These are null for
+  // transactional and service messages, which are contract performance and
+  // deliberately not gated — gating those would break payment receipts.
+  dltTemplateId  String?
+  dltHeaderId    String?
+  approvalStatus String   @default("pending") // pending | approved | rejected
   @@index([channel, status])
   @@index([category, status])
   @@index([status])
@@ -1681,3 +1690,24 @@ model ImpersonationToken {
 // designed properly: add the model to BOTH schemas simultaneously, with the
 // main app owning the migration. See INTEGRATION-CONTRACT.md (Phase D.6).
 
+/// Per-user, per-channel, per-category messaging consent.
+///
+/// 🔒 DPDP + TRAI (audit 2026-07-28, §B6). The ABSENCE of a row means no
+/// promotional consent: silence is not opt-in. Transactional and service
+/// messages do not consult this table at all — a receipt is not marketing.
+model CommunicationPreference {
+  id         String    @id @default(cuid())
+  userId     String
+  channel    String    // sms | email | push | whatsapp
+  category   String    // promotional (transactional/service are never gated)
+  optedIn    Boolean   @default(false)
+  /// Where the opt-in came from — required to evidence double opt-in.
+  source     String?
+  optedInAt  DateTime?
+  optedOutAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([userId, channel, category])
+  @@index([userId])
+}
