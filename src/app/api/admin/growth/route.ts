@@ -14,7 +14,7 @@ import { db } from '@/lib/db'
 export const GET = withAdmin(
   'admin/growth',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
     const now = new Date()
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
@@ -163,23 +163,34 @@ export const GET = withAdmin(
     }
 
     // ===== 4. GROWTH TRENDS (signups per day, last 30 days) =====
-    const recentSignups = await db.user.findMany({
-      where: { createdAt: { gte: thirtyDaysAgo } },
-      select: { createdAt: true },
-      orderBy: { createdAt: 'asc' },
-    })
+    // 🐛 SCALE FIX (audit 2026-07-28): this loaded EVERY user who signed up in
+    // the last 30 days — one row each — purely to count them into 30 buckets.
+    // During a good launch month that is the entire new user base crossing the
+    // wire so JavaScript can produce thirty numbers.
+    //
+    // Postgres groups it and returns at most 30 rows, whatever the signup
+    // volume. The date_trunc here is in the SELECT, not a WHERE filter on an
+    // indexed column, so it does not defeat index usage — the range filter
+    // still does the narrowing. (See docs/SCALE-PLAN.md: a function on the
+    // filtered column is what breaks partition pruning; this is not that.)
+    const signupRows = await db.$queryRaw<Array<{ day: Date; signups: bigint }>>`
+      SELECT date_trunc('day', "createdAt") AS day, COUNT(*)::bigint AS signups
+      FROM "User"
+      WHERE "createdAt" >= ${thirtyDaysAgo}
+      GROUP BY day
+    `
 
-    // Group by day
+    // Pre-seed all 30 days at zero so a day with no signups still appears —
+    // a chart that silently omits empty days misreads as "no data yet".
     const signupsByDay: Record<string, number> = {}
     for (let i = 29; i >= 0; i--) {
       const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000)
-      const dateKey = date.toISOString().split('T')[0]
-      signupsByDay[dateKey] = 0
+      signupsByDay[date.toISOString().split('T')[0]] = 0
     }
-    for (const signup of recentSignups) {
-      const dateKey = signup.createdAt.toISOString().split('T')[0]
+    for (const row of signupRows) {
+      const dateKey = new Date(row.day).toISOString().split('T')[0]
       if (signupsByDay[dateKey] !== undefined) {
-        signupsByDay[dateKey]++
+        signupsByDay[dateKey] = Number(row.signups)
       }
     }
 

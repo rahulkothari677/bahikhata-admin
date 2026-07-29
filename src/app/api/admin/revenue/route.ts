@@ -106,17 +106,36 @@ export const GET = withAdmin(
 
     // ===== 3. LTV CALCULATION =====
     // Average revenue per paying user × average subscription duration
-    const activeSubscriptions = await db.subscription.findMany({
-      where: { status: 'active' },
-      select: { amount: true, startDate: true, endDate: true },
-    })
+    // 🐛 SCALE FIX (audit 2026-07-28): this loaded EVERY active subscription
+    // into the function and summed them in JavaScript. At 100K paying users
+    // that is 100K rows crossing the wire to produce two numbers; at a million
+    // it is an out-of-memory kill on a dashboard.
+    //
+    // The sum now happens in Postgres, which returns one row regardless of how
+    // many subscribers exist. This is the same shape as the aggregate() calls
+    // used elsewhere in this route — the only reason it could not use
+    // aggregate() is the yearly/monthly split, which is derived from the dates
+    // rather than stored, so it needs a CASE expression.
+    //
+    // 💰 $queryRaw BYPASSES the Prisma money extension: "amount" comes back in
+    // PAISE, not rupees. The division by 100 below is therefore REQUIRED and
+    // must not be "cleaned up" — the extension converts findMany/aggregate
+    // results, and this is neither. Same convention as anomaly-detection.ts.
+    const [ltvRow] = await db.$queryRaw<Array<{ paying_users: bigint; monthly_paise: bigint | null }>>`
+      SELECT
+        COUNT(*)::bigint AS paying_users,
+        COALESCE(SUM(
+          CASE
+            WHEN "endDate" - "startDate" > INTERVAL '60 days' THEN "amount" / 12.0
+            ELSE "amount"
+          END
+        ), 0)::bigint AS monthly_paise
+      FROM "Subscription"
+      WHERE "status" = 'active'
+    `
 
-    const payingUsers = activeSubscriptions.length
-    const totalActiveRevenue = activeSubscriptions.reduce((sum, s) => {
-      // Normalize to monthly
-      const isYearly = s.endDate.getTime() - s.startDate.getTime() > 60 * 24 * 60 * 60 * 1000
-      return sum + (isYearly ? s.amount / 12 : s.amount)
-    }, 0)
+    const payingUsers = Number(ltvRow?.paying_users ?? 0)
+    const totalActiveRevenue = Number(ltvRow?.monthly_paise ?? 0) / 100
 
     const arpu = payingUsers > 0 ? totalActiveRevenue / payingUsers : 0
     // Assume average customer lifetime of 12 months (conservative estimate)

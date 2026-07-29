@@ -21,10 +21,32 @@ import { logAdminAction } from '@/lib/audit'
 const lastExecuteAt: { ts: number | null } = { ts: null }
 const EXECUTE_COOLDOWN_MS = 60 * 1000
 
+/**
+ * 🐛 SCALE FIX (audit 2026-07-28): the three target queries below had NO row
+ * cap. "every user on the free plan" or "everyone in this segment" is an
+ * unbounded set — at a million users a single bulk job loads a million rows
+ * into a serverless function and is OOM-killed, having already marked itself
+ * `running`.
+ *
+ * This is a FUSE, not pagination. A bulk job legitimately targeting more than
+ * this is almost certainly a mistake (a segment definition gone wrong), and the
+ * right answer is to stop and say so rather than to quietly process the first
+ * slice — which is how a "send to 5,000" turns into a partial send nobody can
+ * account for afterwards.
+ */
+const MAX_BULK_TARGETS = 10_000
+
+/**
+ * How many users one synchronous request will act on. Was applied silently as
+ * `.slice(0, 1000)`; it is now a refusal threshold, not a truncation point.
+ */
+const SYNC_EXECUTION_LIMIT = 1_000
+
 export const POST = withAdmin(
   'admin/bulk-jobs/execute',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
+
     if (lastExecuteAt.ts && Date.now() - lastExecuteAt.ts < EXECUTE_COOLDOWN_MS) {
       const remaining = Math.ceil((EXECUTE_COOLDOWN_MS - (Date.now() - lastExecuteAt.ts)) / 1000)
       return NextResponse.json({
@@ -47,6 +69,7 @@ export const POST = withAdmin(
     ).catch(ctx.degrade('bulkJob.findMany', []))
 
     let processedJobs = 0
+    let refusedJobs = 0
     let totalProcessed = 0
     let totalSuccess = 0
     let totalFailed = 0
@@ -79,6 +102,7 @@ export const POST = withAdmin(
             db.user.findMany({
               where: { plan: criteria.plan },
               select: { id: true, email: true, name: true, plan: true, phone: true },
+              take: MAX_BULK_TARGETS + 1, // +1 so an over-limit job is detectable
             })
           ).catch(ctx.degrade('user.findMany', []))
         } else if (criteria.segmentId) {
@@ -86,6 +110,7 @@ export const POST = withAdmin(
             db.userSegmentCache.findMany({
               where: { segmentId: criteria.segmentId },
               select: { userId: true },
+              take: MAX_BULK_TARGETS + 1,
             })
           ).catch(ctx.degrade('userSegmentCache.findMany', []))
           const userIds = segmentUsers.map((s: any) => s.userId)
@@ -99,8 +124,36 @@ export const POST = withAdmin(
           }
         }
 
-        // Cap at 1000 for synchronous execution
-        const cappedUsers = users.slice(0, 1000)
+        // 🐛 FIX (audit 2026-07-28): this was `users.slice(0, 1000)` with no
+        // signal. A job targeting 5,000 users processed 1,000 of them, marked
+        // itself completed, and reported a success count that looked like the
+        // whole job. Nobody could tell afterwards which 4,000 were skipped —
+        // and for actions like change_plan or send_notification, "we did this
+        // to an unknown subset of users" is the worst possible outcome.
+        //
+        // A partial bulk action must never look finished. Refuse the whole job
+        // and say what to do instead.
+        if (users.length > SYNC_EXECUTION_LIMIT) {
+          const msg =
+            `Job targets ${users.length >= MAX_BULK_TARGETS ? `${MAX_BULK_TARGETS}+` : users.length} users, ` +
+            `above the ${SYNC_EXECUTION_LIMIT} that can be processed in one request. ` +
+            `Nothing was done. Narrow the segment, or split this into smaller jobs.`
+
+          await db.bulkJob.update({
+            where: { id: job.id },
+            data: { status: 'failed', errorMessage: msg.slice(0, 500), completedAt: new Date() },
+          })
+          await ctx.audit({
+            action: 'bulk_job_refused',
+            description: msg,
+            targetType: 'bulk_job',
+            targetId: job.id,
+          })
+          refusedJobs++
+          continue
+        }
+
+        const cappedUsers = users
         let successCount = 0
         let failedCount = 0
 
@@ -199,13 +252,19 @@ export const POST = withAdmin(
     await logAdminAction({
       adminId: ctx.adminId,
       action: 'bulk_jobs_execute',
-      description: `Executed ${processedJobs} bulk jobs — ${totalProcessed} users processed, ${totalSuccess} success, ${totalFailed} failed`,
+      description:
+        `Executed ${processedJobs} bulk jobs — ${totalProcessed} users processed, ` +
+        `${totalSuccess} success, ${totalFailed} failed` +
+        (refusedJobs > 0 ? `, ${refusedJobs} REFUSED as too large (nothing done)` : ''),
       targetType: 'bulk_job',
     })
 
     return NextResponse.json({
       success: true,
       processedJobs,
+      // Surfaced separately from `totalFailed`: a refused job did NOTHING,
+      // whereas a failed one may have acted on some users before dying.
+      refusedJobs,
       totalProcessed,
       totalSuccess,
       totalFailed,
