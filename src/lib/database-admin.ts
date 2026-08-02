@@ -121,6 +121,32 @@ export function validateQuery(sql: string): ValidationResult {
     }
   }
 
+  // 🔒 AUDIT PASS-1 M5: prefix guard for filesystem / large-object / remote
+  // functions whose names the exact-word blocklist above cannot cover.
+  //
+  // `\bPG_READ_FILE\b` does NOT match `pg_read_binary_file` — different
+  // identifier, so the word-boundary test never fires. Same for pg_ls_logdir,
+  // lo_import/lo_export (server-side large objects) and dblink (outbound
+  // connections). Matching on prefix closes the whole family rather than
+  // playing whack-a-mole one function name at a time.
+  //
+  // TO BE CLEAR ABOUT WHAT THIS IS: the REAL control is the read-only role in
+  // READONLY_DATABASE_URL, which this endpoint refuses to run without (see
+  // app/api/admin/database/query/route.ts). A correctly-privileged role cannot
+  // execute any of these regardless of what the regex catches. This is
+  // defence-in-depth and a clearer error message — it is NOT the thing keeping
+  // the console safe, and nobody should treat a longer blocklist as if it were.
+  const DANGEROUS_FUNCTION_PREFIXES = [
+    'pg_read', 'pg_ls', 'pg_stat_file', 'pg_file',
+    'lo_import', 'lo_export',
+    'dblink',
+  ]
+  for (const prefix of DANGEROUS_FUNCTION_PREFIXES) {
+    if (new RegExp(`\\b${prefix}`, 'i').test(trimmed)) {
+      return { valid: false, error: `Blocked function family: ${prefix}*` }
+    }
+  }
+
   // Block semicolons (prevent multiple statements)
   if (trimmed.includes(';')) {
     // Allow only trailing semicolon
@@ -141,7 +167,19 @@ export async function executeSafeQuery(sql: string): Promise<QueryResult> {
   // Execute with row limit
   // 🔒 AUDIT FIX C5 (V6): Uses dbReadonly (read-only DB role) instead of db.
   // The database itself enforces read-only — no matter what the regex misses.
-  const limitedSql = `${cleanSql} LIMIT ${MAX_ROWS + 1}`
+  // 🔒 AUDIT PASS-1 M5: wrap in a subselect instead of concatenating LIMIT.
+  //
+  // Was: `${cleanSql} LIMIT 1001`. That is a syntax error for any query that
+  // already ends in LIMIT/OFFSET ("... LIMIT 10 LIMIT 1001"), and for a
+  // UNION whose trailing ORDER BY belongs to the whole set — so the most
+  // natural thing an admin types during an incident ("top 20 by amount")
+  // failed with a raw Postgres parse error instead of running.
+  //
+  // A subselect composes correctly in every one of those cases and still caps
+  // the row count. validateQuery has already guaranteed this is a single
+  // SELECT/WITH statement with no semicolons and no comments, so there is
+  // nothing here that can break out of the wrapper.
+  const limitedSql = `SELECT * FROM (${cleanSql}) AS "_capped" LIMIT ${MAX_ROWS + 1}`
   const result = await withTimeout(
     dbReadonly.$queryRawUnsafe(limitedSql),
     QUERY_TIMEOUT_MS
