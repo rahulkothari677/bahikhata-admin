@@ -79,17 +79,67 @@ export const POST = withAdmin(
           return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
         }
 
-        // 🐛 INTEGRATION PHASE D.4: Bump tokenVersion for all affected users
-        // so their existing JWTs are invalidated on the next request.
+        /*
+         * 🔒 A PLAN CHANGE MUST WRITE A SUBSCRIPTION (2026-08-03, Phase 3).
+         *
+         * This set `user.plan` alone. But the main app's getUserPlan() treats
+         * `user.plan` as a CLAIM to be verified: for 'pro'/'elite' it looks for
+         * an active, non-expired Subscription row and returns 'free' when there
+         * is none (main app, src/lib/usage-limits.ts — the V26 F3 expiry fix).
+         *
+         * So bulk-upgrading 100 shopkeepers reported "100 users changed to pro"
+         * and upgraded nobody. The admin saw success; the users stayed free.
+         * The identical mistake existed in the main app's referral reward and
+         * was fixed in the same pass — both predate the expiry fix, and both
+         * looked correct on their own.
+         *
+         * Downgrades to 'free' already worked (getUserPlan returns early on a
+         * free plan) but left stale 'active' rows behind, so they are expired
+         * here too rather than left to contradict the user record.
+         *
+         * All of it in one transaction: a partial apply would leave the user
+         * row and the subscription disagreeing, which is the state this whole
+         * fix exists to prevent.
+         */
+        const now = new Date()
+        const planEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
+
         const updated = await withNeonRetry(() =>
-          db.user.updateMany({
-            where: { id: { in: userIds } },
-            data: {
-              plan: params.plan,
-              renewsAt: params.plan === 'free' ? null : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-              // 🐛 D.4: increment tokenVersion to revoke existing JWTs
-              tokenVersion: { increment: 1 },
-            },
+          db.$transaction(async (tx) => {
+            const res = await tx.user.updateMany({
+              where: { id: { in: userIds } },
+              data: {
+                plan: params.plan,
+                renewsAt: params.plan === 'free' ? null : planEnd,
+                // 🐛 D.4: increment tokenVersion to revoke existing JWTs
+                tokenVersion: { increment: 1 },
+              },
+            })
+
+            // Any previous grant is superseded by this one, in both directions.
+            await tx.subscription.updateMany({
+              where: { userId: { in: userIds }, status: 'active' },
+              data: { status: 'expired' },
+            })
+
+            if (params.plan !== 'free') {
+              await tx.subscription.createMany({
+                data: userIds.map((uid: string) => ({
+                  // Subscription.id has no DB default — it must be supplied.
+                  id: `adminbulk_${uid}_${now.getTime()}`,
+                  userId: uid,
+                  plan: params.plan,
+                  status: 'active',
+                  amount: 0,            // granted by an admin, not paid for
+                  paymentMode: 'admin_grant',
+                  startDate: now,
+                  endDate: planEnd,
+                })),
+                skipDuplicates: true,
+              })
+            }
+
+            return res
           })
         )
 
