@@ -226,6 +226,35 @@ export function exportToCsv(result: QueryResult): string {
     lines.push(line)
   }
 
+  /*
+   * 🔒 2026-08-04 (Phase 7 audit): say so when rows are missing.
+   *
+   * An earlier fix stopped the bulk exports hardcoding `truncated: false` while
+   * applying a `take` limit — fetchWithTruncationFlag asks for limit+1 rows and
+   * reports what it actually found. That part works.
+   *
+   * But nothing ever read the answer. This function wrote the header and the
+   * rows and dropped `result.truncated` on the floor, and no UI displayed it
+   * either. So the flag was computed honestly and discarded: a capped export
+   * produced a CSV with no indication whatsoever that it was short. Someone
+   * opens all_users_2026-08-04.csv, sees N rows, and reasonably concludes that
+   * is everyone.
+   *
+   * A file that is silently incomplete is worse than one that fails, because
+   * it gets used. The notice goes at the END: a trailing line cannot shift the
+   * header or the column alignment, so every CSV reader still parses the data
+   * rows correctly, and anyone scrolling to the bottom — or diffing two
+   * exports — sees it.
+   */
+  if (result.truncated) {
+    lines.push('')
+    lines.push(
+      escapeCsv(
+        `# INCOMPLETE EXPORT — capped at ${result.rowCount} rows. More rows exist and are NOT included. Narrow the query or use a subject-access export, which is never capped.`,
+      ),
+    )
+  }
+
   return lines.join('\n')
 }
 

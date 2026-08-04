@@ -350,7 +350,21 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
   'admin/audit-chain/verify': { GET: [], cron: true, purpose: 'Detect tampering in the admin audit chain', pii: 'none', lawfulBasis: LEGAL_DUTY, verdict: 'keep', note: 'Read-only by design — a verifier that can write to what it verifies proves nothing.' },
   'admin/data-exports': { GET: [], POST: [], stepUp: true, purpose: 'Serve DPDP access requests and authorised bulk exports', pii: 'third-party', lawfulBasis: DSR, verdict: 'constrain' },
   'admin/data-exports/[id]': { DELETE: [], purpose: 'Delete a generated export file', pii: 'third-party', lawfulBasis: DSR, verdict: 'keep' },
-  'admin/data-exports/generate': { POST: [], stepUp: true, purpose: 'Produce the export payload', pii: 'third-party', lawfulBasis: DSR, verdict: 'constrain', note: '🔴 Silently caps at 1,000 transactions while hardcoding truncated:false. A DPDP access request must be COMPLETE — this is a legal defect, not just a scale one. Also buffers the whole file in memory.' },
+  // 🔒 Note corrected 2026-08-04 (Phase 7 audit). It described a defect that had
+  // already been fixed, and this register feeds buildProcessingRegister() — the
+  // DPDP documentation. A stale 🔴 there is not harmless: it misdescribes the
+  // processing to whoever reads the register.
+  //
+  // Verified in the code: subject-access exports stream via streamAllPaged and
+  // are NOT capped (the 5,000,000 ceiling refuses to truncate rather than
+  // silently cutting). The 1,000 cap applies only to the operator's own bulk
+  // dumps, and fetchWithTruncationFlag reports truncation honestly.
+  //
+  // What was still broken: the honest flag reached nobody. exportToCsv dropped
+  // result.truncated and no UI showed it, so a capped dump produced a CSV with
+  // no sign it was short. Fixed in database-admin.ts — the CSV now carries an
+  // INCOMPLETE EXPORT line.
+  'admin/data-exports/generate': { POST: [], stepUp: true, purpose: 'Produce the export payload', pii: 'third-party', lawfulBasis: DSR, verdict: 'constrain', note: 'Subject-access exports stream and are never capped. Operator bulk dumps cap at 1,000 and now say so in the file itself. Remaining: bulk dumps still buffer in memory before writing.' },
   'admin/database': { GET: [], purpose: 'Inspect database size and table statistics', pii: 'none', lawfulBasis: LEGIT_OPS, verdict: 'keep' },
   'admin/database/query': { POST: [], stepUp: true, purpose: 'Read-only SQL for incident investigation', pii: 'third-party', lawfulBasis: LEGIT_OPS, verdict: 'keep', note: 'AUDITED AND SOUND — fails closed without READONLY_DATABASE_URL, SELECT/WITH only, keyword-blocked, statement timeout, audit-logged. Do not modify.' },
   'admin/database/export': { POST: [], stepUp: true, purpose: 'Export query results', pii: 'third-party', lawfulBasis: LEGIT_OPS, verdict: 'constrain', note: 'Must stream, not buffer.' },
