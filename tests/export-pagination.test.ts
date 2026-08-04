@@ -88,27 +88,44 @@ describe('fetchAllPaged — subject access completeness', () => {
     )
   })
 
+  /*
+   * Reaching DSAR_HARD_CEILING (5,000,000) means 5,000 batches of 1,000, and
+   * fetchAllPaged accumulates every row. These two tests therefore build ten
+   * million objects between them.
+   *
+   * They used to mint each id with `${Math.random()}${i}`, adding five million
+   * float-to-string conversions per test on top of the allocation. That was
+   * slow enough to sit just under vitest's default 5s timeout and pass, and
+   * adding ONE unrelated test file to the suite was enough to tip it over —
+   * it then failed on every full run while still passing in isolation.
+   *
+   * A test whose result depends on what else is running is not a gate, and
+   * this one guards a DPDP s.11 completeness rule. A cheap monotonic counter
+   * gives unique ids for the same assertion at a fraction of the cost, and the
+   * explicit timeout states the budget instead of inheriting a default that
+   * happened to be near the edge.
+   */
+  let nextId = 0
+  const hugeBatch = async (_c: string | undefined, take: number) =>
+    Array.from({ length: take }, () => ({ id: String(nextId++) }))
+
   it('refuses to continue past the hard ceiling rather than truncate', async () => {
-    const huge = {
-      fetchBatch: async (_c: string | undefined, take: number) =>
-        Array.from({ length: take }, (_, i) => ({ id: `${Math.random()}${i}` })),
-    }
     await expect(
-      fetchAllPaged('transactions', huge.fetchBatch, 1000),
+      fetchAllPaged('transactions', hugeBatch, 1000),
     ).rejects.toBeInstanceOf(ExportIncompleteError)
-  })
+  }, 30_000)
 
   it('names the failing section so the operator knows what is incomplete', async () => {
-    const huge = {
-      fetchBatch: async (_c: string | undefined, take: number) =>
-        Array.from({ length: take }, (_, i) => ({ id: `${Math.random()}${i}` })),
-    }
-    await fetchAllPaged('parties', huge.fetchBatch, 1000).catch((e) => {
+    // expect.assertions guards the shape of this test: .catch() with the
+    // assertions inside it would pass silently if the call ever stopped
+    // rejecting, which is the exact regression being guarded against.
+    expect.assertions(3)
+    await fetchAllPaged('parties', hugeBatch, 1000).catch((e) => {
       expect(e).toBeInstanceOf(ExportIncompleteError)
       expect((e as ExportIncompleteError).section).toBe('parties')
       expect(String(e)).toContain(DSAR_HARD_CEILING.toLocaleString())
     })
-  })
+  }, 30_000)
 })
 
 describe('the subject-access export path is never degraded', () => {
