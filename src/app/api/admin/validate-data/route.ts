@@ -22,7 +22,7 @@ import { safeCount, validateStat, checkDbHealth, type ValidationResult } from '@
 export const GET = withAdmin(
   'admin/validate-data',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
     // Check DB health first
     const dbHealthy = await checkDbHealth()
     if (!dbHealthy) {
@@ -48,6 +48,10 @@ export const GET = withAdmin(
     ] = await Promise.all([
       safeCount(() => dbRead.user.count(), 'totalUsers'),
       safeCount(() => dbRead.user.count({ where: { plan: { in: ['pro', 'elite'] } } }), 'payingUsers'),
+      // 🔒 2026-08-04 (Phase 7 audit): DELIBERATELY counts every row including
+      // soft-deleted ones. This is an integrity check on the table itself, not
+      // a business metric — it must see what is actually stored. The reporting
+      // queries elsewhere were swept to exclude deleted rows; this is not one.
       safeCount(() => dbRead.transaction.count(), 'totalTxns'),
       safeCount(() => dbRead.aiUsageLog.count(), 'aiCalls'),
     ])

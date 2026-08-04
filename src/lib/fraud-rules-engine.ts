@@ -89,6 +89,21 @@ function matchesOperator(value: number, threshold: number, operator: string): bo
 // =====================================================================
 // TRANSACTION COUNT
 // =====================================================================
+/*
+ * 🔒 2026-08-04 (Phase 7 audit): every evaluator below DELIBERATELY includes
+ * soft-deleted transactions.
+ *
+ * A sweep that day added `deletedAt: null` to the reporting metrics (overview
+ * GMV, daily rollups, growth, segments, churn, GST filing) because a deleted
+ * invoice must not inflate a number the founder or a shopkeeper reads.
+ *
+ * Fraud detection is the deliberate exception. Creating transactions and then
+ * deleting them is exactly the behaviour these rules exist to catch, so a row
+ * vanishing is evidence, not noise. Filtering here would blind the engine to
+ * its own subject matter.
+ *
+ * Do not "align" these with the metrics queries.
+ */
 async function evalTransactionCount(params: EvaluatorParams): Promise<UserMetric[]> {
   const where: any = {
     ...buildTimeWhere(params.windowMinutes, 'createdAt'),

@@ -29,7 +29,9 @@ export const GET = withAdmin(
     ] = await Promise.all([
       dbRead.user.count(),
       dbRead.product.groupBy({ by: ['userId'], _count: true }).then(g => g.length),
-      dbRead.transaction.groupBy({ by: ['userId'], where: { type: 'sale' } }).then(g => g.length),
+      // 🔒 2026-08-04 (Phase 7 audit): a user whose only sales were deleted is
+      // not an activated user. Live rows only — see admin/overview.
+      dbRead.transaction.groupBy({ by: ['userId'], where: { type: 'sale', deletedAt: null } }).then(g => g.length),
       // Users who signed up 7+ days ago AND were active in the last 7 days
       dbRead.user.count({
         where: {
@@ -102,6 +104,7 @@ export const GET = withAdmin(
       }),
       dbRead.transaction.groupBy({
         by: ['userId'],
+        where: { deletedAt: null },
         _count: { id: true },
         having: { id: { _count: { gte: 50 } } },
       }).then(g => g.length),

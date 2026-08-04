@@ -45,10 +45,14 @@ export const POST = withAdmin(
       db.user.count({ where: { createdAt: { gte: dayStart, lt: dayEnd } } }),
       db.user.count({ where: { updatedAt: { gte: dayStart, lt: dayEnd } } }),
       db.user.count({ where: { plan: { in: ['pro', 'elite'] } } }),
-      db.transaction.count({ where: { createdAt: { gte: dayStart, lt: dayEnd } } }),
-      db.transaction.count({ where: { type: 'sale', createdAt: { gte: dayStart, lt: dayEnd } } }),
-      db.transaction.count({ where: { type: 'purchase', createdAt: { gte: dayStart, lt: dayEnd } } }),
-      db.transaction.aggregate({ where: { type: 'sale' }, _sum: { totalAmount: true } }),
+      // 🔒 2026-08-04 (Phase 7 audit): deleted transactions were counted. This
+      // job WRITES A ROLLUP ROW, so a wrong number here is not just a wrong
+      // screen — it is baked into stored history and every later chart reads
+      // it back as fact. Same omission as admin/overview; see the note there.
+      db.transaction.count({ where: { createdAt: { gte: dayStart, lt: dayEnd }, deletedAt: null } }),
+      db.transaction.count({ where: { type: 'sale', createdAt: { gte: dayStart, lt: dayEnd }, deletedAt: null } }),
+      db.transaction.count({ where: { type: 'purchase', createdAt: { gte: dayStart, lt: dayEnd }, deletedAt: null } }),
+      db.transaction.aggregate({ where: { type: 'sale', deletedAt: null }, _sum: { totalAmount: true } }),
       db.aiUsageLog.aggregate({ where: { createdAt: { gte: monthStart } }, _sum: { costInr: true } }),
       db.aiUsageLog.count({ where: { createdAt: { gte: dayStart, lt: dayEnd } } }),
       db.aiUsageLog.count({ where: { feature: 'scan-bill', createdAt: { gte: dayStart, lt: dayEnd } } }),

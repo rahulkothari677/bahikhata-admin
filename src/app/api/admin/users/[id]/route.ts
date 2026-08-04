@@ -12,7 +12,7 @@ import { withNeonRetry } from '@/lib/resilience'
 export const GET = withAdmin(
   'admin/users/[id]',
   async (req: NextRequest, ctx, { params }) => {
-  try {
+  try {
     const { id } = await params
 
     const user = await db.user.findUnique({
@@ -50,8 +50,15 @@ export const GET = withAdmin(
     }
 
     // Get recent transactions (last 10)
+    // 🔒 2026-08-04 (Phase 7 audit): live rows only, to agree with the totals
+    // below. A support agent reading this list back to a shopkeeper must be
+    // describing the same book the shopkeeper is looking at — a list including
+    // entries they deleted, with nothing marking them as deleted, has the agent
+    // confidently describing a sale that no longer exists. (Showing deleted
+    // entries *labelled as deleted* would be a useful feature; silently mixing
+    // them into a list that no longer sums to the stated total is not.)
     const recentTransactions = await db.transaction.findMany({
-      where: { userId: id },
+      where: { userId: id, deletedAt: null },
       orderBy: { createdAt: 'desc' },
       take: 10,
       select: {
@@ -89,8 +96,11 @@ export const GET = withAdmin(
     })
 
     // Get transaction stats
+    // 🔒 2026-08-04 (Phase 7 audit): live rows only. This is the per-shopkeeper
+    // figure a support agent reads back to them, so it has to be the number
+    // they see in their own app — see admin/overview.
     const txStats = await db.transaction.aggregate({
-      where: { userId: id, type: 'sale' },
+      where: { userId: id, type: 'sale', deletedAt: null },
       _sum: { totalAmount: true, grossProfit: true },
       _count: true,
     })
@@ -135,7 +145,7 @@ export const GET = withAdmin(
 export const PATCH = withAdmin(
   'admin/users/[id]',
   async (req: NextRequest, ctx, { params }) => {
-  try {
+  try {
     const { id } = await params
     const body = await req.json()
     const { plan, renewsAt } = body

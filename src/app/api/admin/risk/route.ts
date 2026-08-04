@@ -95,6 +95,11 @@ export const GET = withAdmin(
         ).catch(ctx.degrade('user.count', 0)),
 
         // High-value transactions count (₹1L+ in last 7 days)
+        // 🔒 2026-08-04 (Phase 7 audit): DELIBERATELY counts soft-deleted rows.
+        // A sweep added `deletedAt: null` to the reporting metrics, and this is
+        // not one — creating large transactions and deleting them is a laundering
+        // pattern, so a row disappearing is a signal to keep, not to drop. Do not
+        // "fix" this to match the metrics queries.
         withTimeout(
           dbRead.transaction.count({
             where: {

@@ -19,7 +19,7 @@ import { maskEmail, maskName } from '@/lib/pii'
 export const GET = withAdmin(
   'admin/activity',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
     const url = new URL(req.url)
     const range = url.searchParams.get('range') || '7d'
     const type = url.searchParams.get('type') || 'all'
@@ -46,7 +46,8 @@ export const GET = withAdmin(
 
     const [signupCount, txnCount, aiCallCount, subCount, adminActionCount] = await Promise.all([
       safeCount(() => dbRead.user.count({ where: { createdAt: { gte: rangeStart } } })),
-      safeCount(() => dbRead.transaction.count({ where: { createdAt: { gte: rangeStart } } })),
+      // 🔒 2026-08-04 (Phase 7 audit): live rows only — see admin/overview.
+      safeCount(() => dbRead.transaction.count({ where: { createdAt: { gte: rangeStart }, deletedAt: null } })),
       safeCount(() => dbRead.aiUsageLog.count({ where: { createdAt: { gte: rangeStart } } })),
       safeCount(() => dbRead.subscription.count({ where: { createdAt: { gte: rangeStart } } })),
       safeCount(() => dbRead.adminAction.count({ where: { createdAt: { gte: rangeStart } } })),

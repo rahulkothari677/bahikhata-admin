@@ -185,9 +185,12 @@ export async function computeChurnPredictions(): Promise<ComputeSummary> {
 
     // Last transactions per user
     const lastTxns = await withNeonRetry(() =>
+      // 🔒 2026-08-04 (Phase 7 audit): a deleted transaction is not activity.
+      // Counting one as "last seen" makes a churning user look healthy — the
+      // opposite of what this model exists to detect.
       db.transaction.groupBy({
         by: ['userId'],
-        where: { userId: { in: userIds } },
+        where: { userId: { in: userIds }, deletedAt: null },
         _max: { createdAt: true },
       })
     ).catch((e) => { console.error('[fallback] churn-prediction.ts:', e); return [] })

@@ -58,12 +58,32 @@ export async function generateGstReport(year: number, month: number): Promise<Gs
   const periodEnd = new Date(year, month + 1, 0, 23, 59, 59)
   const period = `${year}-${String(month + 1).padStart(2, '0')}`
 
-  // Fetch transactions with GST data for this period
+  /*
+   * 🔒 2026-08-04 (Phase 7 audit). Two faults, both of which made this report
+   * disagree with the return the shopkeeper actually files.
+   *
+   * 1. DELETED INVOICES WERE COUNTED. There was no `deletedAt` filter anywhere
+   *    in this file. The main app excludes soft-deleted rows from every GST
+   *    surface without exception (gstr-1, gstr-3b, reports), so a shopkeeper who
+   *    deleted a wrongly-entered invoice removed it from their return while it
+   *    stayed in this one. Tax reported here was permanently overstated, and it
+   *    never came back down.
+   *
+   * 2. THE PERIOD WAS BUCKETED BY `createdAt`, NOT `date`. createdAt is when the
+   *    ROW was written; date is the invoice date, which is what a tax period is
+   *    defined by. Enter a 31 July invoice on 2 August — routine, and the whole
+   *    point of the app is catching up on the shop's paperwork — and it landed
+   *    in August here and July in the shopkeeper's return.
+   *
+   * Either one alone is enough to make the two numbers differ. The main app is
+   * the authority: it is what gets filed. This file now matches it.
+   */
   const transactions = await withNeonRetry(() =>
     db.transaction.findMany({
       where: {
-        createdAt: { gte: periodStart, lte: periodEnd },
+        date: { gte: periodStart, lte: periodEnd },
         type: 'sale',
+        deletedAt: null,
       },
       select: {
         id: true,
@@ -176,8 +196,9 @@ export async function getGstOverview() {
 
   const [thisMonthTxns, lastMonthTxns, totalGstUsers, totalGstCollected] = await Promise.all([
     withTimeout(
+      // Invoice date, and live rows only — see the note in generateGstReport.
       db.transaction.aggregate({
-        where: { createdAt: { gte: thisMonthStart }, type: 'sale' },
+        where: { date: { gte: thisMonthStart }, type: 'sale', deletedAt: null },
         _sum: { cgst: true, sgst: true, igst: true },
         _count: true,
       }),
@@ -185,19 +206,20 @@ export async function getGstOverview() {
     ).catch((e) => { console.error('[fallback] gst-filing.ts:', e); return ({ _sum: { cgst: 0, sgst: 0, igst: 0 }, _count: 0 }) }),
     withTimeout(
       db.transaction.aggregate({
-        where: { createdAt: { gte: lastMonthStart, lt: thisMonthStart }, type: 'sale' },
+        where: { date: { gte: lastMonthStart, lt: thisMonthStart }, type: 'sale', deletedAt: null },
         _sum: { cgst: true, sgst: true, igst: true },
         _count: true,
       }),
       5000
     ).catch((e) => { console.error('[fallback] gst-filing.ts:', e); return ({ _sum: { cgst: 0, sgst: 0, igst: 0 }, _count: 0 }) }),
     withTimeout(
-      db.user.count({ where: { transactions: { some: { OR: [{ cgst: { gt: 0 } }, { sgst: { gt: 0 } }, { igst: { gt: 0 } }] } } } }),
+      // A user whose only GST invoices were deleted is no longer a GST filer.
+      db.user.count({ where: { transactions: { some: { deletedAt: null, OR: [{ cgst: { gt: 0 } }, { sgst: { gt: 0 } }, { igst: { gt: 0 } }] } } } }),
       5000
     ).catch((e) => { console.error('[fallback] gst-filing.ts:', e); return 0 }),
     withTimeout(
       db.transaction.aggregate({
-        where: { type: 'sale' },
+        where: { type: 'sale', deletedAt: null },
         _sum: { cgst: true, sgst: true, igst: true },
       }),
       5000

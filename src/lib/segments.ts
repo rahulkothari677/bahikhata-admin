@@ -102,6 +102,7 @@ export async function getSegmentCounts(): Promise<{ segments: SegmentSummary[]; 
     // Returns only userId + count, not full user records
     safeGroupBy(() => db.transaction.groupBy({
       by: ['userId'],
+      where: { deletedAt: null },
       _count: { id: true },
       having: { id: { _count: { gte: 50 } } },
     })),
@@ -110,7 +111,7 @@ export async function getSegmentCounts(): Promise<{ segments: SegmentSummary[]; 
     // Returns only userId + sum, filter in JS (small result set)
     safeGroupBy(() => db.transaction.groupBy({
       by: ['userId'],
-      where: { type: 'sale' },
+      where: { type: 'sale', deletedAt: null },
       _sum: { totalAmount: true },
     })),
 
@@ -125,6 +126,7 @@ export async function getSegmentCounts(): Promise<{ segments: SegmentSummary[]; 
     // 11. Rising Stars: users with 10+ transactions (for filtering by signup date)
     safeGroupBy(() => db.transaction.groupBy({
       by: ['userId'],
+      where: { deletedAt: null },
       _count: { id: true },
       having: { id: { _count: { gte: 10 } } },
     })),
@@ -223,7 +225,7 @@ export async function getSegmentUsers(segmentId: string, page: number = 1, limit
     // we first get the user IDs, then query with WHERE id IN (...)
     case 'power_users': {
       const txns = await db.transaction.groupBy({
-        by: ['userId'], _count: { id: true }, having: { id: { _count: { gte: 50 } } },
+        by: ['userId'], where: { deletedAt: null }, _count: { id: true }, having: { id: { _count: { gte: 50 } } },
       })
       where.id = { in: txns.map((t: any) => t.userId) }
       where.updatedAt = { gte: sevenDaysAgo }
@@ -231,7 +233,7 @@ export async function getSegmentUsers(segmentId: string, page: number = 1, limit
     }
     case 'whales': {
       const sales = await db.transaction.groupBy({
-        by: ['userId'], where: { type: 'sale' }, _sum: { totalAmount: true },
+        by: ['userId'], where: { type: 'sale', deletedAt: null }, _sum: { totalAmount: true },
       })
       where.id = { in: sales.filter((s: any) => (s._sum.totalAmount || 0) >= 50000).map((s: any) => s.userId) }
       break
@@ -246,7 +248,7 @@ export async function getSegmentUsers(segmentId: string, page: number = 1, limit
     }
     case 'rising_stars': {
       const txns = await db.transaction.groupBy({
-        by: ['userId'], _count: { id: true }, having: { id: { _count: { gte: 10 } } },
+        by: ['userId'], where: { deletedAt: null }, _count: { id: true }, having: { id: { _count: { gte: 10 } } },
       })
       where.id = { in: txns.map((t: any) => t.userId) }
       where.createdAt = { gte: sevenDaysAgo }

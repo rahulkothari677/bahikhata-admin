@@ -47,8 +47,19 @@ export const GET = withAdmin(
     ] = await Promise.all([
       count('totalUsers', () => dbRead.user.count({ where: { deletedAt: null } })),
       count('todayActiveUsers', () => dbRead.user.count({ where: { updatedAt: { gte: todayStart }, deletedAt: null } })),
-      agg('totalGmv', () => dbRead.transaction.aggregate({ _sum: { totalAmount: true } }), 'totalAmount'),
-      count('totalTransactions', () => dbRead.transaction.count()),
+      /*
+       * 🔒 2026-08-04 (Phase 7 audit): `deletedAt: null` was missing here while
+       * every user query on the lines around it had it. Proven live: created a
+       * ₹2,360 sale, watched GMV rise by exactly ₹2,360 and the count by 1,
+       * deleted the sale — it vanished from the shopkeeper's books (404) and
+       * BOTH admin figures stayed put.
+       *
+       * So GMV only ever went up. Every deleted invoice, test entry and
+       * mistyped sale on the platform was still in the founder's headline
+       * number, and nothing would ever remove it.
+       */
+      agg('totalGmv', () => dbRead.transaction.aggregate({ where: { deletedAt: null }, _sum: { totalAmount: true } }), 'totalAmount'),
+      count('totalTransactions', () => dbRead.transaction.count({ where: { deletedAt: null } })),
       agg('monthAiCost', () => dbRead.aiUsageLog.aggregate({ where: { createdAt: { gte: monthStart } }, _sum: { costInr: true } }), 'costInr'),
       count('payingUsers', () => dbRead.user.count({ where: { plan: { in: ['pro', 'elite'] }, deletedAt: null } })),
       agg('monthRevenue', () => dbRead.subscription.aggregate({ where: { status: 'active' }, _sum: { amount: true } }), 'amount'),

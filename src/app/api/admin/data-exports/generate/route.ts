@@ -104,6 +104,22 @@ export const POST = withAdmin(
                 write(csvRow(Object.values(user)))
                 streamedRows += 1
 
+                /*
+                 * 🔒 2026-08-04 (Phase 7 audit): these queries DELIBERATELY
+                 * include soft-deleted rows.
+                 *
+                 * A sweep that day added `deletedAt: null` across the reporting
+                 * metrics. A subject-access export is the opposite case: DPDP
+                 * s.11 entitles the person to the personal data the controller
+                 * HOLDS, and a soft-deleted row is still held — it is sitting in
+                 * the table, retained under the GST s.36 obligation. Filtering
+                 * it out would hand someone an export that silently omits data
+                 * we still have about them, which is the failure this endpoint
+                 * exists to prevent.
+                 *
+                 * Each row carries its own deletedAt column, so the export shows
+                 * what was deleted and when rather than hiding it.
+                 */
                 const sections: Array<[string, (cursor: string | undefined, take: number) => Promise<Array<Record<string, unknown> & { id: string }>>]> = [
                   ['TRANSACTIONS', (cursor, take) =>
                     withNeonRetry(() => db.transaction.findMany({
