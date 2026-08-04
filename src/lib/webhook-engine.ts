@@ -26,6 +26,7 @@
 import crypto from 'crypto'
 import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
+import { assertSafeWebhookUrl } from '@/lib/webhook-url-guard'
 
 // =====================================================================
 // EVENT TYPE DEFINITIONS
@@ -177,6 +178,40 @@ export async function sendDelivery(deliveryId: string): Promise<{
   const now = new Date()
 
   try {
+    /*
+     * 🔒 2026-08-04 (Phase 7 audit): re-check the destination immediately
+     * before fetching it.
+     *
+     * The write paths validate, but validating only on write cannot be
+     * sufficient here for two reasons. A hostname that resolved publicly at
+     * creation can resolve to a private address later — DNS rebinding is not
+     * exotic, it is the standard SSRF technique. And any future code path that
+     * sets a URL without calling the guard reopens the hole silently; PATCH
+     * was exactly that path until today.
+     *
+     * This is the last line before the request leaves the server, so it is the
+     * one check that cannot be routed around.
+     */
+    const verdict = await assertSafeWebhookUrl(delivery.endpoint.url)
+    if (!verdict.ok) {
+      const reason = `Refused to deliver: ${verdict.error}${verdict.detail ? ` (${verdict.detail})` : ''}`
+      console.error(`[webhook] ${reason} — endpoint ${delivery.endpoint.id}`)
+      await db.webhookDelivery.update({
+        where: { id: deliveryId },
+        data: {
+          status: 'failed',
+          attemptCount: attemptNumber,
+          // No responseBody: nothing was fetched, and inventing one would make
+          // a blocked request look like a real reply from the destination.
+          errorMessage: reason,
+          firstAttemptAt: delivery.firstAttemptAt || now,
+          lastAttemptAt: now,
+          nextRetryAt: null, // a private address will not become public on retry
+        },
+      })
+      return { success: false, status: 'failed', error: reason }
+    }
+
     // Prepare headers
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',

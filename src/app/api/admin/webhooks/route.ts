@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
 import { VALID_EVENTS, EVENT_CONFIGS } from '@/lib/webhook-engine'
+import { assertSafeWebhookUrl } from '@/lib/webhook-url-guard'
 import crypto from 'crypto'
 
 /**
@@ -137,80 +138,22 @@ export const POST = withAdmin(
       return NextResponse.json({ error: `Invalid events: ${invalidEvents.join(', ')}` }, { status: 400 })
     }
 
-    // Validate URL format + SSRF protection
-    let parsedUrl: URL
-    try {
-      parsedUrl = new URL(url)
-    } catch {
-      return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 })
-    }
-
-    // 🔒 V26 A3+N4 FIX: SSRF protection with DNS resolution.
-    // Was: string-match only on hostname (bypassable via DNS-resolving domains,
-    // decimal IP encoding like http://2130706433/, IPv6-mapped forms).
-    // Now: resolves the hostname to IP(s) via dns.lookup and checks each
-    // against private/loopback/link-local ranges. Also blocks non-http(s)
-    // protocols and non-standard ports.
-    if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
-      return NextResponse.json({ error: 'Webhook URL must use http or https protocol' }, { status: 400 })
-    }
-
-    // Block non-standard ports (80, 443 only)
-    const port = parsedUrl.port || (parsedUrl.protocol === 'https:' ? '443' : '80')
-    if (port !== '80' && port !== '443') {
-      return NextResponse.json({ error: 'Webhook URL must use standard ports (80 or 443)' }, { status: 400 })
-    }
-
-    const hostname = parsedUrl.hostname.toLowerCase()
-
-    // Quick string-match denylist (catches literal private IPs/hosts)
-    const SSRF_BLOCKED_LITERALS = [
-      'localhost', '127.0.0.1', '0.0.0.0', '::1',
-      '169.254.', '10.', '192.168.',
-      '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.',
-      '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.',
-      '172.28.', '172.29.', '172.30.', '172.31.',
-      'fc00:', 'fd00:', 'fe80:',
-    ]
-    if (SSRF_BLOCKED_LITERALS.some(pattern => hostname.startsWith(pattern) || hostname === pattern)) {
-      return NextResponse.json({ error: 'Webhook URL must not point to a private or internal address' }, { status: 400 })
-    }
-
-    // 🔒 V26 N4: DNS-resolve the hostname and check resolved IPs.
-    // This catches domains whose A-record points at a private IP (DNS rebinding).
-    // Use Node's dns.lookup (available in Vercel serverless).
-    const dns = await import('dns').then(m => m.promises || m.default?.promises).catch(() => null)
-    if (dns && dns.lookup) {
-      try {
-        // Resolve all addresses (IPv4 + IPv6)
-        const addresses = await dns.lookup(hostname, { all: true })
-        for (const addr of addresses) {
-          const ip = addr.address
-          // Check each resolved IP against private ranges
-          const isPrivate =
-            ip === '127.0.0.1' || ip === '::1' || ip === '0.0.0.0' ||
-            ip.startsWith('10.') ||
-            ip.startsWith('192.168.') ||
-            ip.startsWith('169.254.') ||
-            ip.startsWith('172.16.') || ip.startsWith('172.17.') || ip.startsWith('172.18.') ||
-            ip.startsWith('172.19.') || ip.startsWith('172.20.') || ip.startsWith('172.21.') ||
-            ip.startsWith('172.22.') || ip.startsWith('172.23.') || ip.startsWith('172.24.') ||
-            ip.startsWith('172.25.') || ip.startsWith('172.26.') || ip.startsWith('172.27.') ||
-            ip.startsWith('172.28.') || ip.startsWith('172.29.') || ip.startsWith('172.30.') ||
-            ip.startsWith('172.31.') ||
-            ip.startsWith('fc00:') || ip.startsWith('fd00:') || ip.startsWith('fe80:')
-          if (isPrivate) {
-            return NextResponse.json({
-              error: 'Webhook URL resolves to a private or internal address',
-              detail: `Hostname ${hostname} resolves to ${ip}, which is in a private range.`,
-            }, { status: 400 })
-          }
-        }
-      } catch {
-        // DNS resolution failed — allow through (the webhook delivery will
-        // fail naturally if the hostname is truly unresolvable). We don't
-        // block on DNS errors to avoid false negatives from temporary DNS issues.
-      }
+    /*
+     * 🔒 2026-08-04 (Phase 7 audit): moved into lib/webhook-url-guard.ts.
+     *
+     * This check was thorough and correct — and it was the ONLY place it ran.
+     * PATCH /api/admin/webhooks/[id] validated URL syntax and nothing more, so
+     * a webhook created here pointing at a legitimate host could be repointed
+     * at http://169.254.169.254/ (cloud metadata, which serves IAM
+     * credentials) in a second request. The delivery engine then fetched it
+     * without re-checking and stored the first 1KB of the response in a field
+     * the deliveries API returns.
+     *
+     * One implementation now, called by create, update, and delivery.
+     */
+    const verdict = await assertSafeWebhookUrl(url)
+    if (!verdict.ok) {
+      return NextResponse.json({ error: verdict.error, detail: verdict.detail }, { status: 400 })
     }
 
     // 🔒 AUDIT FIX: Partner model was deleted (lending pipeline removed).

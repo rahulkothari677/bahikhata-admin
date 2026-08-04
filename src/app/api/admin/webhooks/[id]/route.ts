@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
 import { VALID_EVENTS } from '@/lib/webhook-engine'
+import { assertSafeWebhookUrl } from '@/lib/webhook-url-guard'
 
 /**
  * PATCH /api/admin/webhooks/[id]
@@ -12,7 +13,7 @@ import { VALID_EVENTS } from '@/lib/webhook-engine'
 export const PATCH = withAdmin(
   'admin/webhooks/[id]',
   async (req: NextRequest, ctx, { params }) => {
-  try {
+  try {
     const { id } = await params
     const body = await req.json()
     const { url, events, status, description } = body
@@ -32,9 +33,26 @@ export const PATCH = withAdmin(
       }
     }
 
+    /*
+     * 🔒 2026-08-04 (Phase 7 audit). This was `new URL(url)` and nothing else —
+     * a SYNTAX check — while POST /api/admin/webhooks ran a full SSRF guard.
+     * So the guard was a formality:
+     *
+     *   1. create a webhook at https://example.com                → passes
+     *   2. PATCH the url to http://169.254.169.254/latest/meta-data/ → passed
+     *
+     * That is the cloud instance metadata service, which hands back IAM
+     * credentials, and the delivery engine stores the first 1KB of every
+     * response in a field the deliveries API returns — so it was not blind
+     * SSRF but a full read primitive.
+     *
+     * Same guard as the create path now, because validation that lives on one
+     * code path is not validation.
+     */
     if (url !== undefined) {
-      try { new URL(url) } catch {
-        return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 })
+      const verdict = await assertSafeWebhookUrl(url)
+      if (!verdict.ok) {
+        return NextResponse.json({ error: verdict.error, detail: verdict.detail }, { status: 400 })
       }
     }
 
@@ -71,7 +89,7 @@ export const PATCH = withAdmin(
 export const DELETE = withAdmin(
   'admin/webhooks/[id]',
   async (req: NextRequest, ctx, { params }) => {
-  try {
+  try {
     const { id } = await params
     const existing = await db.webhookEndpoint.findUnique({ where: { id } })
     if (!existing) {
