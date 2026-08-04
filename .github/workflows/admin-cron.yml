@@ -23,6 +23,12 @@ on:
     - cron: '30 0 * * *'
     # 3:00 AM UTC (8:30 AM IST) — Revenue Recognition (after daily stats)
     - cron: '0 3 * * *'
+    # 🔒 2026-08-04 (Phase 7 audit) — 4:00 AM UTC (9:30 AM IST) — Audit Chain
+    # Verification. verifyAuditChain() existed and was correct, but nothing
+    # ever called it: seven jobs ran on this schedule and the one that detects
+    # tampering with the record of who did what was not among them. A
+    # tamper-EVIDENT log nobody inspects is not tamper-evident.
+    - cron: '0 4 * * *'
     # ===== FREQUENT JOBS =====
     # Every 15 minutes — Fraud Rules
     - cron: '*/15 * * * *'
@@ -159,6 +165,39 @@ jobs:
             exit 1
           fi
           echo "✅ Revenue recognition recomputed successfully"
+
+  # 🔒 2026-08-04 (Phase 7 audit): the audit log is a hash chain, and until this
+  # job existed nothing ever recomputed it. The verifier was written, correct
+  # and tested — it simply had no callers. Tampering was detectable in theory
+  # and undetected in practice, which is worse than no chain at all, because
+  # the chain is the reason anyone trusts the log.
+  #
+  # A non-200 here means the record of every admin action is no longer
+  # trustworthy. It must fail the workflow loudly rather than pass quietly.
+  verify-audit-chain:
+    name: Verify Audit Chain
+    if: github.event.inputs.job == 'audit-chain' || github.event.inputs.job == 'all' || (github.event_name == 'schedule' && github.event.schedule == '0 4 * * *')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Verify the admin audit chain
+        run: |
+          echo "🔄 Verifying admin audit chain..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X GET \
+            "${{ secrets.ADMIN_URL }}/api/admin/audit-chain/verify" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ AUDIT CHAIN VERIFICATION FAILED (HTTP $HTTP_CODE)"
+            echo "An admin action record was edited, inserted or removed."
+            echo "Treat the audit log as untrusted until this is explained."
+            exit 1
+          fi
+          echo "✅ Audit chain intact"
 
   # ===== FREQUENT JOBS (run every few minutes) =====
 

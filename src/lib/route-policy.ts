@@ -343,6 +343,11 @@ export const ROUTE_POLICY: Record<string, RoutePolicy> = {
 
   // ─── Data & compliance ────────────────────────────────────────────────
   'admin/audit-log': { GET: [], purpose: 'Tamper-evident record of every admin action', pii: 'identifiers', lawfulBasis: LEGAL_DUTY, verdict: 'constrain', note: 'Needs hash chaining, append-only DB grants, and a viewer UI.' },
+  // 🔒 2026-08-04 (Phase 7 audit): verifyAuditChain() existed, was correct and
+  // well-tested, and had ZERO callers — no route, no workflow. The chain that
+  // makes the log above "tamper-evident" was never once inspected. Read-only,
+  // and runs nightly; `cron: true` lets the scheduled job authenticate.
+  'admin/audit-chain/verify': { GET: [], cron: true, purpose: 'Detect tampering in the admin audit chain', pii: 'none', lawfulBasis: LEGAL_DUTY, verdict: 'keep', note: 'Read-only by design — a verifier that can write to what it verifies proves nothing.' },
   'admin/data-exports': { GET: [], POST: [], stepUp: true, purpose: 'Serve DPDP access requests and authorised bulk exports', pii: 'third-party', lawfulBasis: DSR, verdict: 'constrain' },
   'admin/data-exports/[id]': { DELETE: [], purpose: 'Delete a generated export file', pii: 'third-party', lawfulBasis: DSR, verdict: 'keep' },
   'admin/data-exports/generate': { POST: [], stepUp: true, purpose: 'Produce the export payload', pii: 'third-party', lawfulBasis: DSR, verdict: 'constrain', note: '🔴 Silently caps at 1,000 transactions while hardcoding truncated:false. A DPDP access request must be COMPLETE — this is a legal defect, not just a scale one. Also buffers the whole file in memory.' },
