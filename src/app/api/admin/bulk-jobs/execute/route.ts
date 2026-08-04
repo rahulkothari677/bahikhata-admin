@@ -88,15 +88,34 @@ export const POST = withAdmin(
         try { criteria = JSON.parse(job.targetCriteria) } catch {}
         try { params = JSON.parse(job.actionParams) } catch {}
 
-        // Fetch target users
+        /*
+         * 🔒 2026-08-04 (Phase 7 audit): remember whether resolving the targets
+         * FAILED, as opposed to genuinely matching nobody.
+         *
+         * Each query below degraded to [] on error. An empty list then sailed
+         * past the over-limit guard, the per-user loop ran zero times, and the
+         * job was marked completed with 0 processed — identical to "the segment
+         * matched nobody". A founder scheduling a discount for 500 churning
+         * users would see "completed", and nobody would receive it.
+         *
+         * ctx.degrade exists precisely to mark a value as NOT REAL, and it logs
+         * loudly on a cron run, but the degraded value still flowed into a job
+         * outcome without anyone consulting it. A failure must not be able to
+         * look like a fact.
+         */
         let users: any[] = []
+        let targetsDegraded = false
+        const markDegraded = <T,>(section: string, fallback: T) => (err: unknown): T => {
+          targetsDegraded = true
+          return ctx.degrade<T>(section, fallback)(err)
+        }
         if (criteria.userIds && Array.isArray(criteria.userIds)) {
           users = await withNeonRetry(() =>
             db.user.findMany({
               where: { id: { in: criteria.userIds } },
               select: { id: true, email: true, name: true, plan: true, phone: true },
             })
-          ).catch(ctx.degrade('bulkJob.update', []))
+          ).catch(markDegraded('user.findMany', []))
         } else if (criteria.plan) {
           users = await withNeonRetry(() =>
             db.user.findMany({
@@ -104,7 +123,7 @@ export const POST = withAdmin(
               select: { id: true, email: true, name: true, plan: true, phone: true },
               take: MAX_BULK_TARGETS + 1, // +1 so an over-limit job is detectable
             })
-          ).catch(ctx.degrade('user.findMany', []))
+          ).catch(markDegraded('user.findMany', []))
         } else if (criteria.segmentId) {
           const segmentUsers = await withNeonRetry(() =>
             db.userSegmentCache.findMany({
@@ -112,7 +131,7 @@ export const POST = withAdmin(
               select: { userId: true },
               take: MAX_BULK_TARGETS + 1,
             })
-          ).catch(ctx.degrade('userSegmentCache.findMany', []))
+          ).catch(markDegraded('userSegmentCache.findMany', []))
           const userIds = segmentUsers.map((s: any) => s.userId)
           if (userIds.length > 0) {
             users = await withNeonRetry(() =>
@@ -120,7 +139,7 @@ export const POST = withAdmin(
                 where: { id: { in: userIds } },
                 select: { id: true, email: true, name: true, plan: true, phone: true },
               })
-            ).catch(ctx.degrade('user.findMany', []))
+            ).catch(markDegraded('user.findMany', []))
           }
         }
 
@@ -133,6 +152,28 @@ export const POST = withAdmin(
         //
         // A partial bulk action must never look finished. Refuse the whole job
         // and say what to do instead.
+        // A job whose target list could not be read must not report success.
+        // Left 'scheduled' would retry forever against a broken query; marked
+        // 'completed' would claim work that never happened. 'failed' with the
+        // reason is the only honest outcome, and it is re-runnable by hand.
+        if (targetsDegraded) {
+          const msg =
+            'Could not read the target users for this job (the query failed). ' +
+            'Nothing was done. Re-run it once the database is healthy.'
+          await db.bulkJob.update({
+            where: { id: job.id },
+            data: { status: 'failed', errorMessage: msg, completedAt: new Date() },
+          })
+          await ctx.audit({
+            action: 'bulk_job_refused',
+            description: msg,
+            targetType: 'bulk_job',
+            targetId: job.id,
+          })
+          refusedJobs++
+          continue
+        }
+
         if (users.length > SYNC_EXECUTION_LIMIT) {
           const msg =
             `Job targets ${users.length >= MAX_BULK_TARGETS ? `${MAX_BULK_TARGETS}+` : users.length} users, ` +
