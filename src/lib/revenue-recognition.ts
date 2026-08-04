@@ -103,8 +103,28 @@ export async function computeRevenueSchedule(subscriptionId: string): Promise<{
   // Determine number of months (approximate — 30 days per month)
   const numMonths = Math.max(1, Math.round(diffDays / 30))
 
-  // Monthly recognition amount
+  /*
+   * 🔒 2026-08-04 (Phase 7 audit): the schedule must sum to what was collected.
+   *
+   * Every entry used to carry the same rounded monthlyAmount, with nothing
+   * absorbing the remainder. For a ₹2,999 yearly plan that is
+   * 2999/12 = 249.9166… → 249.92, and 249.92 × 12 = ₹2,999.04.
+   *
+   * Four paise recognised that were never collected — on every yearly
+   * subscription, always OVER and never under, because 249.9166 rounds up.
+   * Elite is the same: ₹5,999 becomes ₹5,999.04.
+   *
+   * The amount is trivial; the property is not. Recognised revenue exceeding
+   * cash received breaks the reconciliation an auditor or a diligence team
+   * runs first — deferred + recognised should equal collected, exactly. A
+   * number that does not tie out invites a question about every other number.
+   *
+   * Standard treatment: even instalments, and the FINAL period takes the
+   * remainder. The last month here is a few paise lighter, and the schedule
+   * sums to the amount collected to the paisa.
+   */
   const monthlyAmount = Math.round((subscription.amount / numMonths) * 100) / 100
+  const finalMonthAmount = Math.round((subscription.amount - monthlyAmount * (numMonths - 1)) * 100) / 100
 
   // Create schedule entries for each month
   const entries: Array<{
@@ -144,7 +164,9 @@ export async function computeRevenueSchedule(subscriptionId: string): Promise<{
       subscriptionId: subscription.id,
       userId: subscription.userId,
       plan: subscription.plan,
-      amount: monthlyAmount,
+      // The last period absorbs the rounding remainder so the schedule sums
+      // to the amount collected. See the note above monthlyAmount.
+      amount: i === numMonths - 1 ? finalMonthAmount : monthlyAmount,
       periodStart,
       periodEnd,
       status,
