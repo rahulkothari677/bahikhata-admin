@@ -14,6 +14,7 @@ import {
   Flag, ScrollText, Settings,
   ChevronDown, ChevronRight,
   Bell, Mail, Smartphone, Send,
+  ShieldCheck,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -140,6 +141,10 @@ const NAV_STRUCTURE: NavGroup[] = [
       { label: 'Data Exports', href: '/data-exports', icon: FileBarChart },
       { label: 'Impersonation Log', href: '/impersonation-log', icon: UserCheck },
       { label: 'Audit Log', href: '/audit-log', icon: ScrollText },
+      // 🔒 2026-08-04 (Phase 7 audit): 11 routes require step-up and there was
+      // no way to perform it — no page, no dialog, nothing handling the
+      // STEP_UP_REQUIRED code. The features were unreachable, not protected.
+      { label: 'Security Verification', href: '/step-up', icon: ShieldCheck },
       { label: 'Settings', href: '/settings', icon: Settings },
     ],
   },

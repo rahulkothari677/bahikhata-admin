@@ -285,10 +285,15 @@ export function withAdmin(routeKey: string, handler: Handler) {
         .catch(() => null)
 
       if (!isStepUpValid(fresh?.stepUpVerifiedAt)) {
+        // 🔒 2026-08-04 (Phase 7 audit): this said "Verify at /api/admin/step-up",
+        // which is a POST endpoint expecting a JSON body — not something an
+        // operator can do from a browser. There was also no UI anywhere that
+        // handled this code, so eleven features were gated behind a control
+        // with no way to satisfy it. Point at the page a human can actually use.
         return fail(
           403,
           'STEP_UP_REQUIRED',
-          'This action needs your authenticator code. Verify at /api/admin/step-up and retry.',
+          'This action needs your authenticator code. Open /step-up, enter the 6-digit code, then retry.',
           requestId,
         )
       }
