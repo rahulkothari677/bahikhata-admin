@@ -108,7 +108,30 @@ export const DELETE = withAdmin(
 
     return NextResponse.json({ success: true, message: 'Webhook deleted' })
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to delete webhook' }, { status: 500 })
+    /*
+     * 🔒 2026-08-04 (Phase 7 audit): this catch discarded the error entirely —
+     * no console.error, unlike the PATCH handler thirty lines above.
+     *
+     * Deleting a webhook fails in production with a flat 500, and because the
+     * cause was thrown away there was no way to find out why: not from the
+     * response, not from the logs. An error handler that drops its error turns
+     * a fixable bug into an unfixable one.
+     *
+     * The Prisma error CODE is returned alongside the message. Codes like
+     * P2003 (foreign key) and P2025 (record not found) are documented
+     * constants, not internals — they say which class of failure occurred
+     * without leaking column names, constraint names or query text, which is
+     * what an earlier audit removed from the setup route.
+     */
+    const code =
+      typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code: unknown }).code)
+        : undefined
+    console.error('[webhooks/delete] failed:', code ?? '(no code)', error)
+    return NextResponse.json(
+      { error: 'Failed to delete webhook', code, requestId: ctx.requestId },
+      { status: 500 },
+    )
   }
 },
 )
