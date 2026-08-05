@@ -61,7 +61,7 @@ import { toPaise, fromPaise } from './money'
 // Maps each model to its money columns. These are the columns that changed
 // from Float (rupees) to Int (paise) in Phase 4.
 
-const MONEY_COLUMNS: Record<string, string[]> = {
+export const MONEY_COLUMNS: Record<string, string[]> = {
   Product: ['purchasePrice', 'salePrice', 'mrp'],
   Party: ['openingBalance'],
   Transaction: ['subtotal', 'discountAmount', 'cgst', 'sgst', 'igst', 'totalAmount', 'roundOff', 'paidAmount', 'grossProfit'],

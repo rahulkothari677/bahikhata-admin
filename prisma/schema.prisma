@@ -996,6 +996,15 @@ model NpsFeedback {
   @@index([score])
 }
 model DailyStats {
+  // 🔒 2026-08-05: these money columns are Int, not Float. The shared database
+  // stores money as integer PAISE — the main app's migration
+  // 20260712000001_paise_migration ran ALTER COLUMN ... TYPE INTEGER on them.
+  // This schema was never updated to match, so Prisma serialised a float8 into
+  // an int4 column and every WRITE failed with Postgres 22P03 "incorrect binary
+  // data format in bind parameter". Reads survived; writes did not.
+  //
+  // Found only after the missing DELETE grant was fixed: revenue recompute got
+  // as far as its INSERT for the first time and hit this immediately.
   id              String   @id @default(cuid())
   date            DateTime @unique  // the day this record represents (midnight UTC)
 
@@ -1006,20 +1015,20 @@ model DailyStats {
   payingUsers     Int      @default(0)  // cumulative paying users
 
   // Revenue metrics
-  mrr             Float    @default(0)  // monthly recurring revenue (end of day)
-  newMrr          Float    @default(0)  // new MRR added this day
-  churnedMrr      Float    @default(0)  // MRR lost this day
-  arr             Float    @default(0)  // annual run rate (mrr * 12)
+  mrr             Int      @default(0)  // monthly recurring revenue (end of day)
+  newMrr          Int      @default(0)  // new MRR added this day
+  churnedMrr      Int      @default(0)  // MRR lost this day
+  arr             Int      @default(0)  // annual run rate (mrr * 12)
 
   // Transaction metrics
-  totalGmv        Float    @default(0)  // gross merchandise value (sum of all sales)
+  totalGmv        Int      @default(0)  // gross merchandise value (sum of all sales)
   totalTxns       Int      @default(0)  // total transactions this day
   salesCount      Int      @default(0)  // sales this day
   purchasesCount  Int      @default(0)  // purchases this day
 
   // AI metrics
   aiCalls         Int      @default(0)  // total AI calls this day
-  aiCostInr       Float    @default(0)  // AI cost this day (INR)
+  aiCostInr       Int      @default(0)  // AI cost this day (INR)
   aiScans         Int      @default(0)  // bill scans this day
   voiceParses     Int      @default(0)  // voice entries this day
 
@@ -1369,11 +1378,20 @@ model WebhookDelivery {
   @@index([createdAt])
 }
 model RevenueSchedule {
+  // 🔒 2026-08-05: these money columns are Int, not Float. The shared database
+  // stores money as integer PAISE — the main app's migration
+  // 20260712000001_paise_migration ran ALTER COLUMN ... TYPE INTEGER on them.
+  // This schema was never updated to match, so Prisma serialised a float8 into
+  // an int4 column and every WRITE failed with Postgres 22P03 "incorrect binary
+  // data format in bind parameter". Reads survived; writes did not.
+  //
+  // Found only after the missing DELETE grant was fixed: revenue recompute got
+  // as far as its INSERT for the first time and hit this immediately.
   id              String   @id @default(cuid())
   subscriptionId  String                             // FK to Subscription (not enforced — cross-relation)
   userId          String                             // denormalized for fast queries
   plan            String                             // pro | elite (snapshot)
-  amount          Float                              // revenue recognized this period (₹)
+  amount          Int                                // revenue recognized this period (₹)
   periodStart     DateTime                           // start of the month (e.g. Jan 1 00:00)
   periodEnd       DateTime                           // end of the month (e.g. Jan 31 23:59)
   status          String   @default("pending")       // pending | current | recognized
