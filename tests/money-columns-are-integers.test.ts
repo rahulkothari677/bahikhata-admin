@@ -35,6 +35,7 @@ import { describe, it, expect } from 'vitest'
 import fs from 'fs'
 import path from 'path'
 import { MONEY_COLUMNS } from '../src/lib/prisma-money-extension'
+import { toPaise, fromPaise } from '../src/lib/money'
 
 const ROOT = process.cwd()
 const schema = fs.readFileSync(path.join(ROOT, 'prisma/schema.prisma'), 'utf8').replace(/\r\n/g, '\n')
@@ -110,6 +111,66 @@ describe('this schema agrees with the migration that owns the database', () => {
         .map((c) => `${c.table}.${c.col} is ${models[c.table][c.col]} here but INTEGER in the database`)
       expect(drift).toEqual([])
     })
+  })
+})
+
+describe('what the extension writes is always a whole number of paise', () => {
+  /*
+   * Declaring the column Int is only half of it. The value Prisma sends must
+   * also BE an integer, or Postgres rejects it with the same 22P03.
+   *
+   * This is not theoretical for revenue schedules. A ₹2,999 yearly plan spread
+   * over 12 months is ₹249.9166… per month. Multiplied by 100 that is 24991.66
+   * paise — a fraction, into an integer column.
+   *
+   * The live database cannot demonstrate this either way: the only active
+   * subscription is a comped Pro grant worth ₹0, and 0 × 100 = 0 whether the
+   * conversion rounds or not. Verified against production on 2026-08-05 —
+   * totalActiveRevenue: 0, planDistribution.pro.revenue: 0. So the guarantee
+   * has to be pinned here instead.
+   */
+  const REALISTIC = [
+    2999 / 12,   // yearly Pro spread monthly — 249.9166…
+    4999 / 12,   // yearly Elite
+    499,         // monthly Pro
+    1.005,       // the float-representation trap toPaise() exists to fix
+    0.1 + 0.2,   // 0.30000000000000004
+    0,           // the comped grant that is actually in the database
+
+    /*
+     * These six are the ones that give this test teeth, and they were added
+     * only after breaking it proved the others did not.
+     *
+     * Removing the Math.round from toPaise() still passed with the six values
+     * above, because every one of them happens to multiply cleanly: 249.92 × 100
+     * is exactly 24992 in binary floating point. A guard that survives the bug
+     * it is meant to catch is not a guard.
+     *
+     * Below, x × 100 lands just off an integer — 0.07 × 100 is
+     * 7.000000000000001, 0.29 × 100 is 28.999999999999996 — which is precisely
+     * the fractional value Postgres would reject from an int4 column.
+     */
+    0.07, 0.14, 0.28, 0.29, 0.55, 0.57,
+  ]
+
+  it.each(REALISTIC)('toPaise(%p) is a whole number', (rupees) => {
+    const paise = toPaise(rupees)
+    expect(Number.isInteger(paise), `${rupees} → ${paise} is not an integer`).toBe(true)
+  })
+
+  it('does not lose more than half a paise on the way back', () => {
+    // Half a paise is the most rounding to the nearest paise can cost. The
+    // epsilon is for the comparison itself, not the conversion: 1.005 lands on
+    // 0.005000000000000115 because that is how the subtraction reads in binary
+    // floating point, which is the very effect toPaise() exists to absorb.
+    for (const r of REALISTIC) {
+      expect(Math.abs(fromPaise(toPaise(r)) - r)).toBeLessThanOrEqual(0.005 + 1e-9)
+    }
+  })
+
+  it('the trap case rounds up, not down', () => {
+    // 1.005 × 100 in floating point is 100.499…, which Math.round takes to 100.
+    expect(toPaise(1.005)).toBe(101)
   })
 })
 
