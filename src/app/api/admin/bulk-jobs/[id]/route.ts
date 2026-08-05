@@ -44,6 +44,7 @@ export const PATCH = withAdmin(
 
     return NextResponse.json({ success: true, job: updated })
   } catch (error) {
+    console.error('[admin/bulk-jobs/[id]] failed:', error)
     return NextResponse.json({ error: 'Failed to update job' }, { status: 500 })
   }
 },
@@ -79,6 +80,7 @@ export const DELETE = withAdmin(
 
     return NextResponse.json({ success: true, message: 'Job deleted' })
   } catch (error) {
+    console.error('[admin/bulk-jobs/[id]] failed:', error)
     return NextResponse.json({ error: 'Failed to delete job' }, { status: 500 })
   }
 },

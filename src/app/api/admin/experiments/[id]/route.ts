@@ -47,6 +47,7 @@ export const GET = withAdmin(
       },
     })
   } catch (error) {
+    console.error('[admin/experiments/[id]] failed:', error)
     return NextResponse.json({ error: 'Failed to fetch experiment' }, { status: 500 })
   }
 },
@@ -134,6 +135,7 @@ export const DELETE = withAdmin(
 
     return NextResponse.json({ success: true, message: 'Experiment deleted' })
   } catch (error) {
+    console.error('[admin/experiments/[id]] failed:', error)
     return NextResponse.json({ error: 'Failed to delete experiment' }, { status: 500 })
   }
 },

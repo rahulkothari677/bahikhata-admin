@@ -23,6 +23,7 @@ export const GET = withAdmin(
       anyConfigured: status.sms.configured || status.email.configured || status.push.configured,
     })
   } catch (error) {
+    console.error('[admin/notifications/status] failed:', error)
     return NextResponse.json({
       success: false,
       error: 'Failed to fetch provider status',

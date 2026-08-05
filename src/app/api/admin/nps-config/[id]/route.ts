@@ -36,6 +36,7 @@ export const PATCH = withAdmin(
 
     return NextResponse.json({ success: true, config: updated })
   } catch (error) {
+    console.error('[admin/nps-config/[id]] failed:', error)
     return NextResponse.json({ error: 'Failed to update' }, { status: 500 })
   }
 },
@@ -61,6 +62,7 @@ export const DELETE = withAdmin(
 
     return NextResponse.json({ success: true, message: 'Config deleted' })
   } catch (error) {
+    console.error('[admin/nps-config/[id]] failed:', error)
     return NextResponse.json({ error: 'Failed to delete' }, { status: 500 })
   }
 },

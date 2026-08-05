@@ -47,6 +47,7 @@ export const GET = withAdmin(
       },
     })
   } catch (error) {
+    console.error('[admin/campaigns/[id]] failed:', error)
     return NextResponse.json({ error: 'Failed to fetch campaign' }, { status: 500 })
   }
 },

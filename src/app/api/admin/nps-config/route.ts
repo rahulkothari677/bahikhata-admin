@@ -49,6 +49,7 @@ export const GET = withAdmin(
       })),
     })
   } catch (error) {
+    console.error('[admin/nps-config] failed:', error)
     return NextResponse.json({ error: 'Failed to fetch NPS config' }, { status: 500 })
   }
 },
@@ -92,6 +93,7 @@ export const POST = withAdmin(
 
     return NextResponse.json({ success: true, config })
   } catch (error) {
+    console.error('[admin/nps-config] failed:', error)
     return NextResponse.json({ error: 'Failed to create config' }, { status: 500 })
   }
 },

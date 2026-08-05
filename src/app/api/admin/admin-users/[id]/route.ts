@@ -121,6 +121,7 @@ export const DELETE = withAdmin(
 
     return NextResponse.json({ success: true, message: 'Admin user deleted' })
   } catch (error) {
+    console.error('[admin/admin-users/[id]] failed:', error)
     return NextResponse.json({ error: 'Failed to delete admin user' }, { status: 500 })
   }
 },

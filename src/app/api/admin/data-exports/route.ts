@@ -113,6 +113,7 @@ export const POST = withAdmin(
 
     return NextResponse.json({ success: true, export: exportReq })
   } catch (error) {
+    console.error('[admin/data-exports] failed:', error)
     return NextResponse.json({ error: 'Failed to create export' }, { status: 500 })
   }
 },

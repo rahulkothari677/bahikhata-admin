@@ -40,6 +40,7 @@ export const GET = withAdmin(
       },
     })
   } catch (error) {
+    console.error('[admin/competitors/[id]] failed:', error)
     return NextResponse.json({ error: 'Failed to fetch competitor' }, { status: 500 })
   }
 },
@@ -161,6 +162,7 @@ export const DELETE = withAdmin(
 
     return NextResponse.json({ success: true, message: 'Competitor deleted' })
   } catch (error) {
+    console.error('[admin/competitors/[id]] failed:', error)
     return NextResponse.json({ error: 'Failed to delete competitor' }, { status: 500 })
   }
 },

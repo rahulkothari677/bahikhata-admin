@@ -42,6 +42,7 @@ export const GET = withAdmin(
       },
     })
   } catch (error) {
+    console.error('[admin/api-keys/[id]] failed:', error)
     return NextResponse.json({ error: 'Failed to fetch API key' }, { status: 500 })
   }
 },

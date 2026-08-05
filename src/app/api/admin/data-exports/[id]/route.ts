@@ -18,6 +18,7 @@ export const DELETE = withAdmin(
 
     return NextResponse.json({ success: true, message: 'Export deleted' })
   } catch (error) {
+    console.error('[admin/data-exports/[id]] failed:', error)
     return NextResponse.json({ error: 'Failed to delete' }, { status: 500 })
   }
 },

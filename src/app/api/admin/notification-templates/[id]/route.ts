@@ -24,6 +24,7 @@ export const GET = withAdmin(
 
     return NextResponse.json({ success: true, template })
   } catch (error) {
+    console.error('[admin/notification-templates/[id]] failed:', error)
     return NextResponse.json({ error: 'Failed to fetch template' }, { status: 500 })
   }
 },
