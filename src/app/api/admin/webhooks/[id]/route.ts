@@ -96,7 +96,33 @@ export const DELETE = withAdmin(
       return NextResponse.json({ error: 'Endpoint not found' }, { status: 404 })
     }
 
-    await db.webhookEndpoint.delete({ where: { id } })
+    /*
+     * 🔒 2026-08-05: delete the deliveries explicitly, in one transaction.
+     *
+     * This route returned a flat 500 in production on a real endpoint with zero
+     * deliveries. The handler itself is correct — driven with a healthy mocked
+     * database it returns 200 and calls findUnique → delete → audit without
+     * throwing — and the error carried NO Prisma code, which rules out both a
+     * classified foreign-key violation (P2003) and a missing record (P2025).
+     * An unclassified database error is what Prisma reports when the underlying
+     * constraint is not one it modelled.
+     *
+     * The schema declares WebhookDelivery.endpoint with onDelete: Cascade, so
+     * `delete` alone SHOULD suffice. But this app has no prisma/migrations
+     * directory — the schema is pushed — so whether the live database actually
+     * carries that cascade cannot be established from the code, and a schema
+     * that was edited after the table was created would leave it behind.
+     *
+     * Removing the children first makes the operation correct whether the
+     * cascade exists or not. It costs one extra statement, it is idempotent,
+     * and it does not depend on a database detail this repo cannot verify.
+     * Both statements share a transaction so a failure cannot strand deliveries
+     * whose endpoint is gone.
+     */
+    await db.$transaction(async (tx) => {
+      await tx.webhookDelivery.deleteMany({ where: { endpointId: id } })
+      await tx.webhookEndpoint.delete({ where: { id } })
+    })
 
     await logAdminAction({
       adminId: ctx.adminId,
