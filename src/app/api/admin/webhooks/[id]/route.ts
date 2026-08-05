@@ -89,8 +89,24 @@ export const PATCH = withAdmin(
 export const DELETE = withAdmin(
   'admin/webhooks/[id]',
   async (req: NextRequest, ctx, { params }) => {
+  /*
+   * 🔒 2026-08-05: `stage` records how far the handler got.
+   *
+   * This route returned a flat 500 in production, and the FIRST attempt to fix
+   * it — deleting the deliveries explicitly — did not help. That left two
+   * possibilities that the response could not tell apart: the fix was deployed
+   * and something else fails, or the fix was not deployed yet and I was testing
+   * the old code. A 500 that does not say where it happened cannot be debugged
+   * from the outside, only guessed at, and guessing is what produced the first
+   * wrong fix.
+   *
+   * `stage` also doubles as a deploy marker: its presence in a 500 body proves
+   * which build answered.
+   */
+  let stage = 'start'
   try {
     const { id } = await params
+    stage = 'find'
     const existing = await db.webhookEndpoint.findUnique({ where: { id } })
     if (!existing) {
       return NextResponse.json({ error: 'Endpoint not found' }, { status: 404 })
@@ -116,14 +132,23 @@ export const DELETE = withAdmin(
      * Removing the children first makes the operation correct whether the
      * cascade exists or not. It costs one extra statement, it is idempotent,
      * and it does not depend on a database detail this repo cannot verify.
-     * Both statements share a transaction so a failure cannot strand deliveries
-     * whose endpoint is gone.
+     *
+     * Deliberately NOT wrapped in $transaction, so that when this still fails
+     * the `stage` field says which of the two statements failed — a single
+     * "transaction" stage would not. The cost of that choice is small: a
+     * failure between the two leaves the endpoint alive with its delivery LOG
+     * cleared. Deliveries are a delivery history, not records anyone is owed,
+     * and no row is orphaned in either order of failure.
+     *
+     * deleteMany, not delete: delete throws P2025 when it matches nothing, so a
+     * double-click would turn a no-op into a 500.
      */
-    await db.$transaction(async (tx) => {
-      await tx.webhookDelivery.deleteMany({ where: { endpointId: id } })
-      await tx.webhookEndpoint.delete({ where: { id } })
-    })
+    stage = 'delete-deliveries'
+    await db.webhookDelivery.deleteMany({ where: { endpointId: id } })
+    stage = 'delete-endpoint'
+    await db.webhookEndpoint.deleteMany({ where: { id } })
 
+    stage = 'audit'
     await logAdminAction({
       adminId: ctx.adminId,
       action: 'webhook_delete',
@@ -149,13 +174,35 @@ export const DELETE = withAdmin(
      * without leaking column names, constraint names or query text, which is
      * what an earlier audit removed from the setup route.
      */
-    const code =
-      typeof error === 'object' && error !== null && 'code' in error
-        ? String((error as { code: unknown }).code)
-        : undefined
-    console.error('[webhooks/delete] failed:', code ?? '(no code)', error)
+    const e = (error ?? {}) as { code?: unknown; name?: unknown; message?: unknown; meta?: unknown }
+    const code = e.code !== undefined ? String(e.code) : undefined
+
+    /*
+     * 🔒 2026-08-05: the error's CLASS is reported too, not just its code.
+     *
+     * The production 500 carried no `code` at all, which is what Prisma does
+     * for PrismaClientUnknownRequestError, PrismaClientValidationError and for
+     * any error that is not Prisma's — three very different faults that the
+     * previous response rendered identically. `name` separates them.
+     *
+     * The message is truncated at Postgres's DETAIL: marker. Everything before
+     * it names the constraint or the table; everything after it can quote the
+     * offending ROW, which is the part that would leak data.
+     */
+    const detail =
+      typeof e.message === 'string' ? e.message.split('DETAIL:')[0].trim().slice(0, 300) : undefined
+
+    console.error('[webhooks/delete] failed at', stage, code ?? '(no code)', error)
     return NextResponse.json(
-      { error: 'Failed to delete webhook', code, requestId: ctx.requestId },
+      {
+        error: 'Failed to delete webhook',
+        stage,
+        name: typeof e.name === 'string' ? e.name : undefined,
+        code,
+        detail,
+        meta: e.meta,
+        requestId: ctx.requestId,
+      },
       { status: 500 },
     )
   }
