@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
 import { withTimeout } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
 import { sendNotification, substituteVariables } from '@/lib/notification-providers'
+import { partitionByConsent, normaliseCategory, type Channel } from '@/lib/comms-compliance'
 
 /**
  * POST /api/admin/campaigns/[id]/action
@@ -272,13 +273,88 @@ export const POST = withAdmin(
       const cappedUserIds = userIds
 
       // Fetch user data
-      const users = await withTimeout(
+      const allUsers = await withTimeout(
         db.user.findMany({
           where: { id: { in: cappedUserIds } },
           select: { id: true, email: true, name: true, phone: true, plan: true },
         }),
         5000
       ).catch(ctx.degrade('campaignStep.update', []))
+
+      /*
+       * 🔒 2026-08-04 (Phase 7 audit): check promotional consent HERE too.
+       *
+       * POST /api/admin/notifications/send does this correctly — it partitions
+       * recipients by CommunicationPreference and refuses when nobody has
+       * opted in. This route, which sends the same messages through the same
+       * sendNotification(), did not consult consent at all. It looped over
+       * every user with an address and sent.
+       *
+       * That is the wrong way round. A campaign is the PROMOTIONAL path by
+       * definition — scheduled marketing to a segment — so the route that most
+       * needs the check was the one without it, while the one-off admin send
+       * that is usually service email had it.
+       *
+       * Under DPDP and the TRAI commercial-communication rules the absence of a
+       * preference row means NO consent: silence is not opt-in. That reading is
+       * already encoded in partitionByConsent and in the CommunicationPreference
+       * model's own comment. Same helper, so there is one implementation of the
+       * rule rather than two that can drift.
+       *
+       * Transactional and service categories pass through untouched — a receipt
+       * is not marketing, and partitionByConsent returns everyone for those.
+       */
+      const category = normaliseCategory(template.category)
+      let users = allUsers
+      let consentBlockedCount = 0
+
+      if (category === 'promotional') {
+        const prefs = await withTimeout(
+          db.communicationPreference.findMany({
+            where: {
+              userId: { in: allUsers.map((u: { id: string }) => u.id) },
+              channel: template.channel,
+              category: 'promotional',
+            },
+            select: { userId: true, channel: true, category: true, optedIn: true },
+          }),
+          5000,
+        ).catch(ctx.degrade('communicationPreference.findMany', []))
+
+        /*
+         * partitionByConsent matches on `userId`, and these rows carry `id`.
+         * Attach it explicitly rather than casting: a cast would satisfy the
+         * compiler while `r.userId` came back undefined at runtime, so no
+         * recipient would ever match an opt-in and EVERY promotional campaign
+         * would silently send to nobody. That failure looks identical to
+         * "nobody has opted in", which is exactly the kind of wrong answer
+         * this audit keeps finding.
+         */
+        const withUserId = allUsers.map((u: (typeof allUsers)[number]) => ({ ...u, userId: u.id }))
+
+        const { allowed, blocked } = partitionByConsent(
+          withUserId,
+          'promotional',
+          template.channel as Channel,
+          prefs as Array<{ userId: string; channel: string; category: string; optedIn: boolean }>,
+        )
+        users = allowed
+        consentBlockedCount = blocked.length
+
+        if (consentBlockedCount > 0) {
+          // Recorded, not just counted: "we did not message 400 people and
+          // cannot say why" is the state this exists to prevent.
+          await ctx.audit({
+            action: 'campaign_consent_filtered',
+            description:
+              `Campaign "${campaign.name}" step ${stepId}: skipped ${consentBlockedCount} of ` +
+              `${allUsers.length} recipient(s) with no promotional opt-in on record.`,
+            targetType: 'campaign',
+            targetId: id,
+            metadata: { stepId, channel: template.channel, blocked: consentBlockedCount, total: allUsers.length },
+          })
+        }
+      }
 
       let sentCount = 0
       let failedCount = 0
