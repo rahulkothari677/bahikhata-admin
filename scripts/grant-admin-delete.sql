@@ -22,12 +22,18 @@
 --   1. Neon console -> your project -> SQL Editor.
 --      Connect as the OWNER role (the one that created the tables), not the
 --      role in DATABASE_URL — a role cannot grant itself privileges.
---   2. Replace :admin_role below with the role name DATABASE_URL connects as.
---      GET /api/admin/database/grants reports it as `role`, so you do not have
---      to open the secret to find out.
---   3. Run the whole file.
---   4. Reload GET /api/admin/database/grants and expect ok: true. That is the
+--   2. Run the whole file.
+--   3. Reload GET /api/admin/database/grants and expect ok: true. That is the
 --      verification — do not assume it worked.
+--
+-- The role name is not a guess. GET /api/admin/database/grants reported it
+-- against the live database on 2026-08-05:
+--
+--     role: bahikhata_admin_app   database: neondb
+--     all 15 tables: can_delete = false
+--
+-- If you ever rotate DATABASE_URL to a different role, that endpoint tells you
+-- the new name — you do not have to open the secret to find out.
 --
 -- The list is deliberately explicit rather than "GRANT DELETE ON ALL TABLES".
 -- All-tables would also hand the panel DELETE on User, Transaction, Payment and
@@ -53,11 +59,11 @@ GRANT DELETE ON TABLE
   "RevenueSchedule",
   "WebhookDelivery",
   "WebhookEndpoint"
-TO :admin_role;
+TO bahikhata_admin_app;
 
 -- Confirm. Every row must show can_delete = true.
 SELECT c.relname AS table_name,
-       has_table_privilege(:'admin_role', c.oid, 'DELETE') AS can_delete
+       has_table_privilege('bahikhata_admin_app', c.oid, 'DELETE') AS can_delete
 FROM pg_class c
 JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = 'public'
@@ -70,4 +76,4 @@ WHERE n.nspname = 'public'
 ORDER BY c.relname;
 
 -- And confirm the shopkeeper tables were NOT swept up. Expect false.
-SELECT has_table_privilege(:'admin_role', '"User"', 'DELETE') AS user_delete_should_be_false;
+SELECT has_table_privilege('bahikhata_admin_app', '"User"', 'DELETE') AS user_delete_should_be_false;

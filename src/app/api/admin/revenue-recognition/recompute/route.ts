@@ -22,7 +22,7 @@ const RECOMPUTE_COOLDOWN_MS = 10 * 60 * 1000
 export const POST = withAdmin(
   'admin/revenue-recognition/recompute',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
     if (lastRecomputeAt.ts && Date.now() - lastRecomputeAt.ts < RECOMPUTE_COOLDOWN_MS) {
       const remaining = Math.ceil((RECOMPUTE_COOLDOWN_MS - (Date.now() - lastRecomputeAt.ts)) / 1000)
       return NextResponse.json({
@@ -39,13 +39,36 @@ export const POST = withAdmin(
     await logAdminAction({
       adminId: ctx.adminId,
       action: 'revenue_recognition_recompute',
-      description: `Recomputed revenue schedules — ${result.subscriptionsProcessed} subscriptions, ${result.entriesCreated} entries in ${result.durationMs}ms`,
+      description:
+        `Recomputed revenue schedules — ${result.subscriptionsProcessed}/${result.subscriptionsFound} subscriptions` +
+        `, ${result.entriesCreated} entries in ${result.durationMs}ms` +
+        (result.failed > 0 ? ` — ${result.failed} FAILED: ${result.firstError}` : ''),
       targetType: 'revenue_schedule',
     })
 
+    /*
+     * 🔒 2026-08-05: a run where every subscription failed is not a success.
+     *
+     * This returned `success: true` with the full subscription count regardless
+     * of how many actually failed, because computeAllRevenueSchedules() dropped
+     * its errors. And every one WAS failing — the database role cannot DELETE
+     * from RevenueSchedule, which that function does before recomputing. The
+     * operator saw a healthy-looking count while recognised revenue quietly
+     * stopped moving.
+     *
+     * The HTTP status stays 200 on a partial failure, deliberately: the request
+     * did run, and 200-with-a-count is what distinguishes "some subscriptions
+     * are broken" from "the endpoint is down". `success` is what says whether
+     * the work was actually done.
+     */
     return NextResponse.json({
-      success: true,
+      success: result.failed === 0,
       ...result,
+      ...(result.failed > 0 && {
+        warning:
+          `${result.failed} of ${result.subscriptionsFound} subscriptions failed to recompute. ` +
+          `Recognised revenue is stale for those. First error: ${result.firstError}`,
+      }),
     })
   } catch (error) {
     console.error('Revenue recompute error:', error)
@@ -59,7 +82,7 @@ export const POST = withAdmin(
 export const GET = withAdmin(
   'admin/revenue-recognition/recompute',
   async (req: NextRequest, ctx) => {
-  try {
+  try {
     const cooldownRemaining = lastRecomputeAt.ts
       ? Math.max(0, RECOMPUTE_COOLDOWN_MS - (Date.now() - lastRecomputeAt.ts))
       : 0

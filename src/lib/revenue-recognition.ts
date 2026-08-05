@@ -193,8 +193,30 @@ export async function computeRevenueSchedule(subscriptionId: string): Promise<{
 // Called by background job or manual "Recompute All" button.
 // Uses batch processing (chunks of 100 subscriptions) to avoid memory spikes.
 
+/**
+ * 🔒 2026-08-05: failures are counted and returned.
+ *
+ * This reported `subscriptionsProcessed: <every subscription>` and
+ * `success: true` no matter how many of them actually failed — each error was
+ * logged to the console and then dropped. An operator pressing Recompute saw
+ * "Recomputed revenue schedules — N subscriptions" whether it had done the work
+ * or nothing at all.
+ *
+ * Which is exactly what was happening. The database role cannot DELETE from
+ * RevenueSchedule (42501 — see src/lib/delete-grants.ts), and this function
+ * starts by deleting a subscription's existing schedule before recomputing it,
+ * so EVERY subscription was throwing. Recognised revenue silently stopped
+ * updating, and the P&L reads these rows.
+ *
+ * `subscriptionsProcessed` now means processed, `failed` says how many did not,
+ * and `firstError` carries one real message so the cause is visible without
+ * digging through logs nobody reads.
+ */
 export async function computeAllRevenueSchedules(): Promise<{
   subscriptionsProcessed: number
+  subscriptionsFound: number
+  failed: number
+  firstError: string | null
   entriesCreated: number
   durationMs: number
 }> {
@@ -209,6 +231,9 @@ export async function computeAllRevenueSchedules(): Promise<{
   ).catch((e) => { console.error('[fallback] revenue-recognition.ts:', e); return [] })
 
   let totalEntries = 0
+  let processed = 0
+  let failed = 0
+  let firstError: string | null = null
 
   // Process in chunks of 100
   const CHUNK = 100
@@ -218,14 +243,25 @@ export async function computeAllRevenueSchedules(): Promise<{
       try {
         const result = await computeRevenueSchedule(sub.id)
         totalEntries += result.entriesCreated
+        processed++
       } catch (error) {
+        failed++
+        if (firstError === null) {
+          // Truncated at Postgres's DETAIL: marker — before it names the table
+          // or constraint, after it can quote a row.
+          const msg = error instanceof Error ? error.message : String(error)
+          firstError = msg.split('DETAIL:')[0].trim().slice(0, 300)
+        }
         console.error(`[revenue] Failed to compute schedule for ${sub.id}:`, error)
       }
     }
   }
 
   return {
-    subscriptionsProcessed: subscriptions.length,
+    subscriptionsProcessed: processed,
+    subscriptionsFound: subscriptions.length,
+    failed,
+    firstError,
     entriesCreated: totalEntries,
     durationMs: Date.now() - startTime,
   }
