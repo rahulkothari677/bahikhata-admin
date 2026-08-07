@@ -388,6 +388,18 @@ model TransactionItem {
   // is snapshotted here at sale time, so historical profit is immutable.
   purchasePriceAtSale Int       @default(0) // cost at time of sale (for profit calc)
   gstRate             Float       @default(0)
+  /*
+   * Mirrored from the main app (INTEGRATION-CONTRACT Part B.2: both schemas
+   * MUST be identical for shared tables). The main app owns the migration —
+   * 20260808000001_add_gsttreatment_to_transaction_item — this side is
+   * `prisma generate` only, never `db push`.
+   *
+   * Same reason the barcode mirror mattered: api/admin/data-exports/generate
+   * runs a bare findMany, so Prisma selects exactly the columns THIS schema
+   * declares. A column missing here is a column silently absent from a user's
+   * own DSAR data export.
+   */
+  gstTreatment        String?
   discountAmount      Int       @default(0) // 🔒 V10 §2.1: per-item discount (proportional share of order-level discount)
   // 🔒 V10 §2.2: per-item GST components — SINGLE SOURCE OF TRUTH for GST.
   // Was: only Transaction header stored cgst/sgst/igst; reports/GSTR recomputed
