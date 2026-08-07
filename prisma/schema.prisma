@@ -37,10 +37,10 @@ datasource db {
 // See: download/Integration-Plan-BahiKhata-Pro-Admin.md (Phase D.5)
 
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  name          String?
-  password      String // hashed with bcrypt
+  id       String  @id @default(cuid())
+  email    String  @unique
+  name     String?
+  password String // hashed with bcrypt
 
   // ═══════════════════════════════════════════════════════════════════════
   // 🔒 SOFT DELETION (audit 2026-07-27). A shopkeeper's account is NEVER
@@ -83,18 +83,18 @@ model User {
   partyCount      Int       @default(0)
   countsUpdatedAt DateTime? // null = never computed; UI must say "—", not "0"
 
-  deletedAt       DateTime? // set = account closed; row and books retained
-  deletedBy       String? // admin id, or 'self' for user-initiated closure
-  deletionReason  String? // free text; required by the API
-  retentionUntil  DateTime? // statutory floor — no purge before this date
-  anonymisedAt    DateTime? // when DPDP-erasable identifiers were scrubbed
-  phone         String? // for future phone OTP
-  emailVerified DateTime? // for future email verification
-  image         String? // profile picture URL
-  role          String    @default("owner") // owner | staff
-  ownerId       String? // if staff, links to the owner's account
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  deletedAt      DateTime? // set = account closed; row and books retained
+  deletedBy      String? // admin id, or 'self' for user-initiated closure
+  deletionReason String? // free text; required by the API
+  retentionUntil DateTime? // statutory floor — no purge before this date
+  anonymisedAt   DateTime? // when DPDP-erasable identifiers were scrubbed
+  phone          String? // for future phone OTP
+  emailVerified  DateTime? // for future email verification
+  image          String? // profile picture URL
+  role           String    @default("owner") // owner | staff
+  ownerId        String? // if staff, links to the owner's account
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   // Staff permissions — JSON object controlling which modules staff can access.
   permissions Json?
@@ -114,32 +114,32 @@ model User {
   tokenVersion Int @default(0)
 
   // Relations
-  products         Product[]
-  parties          Party[]
-  transactions     Transaction[]
-  payments         Payment[]
-  settings         Setting[]
-  auditLogs        AuditLog[]
-  fieldChangeLogs  FieldChangeLog[]
-  gstReturns       GstReturn[]
-  gstr1Snapshots   Gstr1Snapshot[]
-  gstr2bImports    Gstr2bImport[]
-  bankStatements   BankStatement[]
-  bankTransactions BankTransaction[]
-  referralsMade    Referral[]       @relation("Referral_referrerIdToUser")
-  referralReceived Referral?        @relation("Referral_referredIdToUser")
-  subscriptions    Subscription[]
-  usageTracking    UsageTracking[]
-  shops            Shop[]
-  scanComparisons  ScanComparison[]
-  aiUsageLogs      AiUsageLog[]
-  supportTickets   SupportTicket[]
-  npsFeedback      NpsFeedback[]
-  invoiceCounter   InvoiceCounter?
+  products            Product[]
+  parties             Party[]
+  transactions        Transaction[]
+  payments            Payment[]
+  settings            Setting[]
+  auditLogs           AuditLog[]
+  fieldChangeLogs     FieldChangeLog[]
+  gstReturns          GstReturn[]
+  gstr1Snapshots      Gstr1Snapshot[]
+  gstr2bImports       Gstr2bImport[]
+  bankStatements      BankStatement[]
+  bankTransactions    BankTransaction[]
+  referralsMade       Referral[]        @relation("Referral_referrerIdToUser")
+  referralReceived    Referral?         @relation("Referral_referredIdToUser")
+  subscriptions       Subscription[]
+  usageTracking       UsageTracking[]
+  shops               Shop[]
+  scanComparisons     ScanComparison[]
+  aiUsageLogs         AiUsageLog[]
+  supportTickets      SupportTicket[]
+  npsFeedback         NpsFeedback[]
+  invoiceCounter      InvoiceCounter?
   // 🔒 V13 L4: Back-relation for createdByUserId on Transaction
-  transactionsCreated Transaction[] @relation("TransactionCreatedBy")
+  transactionsCreated Transaction[]     @relation("TransactionCreatedBy")
   // 🔒 V22-14 (Batch D, Phase 7g): Document Vault
-  documents        Document[]
+  documents           Document[]
 
   @@index([plan])
   @@index([createdAt])
@@ -154,6 +154,7 @@ model User {
   // to be applied in JavaScript after fetching a page.
   @@index([txnCount])
 }
+
 model Shop {
   id        String   @id @default(cuid())
   userId    String // owner of this shop
@@ -169,6 +170,7 @@ model Shop {
 
   @@index([userId])
 }
+
 model Product {
   id                String   @id @default(cuid())
   userId            String // owner of this product
@@ -176,12 +178,11 @@ model Product {
   shopId            String? // multi-shop: null = all shops (backward compatible)
   name              String
   sku               String?
-  /*
+  /**
    * Mirrored from the main app (INTEGRATION-CONTRACT Part B.2: both schemas
    * MUST be identical for shared tables). The main app owns the migration —
    * 20260807000001_add_barcode_to_product — this side is `prisma generate`
    * only, never `db push`.
-   *
    * Not decorative here. The DSAR export in
    * api/admin/data-exports/generate does a bare findMany on Product, so Prisma
    * selects exactly the columns THIS schema knows about. Without this line a
@@ -191,8 +192,8 @@ model Product {
   hsn               String? // HSN/SAC code for GST
   category          String?
   unit              String   @default("pcs") // pcs, kg, ltr, m, box
-  purchasePrice     Int    @default(0) // price at which shop owner buys
-  salePrice         Int    @default(0) // price at which shop owner sells
+  purchasePrice     Int      @default(0) // price at which shop owner buys
+  salePrice         Int      @default(0) // price at which shop owner sells
   mrp               Int? // MRP printed on product
   gstRate           Float    @default(0) // 0, 5, 12, 18, 28
   // 🔒 V12: When true, salePrice/mrp are INCLUSIVE of GST (the Indian retail
@@ -229,6 +230,7 @@ model Product {
   @@index([userId, category])
   @@index([userId, shopId])
 }
+
 model Party {
   id             String    @id @default(cuid())
   userId         String // owner of this party
@@ -241,7 +243,7 @@ model Party {
   gstin          String? // GST Identification Number
   address        String?
   state          String? // for intra/inter state GST
-  openingBalance Int     @default(0) // positive = they owe us; negative = we owe them
+  openingBalance Int       @default(0) // positive = they owe us; negative = we owe them
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   // 🔒 AUDIT FIX M7: Soft delete (same as Transaction)
@@ -260,6 +262,7 @@ model Party {
   // V17-Ext Tier 3: GSTIN lookup for GSTR-2B reconciliation (fast supplier matching)
   @@index([userId, gstin])
 }
+
 model Transaction {
   id              String   @id @default(cuid())
   userId          String // owner of this transaction
@@ -274,18 +277,18 @@ model Transaction {
   partyId         String? // customer for sale, supplier for purchase
   party           Party?   @relation(fields: [partyId], references: [id])
   date            DateTime @default(now())
-  subtotal        Int    @default(0) // before tax & discount
-  discountAmount  Int    @default(0)
-  cgst            Int    @default(0)
-  sgst            Int    @default(0)
-  igst            Int    @default(0)
-  totalAmount     Int    @default(0) // final payable (after round-off)
+  subtotal        Int      @default(0) // before tax & discount
+  discountAmount  Int      @default(0)
+  cgst            Int      @default(0)
+  sgst            Int      @default(0)
+  igst            Int      @default(0)
+  totalAmount     Int      @default(0) // final payable (after round-off)
   // 🔒 V12: Invoice round-off. Indian invoices customarily round the grand
   // total to the nearest rupee with an explicit "Round off" line. This stores
   // the adjustment (e.g. -0.40 or +0.30) so totalAmount == taxable + tax + roundOff
   // and the printed invoice can show it. 0 when round-off is disabled.
-  roundOff        Int    @default(0)
-  paidAmount      Int    @default(0) // amount actually paid
+  roundOff        Int      @default(0)
+  paidAmount      Int      @default(0) // amount actually paid
   paymentMode     String   @default("cash") // cash | upi | card | bank | credit
   isInterState    Boolean  @default(false)
   // V17-Ext Tier 3: Reverse Charge Mechanism (RCM). When true on a purchase,
@@ -327,14 +330,14 @@ model Transaction {
   deletedAt DateTime?
 
   // V17-Ext Tier 3: Credit/Debit Notes — link to original invoice
-  originalTransactionId String?
-  originalTransaction   Transaction?  @relation("TransactionReversal", fields: [originalTransactionId], references: [id], onDelete: SetNull)
-  reversalTransactions  Transaction[] @relation("TransactionReversal")
+  originalTransactionId   String?
+  originalTransaction     Transaction?      @relation("TransactionReversal", fields: [originalTransactionId], references: [id], onDelete: SetNull)
+  reversalTransactions    Transaction[]     @relation("TransactionReversal")
   // 🔒 V17 Audit Phase 6: Bank reconciliation — matched bank transactions
   matchedBankTransactions BankTransaction[] @relation("BankReconMatch")
-  noteType              String?       // 'C' (credit) or 'D' (debit) — only for credit-note/debit-note types
-  noteReason            String?       // GST reason: 'post-sale-discount' | 'deficiency' | 'return' | 'price-revision' | 'other'
-  affectsStock          Boolean       @default(false) // true only when goods are physically returned
+  noteType                String? // 'C' (credit) or 'D' (debit) — only for credit-note/debit-note types
+  noteReason              String? // GST reason: 'post-sale-discount' | 'deficiency' | 'return' | 'price-revision' | 'other'
+  affectsStock            Boolean           @default(false) // true only when goods are physically returned
 
   // 🔒 V17 Audit Phase 5: e-Invoicing (IRN/QR) + e-Way Bill fields
   // IRN = Invoice Reference Number (64-char hash, issued by NIC portal)
@@ -344,13 +347,13 @@ model Transaction {
   // ewayBillDate = e-Way Bill generation date
   // irnStatus = 'pending' | 'generated' | 'cancelled' (tracks IRN lifecycle)
   // irnGeneratedAt = when the IRN was generated (for audit)
-  irn                   String?       // 64-char alphanumeric IRN from NIC
-  signedQR              String?       // signed QR code string from NIC
-  irnStatus             String?       // pending | generated | cancelled
-  irnGeneratedAt        DateTime?
-  ewayBillNo            String?       // 12-digit e-Way Bill number
-  ewayBillExpiry        DateTime?
-  ewayBillDate          DateTime?
+  irn            String? // 64-char alphanumeric IRN from NIC
+  signedQR       String? // signed QR code string from NIC
+  irnStatus      String? // pending | generated | cancelled
+  irnGeneratedAt DateTime?
+  ewayBillNo     String? // 12-digit e-Way Bill number
+  ewayBillExpiry DateTime?
+  ewayBillDate   DateTime?
 
   // 🔒 V26 F1 FIX: Estimate conversion tracking. When an estimate is converted
   // to a sale, this field stores the sale's transaction ID. Prevents unlimited
@@ -367,6 +370,7 @@ model Transaction {
   @@index([userId, partyId])
   @@index([originalTransactionId])
 }
+
 model TransactionItem {
   id                  String      @id @default(cuid())
   transactionId       String
@@ -381,50 +385,49 @@ model TransactionItem {
   // normalizes (quantity, unit) into the product's unit before saving, so
   // quantity × unitPrice is always internally consistent.
   unit                String      @default("pcs")
-  unitPrice           Int       @default(0) // price per `unit` (sale or purchase)
+  unitPrice           Int         @default(0) // price per `unit` (sale or purchase)
   // 🔒 AUDIT FIX M4: Snapshot of purchasePrice at time of sale (COGS).
   // Was: profit calculated from the product's CURRENT purchasePrice —
   // changing it later distorted historical profit. Now: the purchase price
   // is snapshotted here at sale time, so historical profit is immutable.
-  purchasePriceAtSale Int       @default(0) // cost at time of sale (for profit calc)
+  purchasePriceAtSale Int         @default(0) // cost at time of sale (for profit calc)
   gstRate             Float       @default(0)
-  /*
+  /**
    * Mirrored from the main app (INTEGRATION-CONTRACT Part B.2: both schemas
    * MUST be identical for shared tables). The main app owns the migration —
    * 20260808000001_add_gsttreatment_to_transaction_item — this side is
    * `prisma generate` only, never `db push`.
-   *
    * Same reason the barcode mirror mattered: api/admin/data-exports/generate
    * runs a bare findMany, so Prisma selects exactly the columns THIS schema
    * declares. A column missing here is a column silently absent from a user's
    * own DSAR data export.
    */
   gstTreatment        String?
-  discountAmount      Int       @default(0) // 🔒 V10 §2.1: per-item discount (proportional share of order-level discount)
+  discountAmount      Int         @default(0) // 🔒 V10 §2.1: per-item discount (proportional share of order-level discount)
   // 🔒 V10 §2.2: per-item GST components — SINGLE SOURCE OF TRUTH for GST.
   // Was: only Transaction header stored cgst/sgst/igst; reports/GSTR recomputed
   // in SQL using a different rounding path → drift between stored and report.
   // Now: every code path (POST, PUT, reports, GSTR, dashboard, invoice PDF)
   // aggregates these stored per-item values. The GST on a transaction is the
   // sum of these three columns across all its items — never recomputed.
-  cgst                Int       @default(0)
-  sgst                Int       @default(0)
-  igst                Int       @default(0)
+  cgst                Int         @default(0)
+  sgst                Int         @default(0)
+  igst                Int         @default(0)
   // 🔒 V17 Audit Phase 3 (GSTR-1): CESS amount (rare for kirana but portal requires the field).
-  csamt               Int       @default(0)
+  csamt               Int         @default(0)
   // 🔒 V17 Audit Phase 3 (GSTR-1): HSN snapshot at time of transaction.
   // Was: only Product.hsn existed. But HSN can change when the user edits the product,
   // and historical GSTR-1 returns must show the HSN that was in effect at sale time.
   // Now: snapshot at write time (like purchasePriceAtSale). Backfilled from Product.hsn.
   hsn                 String?
-  total               Int       @default(0) // taxable + cgst + sgst + igst + csamt
+  total               Int         @default(0) // taxable + cgst + sgst + igst + csamt
 
   // 🔒 V17 Audit Phase 10: Snapshot of the user's ORIGINAL entered quantity + unit
   // (before normalization). The stored `quantity`/`unit` are the NORMALIZED values
   // (e.g., 500ml → 0.5ltr). This snapshot preserves what the user actually typed
   // so credit notes can load the original intent (500ml, not 0.5ltr).
-  enteredQuantity   Float?    // original quantity as entered by the user
-  enteredUnit       String?   // original unit as entered by the user (ml, gm, etc.)
+  enteredQuantity Float? // original quantity as entered by the user
+  enteredUnit     String? // original unit as entered by the user (ml, gm, etc.)
 
   createdAt DateTime @default(now())
 
@@ -435,25 +438,26 @@ model TransactionItem {
   @@index([transactionId])
   @@index([productId])
 }
+
 model Payment {
-  id        String   @id @default(cuid())
-  userId    String // owner of this payment
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  partyId   String
-  party     Party    @relation(fields: [partyId], references: [id])
-  amount    Int
-  date      DateTime @default(now())
-  mode      String   @default("cash") // cash | upi | card | bank
-  type      String   @default("received") // received (from customer) | paid (to supplier)
-  notes     String?
-  createdAt DateTime @default(now())
+  id               String    @id @default(cuid())
+  userId           String // owner of this payment
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  partyId          String
+  party            Party     @relation(fields: [partyId], references: [id])
+  amount           Int
+  date             DateTime  @default(now())
+  mode             String    @default("cash") // cash | upi | card | bank
+  type             String    @default("received") // received (from customer) | paid (to supplier)
+  notes            String?
+  createdAt        DateTime  @default(now())
   // 🔒 V15 M-3: Soft-delete so deleted receipts stay auditable (disputes / fraud).
   // Hard-deleting a payment silently changes historical balances — exactly the
   // kind of action that should leave an audit trail in a ledger app.
-  deletedAt DateTime?
+  deletedAt        DateTime?
   // 🔒 V19-007: Idempotency — prevents duplicate payments from offline sync replays.
   // Same pattern as Transaction.clientMutationId.
-  clientMutationId String? @unique
+  clientMutationId String?   @unique
 
   // 🔒 V17 Audit Phase 6: Bank reconciliation — matched bank transactions
   bankTransactions BankTransaction[]
@@ -466,33 +470,34 @@ model Payment {
   // query — smaller + faster than a full index because it excludes deleted rows.
   @@index([userId, partyId, deletedAt])
 }
+
 model Setting {
-  id              String  @id @default(cuid())
-  userId          String  @unique // one setting per user
-  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  shopName        String  @default("My Shop")
-  ownerName       String?
-  address         String?
-  phone           String?
-  gstin           String?
-  state           String?
-  email           String?
-  currency        String  @default("INR")
-  language        String  @default("en")
+  id                   String    @id @default(cuid())
+  userId               String    @unique // one setting per user
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shopName             String    @default("My Shop")
+  ownerName            String?
+  address              String?
+  phone                String?
+  gstin                String?
+  state                String?
+  email                String?
+  currency             String    @default("INR")
+  language             String    @default("en")
   // Privacy: when true, profit figures are hidden from all UI (dashboard,
   // ledger, transaction detail). Data is still calculated and stored —
   // only the display is hidden. Owner controls this; staff inherits.
-  hideProfit      Boolean @default(false)
+  hideProfit           Boolean   @default(false)
   // 🔒 V12: When true, the sale grand total is rounded to the nearest rupee
   // (Indian invoice norm) and the adjustment is stored in Transaction.roundOff.
-  roundOffEnabled Boolean @default(false)
+  roundOffEnabled      Boolean   @default(false)
   // AI Bill Scanner output language: 'original' (keep bill language) | 'en' | 'hi' | 'ta' | 'gu' | 'mr' | 'bn' | 'te' | 'kn' | 'ml' | 'pa'
-  scanLang        String  @default("original")
+  scanLang             String    @default("original")
   // AI Voice Entry language: 'original' (keep spoken language, don't translate) | 'en' | 'hi' | 'ta' | 'gu' | 'mr' | 'bn' | 'te' | 'kn' | 'ml' | 'pa'
   // Controls BOTH the speech-recognition locale (e.g. mr-IN) AND the parsed
   // output language. 'original' listens in hi-IN (default) and keeps the
   // spoken language in the parsed result (no English translation).
-  voiceLang       String  @default("original")
+  voiceLang            String    @default("original")
   // 🔒 V11 STOCK POLICY: Controls whether sales can push stock below 0.
   //   'block' (default) — sale is REJECTED if it would push stock negative.
   //                       The user must record a purchase first or toggle to 'allow'.
@@ -501,16 +506,16 @@ model Setting {
   //                       in the UI but does NOT block.
   // This field is per-shop (lives on Setting, one per user). The user can
   // toggle it in Settings → "Allow overselling (kirana mode)".
-  stockPolicy     String  @default("block")
+  stockPolicy          String    @default("block")
   // V17-Ext 5.4: Shopkeeper's UPI VPA for udhaar collection links.
   // Used to generate upi://pay?pa=... deep-links in WhatsApp reminders.
   // null = no UPI ID configured (the reminder sends without a pay link).
-  upiId           String?
+  upiId                String?
   // 🔒 V17-Ext §5.1: Period lock (financial-year lock). When set, NO writes
   // (create/edit/delete/restore) are allowed to transactions or payments dated
   // on or before this date. Protects filed GST returns from silent alteration.
   // null = no lock (the default — every shop starts unlocked).
-  lockedUntil      DateTime?
+  lockedUntil          DateTime?
   // 🔒 V26 R3 (Phase 5): Resume marker for interrupted restores.
   // When a restore starts, this is set to the incoming restoreSessionId (uuid
   // from the client). On completion (success or fail), it is cleared.
@@ -526,8 +531,17 @@ model Setting {
   // logo uploaded (the brand band shows just the shop name + details). The
   // logo is uploaded via /api/settings/logo (which uses uploadBillImage) and
   // stored here so it appears on every invoice without re-uploading.
-  logoUrl          String?
+  logoUrl              String?
+  /**
+   * Mirrored from the main app (INTEGRATION-CONTRACT Part B.2). The main app
+   * owns migration 20260808000002_add_prior_fy_turnover_to_setting; this side
+   * is `prisma generate` only, never `db push`.
+   * Int PAISE, like every other money column. If this app reads it, it must go
+   * through the same conversion — raw paise here would read 100x high.
+   */
+  priorFyTurnover      Int?
 }
+
 model Announcement {
   id        String    @id
   title     String
@@ -542,6 +556,7 @@ model Announcement {
 
   @@index([isActive, startsAt, endsAt])
 }
+
 model FeatureFlag {
   id          String   @id @default(cuid())
   key         String   @unique
@@ -553,6 +568,7 @@ model FeatureFlag {
 
   @@index([enabled])
 }
+
 model Referral {
   id          String    @id @default(cuid())
   referrerId  String
@@ -568,6 +584,7 @@ model Referral {
   @@index([referredId])
   @@index([referrerId, status])
 }
+
 model Subscription {
   id             String   @id
   userId         String
@@ -585,6 +602,7 @@ model Subscription {
   @@index([status, createdAt])
   @@index([userId, status])
 }
+
 model UsageTracking {
   id           String   @id @default(cuid())
   userId       String
@@ -599,6 +617,7 @@ model UsageTracking {
   @@unique([userId, month])
   @@index([userId, month])
 }
+
 model PasswordResetToken {
   id        String    @id @default(cuid())
   email     String // the user's email (lowercased)
@@ -610,6 +629,7 @@ model PasswordResetToken {
   @@index([email, expiresAt])
   @@index([tokenHash])
 }
+
 model AuditLog {
   id         String   @id @default(cuid())
   userId     String? // user who performed the action (null = unauthenticated attempt)
@@ -625,6 +645,7 @@ model AuditLog {
   @@index([userId, createdAt])
   @@index([action, createdAt])
 }
+
 model FieldChangeLog {
   id              String   @id @default(cuid())
   userId          String // shop owner (tenant scope)
@@ -640,108 +661,111 @@ model FieldChangeLog {
   @@index([userId, entityType, entityId, createdAt])
   @@index([entityId, createdAt])
 }
+
 model GstReturn {
-  id                          String   @id @default(cuid())
-  userId                      String
-  user                        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  monthYear                   String // "072026" (MMYYYY) — matches GSTR-1 fp format
-  periodStart                 DateTime // IST first day of month
-  periodEnd                   DateTime // IST last day of month
-  filingStatus                String   @default("draft") // draft | filed
-  filedAt                     DateTime?
-  filedByUserId               String? // who marked it as filed
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  monthYear     String // "072026" (MMYYYY) — matches GSTR-1 fp format
+  periodStart   DateTime // IST first day of month
+  periodEnd     DateTime // IST last day of month
+  filingStatus  String    @default("draft") // draft | filed
+  filedAt       DateTime?
+  filedByUserId String? // who marked it as filed
 
   // Section 3.1(a): Outward taxable supplies (regular sales)
-  outwardTaxableValue         Int    @default(0)
-  outwardCgst                 Int    @default(0)
-  outwardSgst                 Int    @default(0)
-  outwardIgst                 Int    @default(0)
+  outwardTaxableValue Int @default(0)
+  outwardCgst         Int @default(0)
+  outwardSgst         Int @default(0)
+  outwardIgst         Int @default(0)
 
   // Section 3.1(d): RCM (reverse charge) outward liability
-  rcmTaxableValue             Int    @default(0)
-  rcmCgst                     Int    @default(0)
-  rcmSgst                     Int    @default(0)
-  rcmIgst                     Int    @default(0)
+  rcmTaxableValue Int @default(0)
+  rcmCgst         Int @default(0)
+  rcmSgst         Int @default(0)
+  rcmIgst         Int @default(0)
 
   // Section 3.1(c): Nil-rated + exempt + non-GST outward
-  nilRatedValue               Int    @default(0)
-  exemptValue                 Int    @default(0)
-  nonGstValue                 Int    @default(0)
+  nilRatedValue Int @default(0)
+  exemptValue   Int @default(0)
+  nonGstValue   Int @default(0)
 
   // Section 4(a): ITC (input tax credit) from purchases
-  itcTaxableValue             Int    @default(0)
-  itcCgst                     Int    @default(0)
-  itcSgst                     Int    @default(0)
-  itcIgst                     Int    @default(0)
+  itcTaxableValue Int @default(0)
+  itcCgst         Int @default(0)
+  itcSgst         Int @default(0)
+  itcIgst         Int @default(0)
 
   // 🔒 V17 Audit §4.3: Credit/Debit Note breakdown (computed but not stored before).
   // Storing these helps audit/dispute resolution — the filed snapshot now has
   // the full CDN adjustment, not just the net tax payable.
-  creditNoteTaxableValue      Int    @default(0)
-  creditNoteCgst              Int    @default(0)
-  creditNoteSgst              Int    @default(0)
-  creditNoteIgst              Int    @default(0)
-  debitNoteTaxableValue       Int    @default(0)
-  debitNoteCgst               Int    @default(0)
-  debitNoteSgst               Int    @default(0)
-  debitNoteIgst               Int    @default(0)
+  creditNoteTaxableValue Int @default(0)
+  creditNoteCgst         Int @default(0)
+  creditNoteSgst         Int @default(0)
+  creditNoteIgst         Int @default(0)
+  debitNoteTaxableValue  Int @default(0)
+  debitNoteCgst          Int @default(0)
+  debitNoteSgst          Int @default(0)
+  debitNoteIgst          Int @default(0)
 
   // Section 5: Exempt inward supplies
-  exemptInwardValue           Int    @default(0)
+  exemptInwardValue Int @default(0)
 
   // Section 3.2: Inter-state B2C supplies (unregistered, any amount)
-  interstateB2cTaxableValue   Int    @default(0)
-  interstateB2cIgst           Int    @default(0)
+  interstateB2cTaxableValue Int @default(0)
+  interstateB2cIgst         Int @default(0)
 
   // Section 6.1: Net tax payable (output + RCM - ITC)
-  netTaxPayable               Int    @default(0)
+  netTaxPayable Int @default(0)
 
-  createdAt                   DateTime @default(now())
-  updatedAt                   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([userId, monthYear])
   @@index([userId, periodStart])
 }
+
 model Gstr1Snapshot {
-  id              String   @id @default(cuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  monthYear       String   // "072026" (MMYYYY) — matches GSTR-1 fp format
-  periodStart     DateTime // IST first day of month
-  periodEnd       DateTime // IST last day of month
-  filingStatus    String   @default("draft") // draft | filed
-  filedAt         DateTime?
-  filedByUserId   String?  // who marked it as filed
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  monthYear     String // "072026" (MMYYYY) — matches GSTR-1 fp format
+  periodStart   DateTime // IST first day of month
+  periodEnd     DateTime // IST last day of month
+  filingStatus  String    @default("draft") // draft | filed
+  filedAt       DateTime?
+  filedByUserId String? // who marked it as filed
 
   // The portal-ready JSON (all 8 sections: B2B, B2CL, B2CS, CDNR, CDNUR, HSN, NIL, DOC)
   // Stored as Json so the exact filed return can be reproduced for audit/dispute.
-  rawJson         Json?
+  rawJson Json?
 
   // Summary totals (for quick display without parsing rawJson)
-  totalTaxableValue   Int @default(0)
-  totalOutputTax      Int @default(0)  // CGST + SGST + IGST
-  totalInvoiceCount   Int   @default(0)
-  totalCreditNotes    Int   @default(0)
+  totalTaxableValue Int @default(0)
+  totalOutputTax    Int @default(0) // CGST + SGST + IGST
+  totalInvoiceCount Int @default(0)
+  totalCreditNotes  Int @default(0)
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([userId, monthYear])
   @@index([userId, periodStart])
 }
+
 model BankStatement {
   id              String   @id @default(cuid())
   userId          String
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  bankName        String   // e.g. "HDFC", "SBI", "ICICI"
-  accountNumber   String?  // last 4 digits (for display)
-  statementPeriod String?  // e.g. "Jul 2026"
+  bankName        String // e.g. "HDFC", "SBI", "ICICI"
+  accountNumber   String? // last 4 digits (for display)
+  statementPeriod String? // e.g. "Jul 2026"
   importedAt      DateTime @default(now())
-  totalCredits    Int    @default(0)  // money in
-  totalDebits     Int    @default(0)  // money out
+  totalCredits    Int      @default(0) // money in
+  totalDebits     Int      @default(0) // money out
   txnCount        Int      @default(0)
-  matchedCount    Int      @default(0)  // auto-matched on import
-  rawCsv          String?  // original CSV (for audit/re-import)
+  matchedCount    Int      @default(0) // auto-matched on import
+  rawCsv          String? // original CSV (for audit/re-import)
   // 🔒 V26 R6 (Phase 5): sha256 of the trimmed CSV. Unique per user → catches
   // exact-duplicate imports (double-click, concurrent tab, queue replay) via
   // a database constraint, not check-then-act. Was: 200-char prefix match
@@ -749,22 +773,23 @@ model BankStatement {
   // overlapping date ranges — every overlapping row imported twice).
   csvHash         String   @default("")
 
-  transactions    BankTransaction[]
+  transactions BankTransaction[]
 
   @@unique([userId, csvHash])
   @@index([userId, importedAt])
 }
+
 model BankTransaction {
-  id              String   @id @default(cuid())
+  id              String        @id @default(cuid())
   bankStatementId String
   bankStatement   BankStatement @relation(fields: [bankStatementId], references: [id], onDelete: Cascade)
-  userId          String   // denormalized for direct querying
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId          String // denormalized for direct querying
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  date            DateTime // transaction date (as shown in bank statement)
-  description     String   // bank description (e.g. "UPI/Rahul Traders/1234")
-  amount          Int    // positive = credit (money in), negative = debit (money out)
-  balance         Int?   // running balance (if provided by bank)
+  date        DateTime // transaction date (as shown in bank statement)
+  description String // bank description (e.g. "UPI/Rahul Traders/1234")
+  amount      Int // positive = credit (money in), negative = debit (money out)
+  balance     Int? // running balance (if provided by bank)
 
   // 🔒 V26 R6 (Phase 5): sha256 of `${userId}|${date.toISOString().slice(0,10)}|${description.trim()}|${amount}`.
   // Unique per user → catches per-row duplicates (overlapping statements
@@ -772,56 +797,58 @@ model BankTransaction {
   // at all → "last 3 months" downloaded in March, then again in April:
   // different first row → both statements import → every overlapping row
   // imported twice, doubling the recon workload and producing bogus unmatched rows.
-  rowHash         String   @default("")
+  rowHash String @default("")
 
   // Matching status
-  matchStatus     String   @default("unmatched") // unmatched | matched | ignored
-  matchedPaymentId String? // FK to Payment (if matched)
-  matchedPayment  Payment? @relation(fields: [matchedPaymentId], references: [id], onDelete: SetNull)
+  matchStatus          String       @default("unmatched") // unmatched | matched | ignored
+  matchedPaymentId     String? // FK to Payment (if matched)
+  matchedPayment       Payment?     @relation(fields: [matchedPaymentId], references: [id], onDelete: SetNull)
   matchedTransactionId String? // FK to Transaction (if matched to a sale/purchase)
-  matchedTransaction Transaction? @relation("BankReconMatch", fields: [matchedTransactionId], references: [id], onDelete: SetNull)
-  matchMethod     String?  // auto | manual (how the match was made)
-  matchConfidence Float?   // 0-1 (auto-match confidence score)
+  matchedTransaction   Transaction? @relation("BankReconMatch", fields: [matchedTransactionId], references: [id], onDelete: SetNull)
+  matchMethod          String? // auto | manual (how the match was made)
+  matchConfidence      Float? // 0-1 (auto-match confidence score)
 
-  createdAt       DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@unique([userId, rowHash])
   @@index([userId, date])
   @@index([bankStatementId])
   @@index([matchStatus])
 }
+
 model Gstr2bImport {
   id            String          @id @default(cuid())
   userId        String
   user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  monthYear     String          // "072026" (MMYYYY)
-  filingPeriod  String?         // GST portal's fp field
-  supplierGstin String?         // taxpayer's own GSTIN (from the 2B file)
+  monthYear     String // "072026" (MMYYYY)
+  filingPeriod  String? // GST portal's fp field
+  supplierGstin String? // taxpayer's own GSTIN (from the 2B file)
   importedAt    DateTime        @default(now())
-  rawJson       Json?           // full 2B JSON from portal (for audit/re-import)
+  rawJson       Json? // full 2B JSON from portal (for audit/re-import)
   invoiceCount  Int             @default(0)
-  taxableTotal  Int           @default(0)
-  igstTotal     Int           @default(0)
-  cgstTotal     Int           @default(0)
-  sgstTotal     Int           @default(0)
+  taxableTotal  Int             @default(0)
+  igstTotal     Int             @default(0)
+  cgstTotal     Int             @default(0)
+  sgstTotal     Int             @default(0)
   invoices      Gstr2bInvoice[]
 
   @@unique([userId, monthYear])
   @@index([userId, monthYear])
 }
+
 model Gstr2bInvoice {
   id              String       @id @default(cuid())
   gstr2bImportId  String
   gstr2bImport    Gstr2bImport @relation(fields: [gstr2bImportId], references: [id], onDelete: Cascade)
-  userId          String       // denormalized for tenant-scoped queries without join
-  supplierGstin   String       // ctin from 2B (supplier's GSTIN)
-  invoiceNumber   String       // inum from 2B (supplier's invoice number)
-  invoiceDate     String?      // idt from 2B (invoice date, raw string from portal)
-  taxableValue    Int        @default(0)
-  igst            Int        @default(0)
-  cgst            Int        @default(0)
-  sgst            Int        @default(0)
-  totalAmount     Int        @default(0)
+  userId          String // denormalized for tenant-scoped queries without join
+  supplierGstin   String // ctin from 2B (supplier's GSTIN)
+  invoiceNumber   String // inum from 2B (supplier's invoice number)
+  invoiceDate     String? // idt from 2B (invoice date, raw string from portal)
+  taxableValue    Int          @default(0)
+  igst            Int          @default(0)
+  cgst            Int          @default(0)
+  sgst            Int          @default(0)
+  totalAmount     Int          @default(0)
   isReverseCharge Boolean      @default(false)
   createdAt       DateTime     @default(now())
 
@@ -829,6 +856,7 @@ model Gstr2bInvoice {
   @@index([userId, supplierGstin, invoiceNumber])
   @@index([userId])
 }
+
 model ScanComparison {
   id     String @id @default(cuid())
   userId String
@@ -859,6 +887,7 @@ model ScanComparison {
   @@index([userId, createdAt])
   @@index([createdAt])
 }
+
 model AiUsageLog {
   id     String @id @default(cuid())
   userId String
@@ -890,15 +919,16 @@ model AiUsageLog {
   @@index([createdAt])
   @@index([feature, provider, createdAt])
 }
+
 model AdminUser {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  name          String
-  password      String    // hashed with bcrypt
-  role          String    @default("viewer") // founder | finance | analyst | support | viewer
-  totpSecret    String?   // TOTP 2FA secret (encrypted at rest)
-  totpEnabled   Boolean   @default(false)
-  isActive      Boolean   @default(true)
+  id          String  @id @default(cuid())
+  email       String  @unique
+  name        String
+  password    String // hashed with bcrypt
+  role        String  @default("viewer") // founder | finance | analyst | support | viewer
+  totpSecret  String? // TOTP 2FA secret (encrypted at rest)
+  totpEnabled Boolean @default(false)
+  isActive    Boolean @default(true)
 
   // 🔒 SESSION REVOCATION (audit 2026-07-26). Stamped into the admin JWT at
   // login and re-checked against this column on every request by withAdmin().
@@ -909,7 +939,7 @@ model AdminUser {
   // demoting or deactivating an admin left them with their old powers until the
   // token happened to expire. The main app already solved this for shopkeepers
   // via User.tokenVersion; it was simply never applied to admins themselves.
-  tokenVersion  Int       @default(0)
+  tokenVersion Int @default(0)
 
   // 🔒 STEP-UP AUTHENTICATION (audit 2026-07-27).
   //
@@ -925,36 +955,37 @@ model AdminUser {
   // to be recent (STEP_UP_WINDOW_MS). It is deliberately NOT a second session:
   // it expires in minutes, not hours.
   stepUpVerifiedAt DateTime?
-  lastLoginAt   DateTime?
-  lastLoginIp   String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  lastLoginAt      DateTime?
+  lastLoginIp      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   // 🔒 V26 A1 FIX: Dedicated password-reset fields (was: no reset token
   // storage — the PATCH endpoint accepted ANY token without validation).
-  passwordResetTokenHash String?  // SHA-256 hash of the reset token
+  passwordResetTokenHash String? // SHA-256 hash of the reset token
   passwordResetExpiresAt DateTime? // 15-minute expiry
 
-  adminActions  AdminAction[]
+  adminActions AdminAction[]
 
   @@index([email])
   @@index([isActive])
 }
+
 model AdminAction {
-  id            String   @id @default(cuid())
-  adminId       String
+  id          String    @id @default(cuid())
+  adminId     String
   // 🔒 onDelete: Cascade is deliberate but must NEVER fire in practice — the
   // admin-role.sql grants revoke DELETE on AdminUser, so an admin cannot be
   // deleted and take their audit trail with them. Deactivate instead.
-  admin         AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
-  action        String   // user_plan_change | user_ban | feature_toggle | data_export | etc.
-  targetType    String?  // user | feature_flag | subscription | etc.
-  targetId      String?  // ID of the affected entity
-  description   String   // human-readable description
-  metadata      Json?    // before/after values, etc.
-  ip            String?
-  userAgent     String?
-  createdAt     DateTime @default(now())
+  admin       AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  action      String // user_plan_change | user_ban | feature_toggle | data_export | etc.
+  targetType  String? // user | feature_flag | subscription | etc.
+  targetId    String? // ID of the affected entity
+  description String // human-readable description
+  metadata    Json? // before/after values, etc.
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime  @default(now())
 
   // ═══════════════════════════════════════════════════════════════════════
   // 🔒 TAMPER-EVIDENT CHAIN (audit 2026-07-27).
@@ -976,15 +1007,16 @@ model AdminAction {
   // seq is a monotonic counter giving the chain a deterministic order —
   // createdAt can collide at millisecond resolution under concurrent writes.
   // ═══════════════════════════════════════════════════════════════════════
-  seq           BigInt   @default(autoincrement())
-  prevHash      String?  @db.VarChar(64) // null only for the very first entry
-  hash          String?  @db.VarChar(64) // sha256(seq|adminId|action|...|prevHash)
+  seq      BigInt  @default(autoincrement())
+  prevHash String? @db.VarChar(64) // null only for the very first entry
+  hash     String? @db.VarChar(64) // sha256(seq|adminId|action|...|prevHash)
 
   @@index([adminId, createdAt])
   @@index([action, createdAt])
   @@index([targetType, targetId])
   @@index([seq])
 }
+
 model SupportTicket {
   id         String    @id @default(cuid())
   userId     String
@@ -1008,6 +1040,7 @@ model SupportTicket {
   @@index([userId, createdAt])
   @@index([assignedTo, status])
 }
+
 model NpsFeedback {
   id        String   @id @default(cuid())
   userId    String
@@ -1020,6 +1053,7 @@ model NpsFeedback {
   @@index([userId, createdAt])
   @@index([score])
 }
+
 model DailyStats {
   // 🔒 2026-08-05: these money columns are Int, not Float. The shared database
   // stores money as integer PAISE — the main app's migration
@@ -1030,63 +1064,64 @@ model DailyStats {
   //
   // Found only after the missing DELETE grant was fixed: revenue recompute got
   // as far as its INSERT for the first time and hit this immediately.
-  id              String   @id @default(cuid())
-  date            DateTime @unique  // the day this record represents (midnight UTC)
+  id   String   @id @default(cuid())
+  date DateTime @unique // the day this record represents (midnight UTC)
 
   // User metrics
-  totalUsers      Int      @default(0)  // cumulative total users
-  newUsers        Int      @default(0)  // new signups this day
-  activeUsers     Int      @default(0)  // DAU (users active this day)
-  payingUsers     Int      @default(0)  // cumulative paying users
+  totalUsers  Int @default(0) // cumulative total users
+  newUsers    Int @default(0) // new signups this day
+  activeUsers Int @default(0) // DAU (users active this day)
+  payingUsers Int @default(0) // cumulative paying users
 
   // Revenue metrics
-  mrr             Int      @default(0)  // monthly recurring revenue (end of day)
-  newMrr          Int      @default(0)  // new MRR added this day
-  churnedMrr      Int      @default(0)  // MRR lost this day
-  arr             Int      @default(0)  // annual run rate (mrr * 12)
+  mrr        Int @default(0) // monthly recurring revenue (end of day)
+  newMrr     Int @default(0) // new MRR added this day
+  churnedMrr Int @default(0) // MRR lost this day
+  arr        Int @default(0) // annual run rate (mrr * 12)
 
   // Transaction metrics
-  totalGmv        Int      @default(0)  // gross merchandise value (sum of all sales)
-  totalTxns       Int      @default(0)  // total transactions this day
-  salesCount      Int      @default(0)  // sales this day
-  purchasesCount  Int      @default(0)  // purchases this day
+  totalGmv       Int @default(0) // gross merchandise value (sum of all sales)
+  totalTxns      Int @default(0) // total transactions this day
+  salesCount     Int @default(0) // sales this day
+  purchasesCount Int @default(0) // purchases this day
 
   // AI metrics
-  aiCalls         Int      @default(0)  // total AI calls this day
-  aiCostInr       Int      @default(0)  // AI cost this day (INR)
-  aiScans         Int      @default(0)  // bill scans this day
-  voiceParses     Int      @default(0)  // voice entries this day
+  aiCalls     Int @default(0) // total AI calls this day
+  aiCostInr   Int @default(0) // AI cost this day (INR)
+  aiScans     Int @default(0) // bill scans this day
+  voiceParses Int @default(0) // voice entries this day
 
   // Computed at
-  computedAt      DateTime @default(now())
+  computedAt DateTime @default(now())
 
   @@index([date])
 }
+
 model UserSegmentCache {
-  id          String   @id @default(cuid())
-  userId      String
-  segmentId   String   // power_users, whales, at_risk, etc.
-  computedAt  DateTime @default(now())
+  id         String   @id @default(cuid())
+  userId     String
+  segmentId  String // power_users, whales, at_risk, etc.
+  computedAt DateTime @default(now())
 
   @@unique([userId, segmentId])
   @@index([segmentId])
   @@index([userId])
 }
-model NotificationTemplate {
-  id          String   @id @default(cuid())
-  name        String                          // human-readable name (e.g. "Payment Reminder")
-  category    String   @default("general")   // general | payment | onboarding | churn | promotional
-  channel     String                          // sms | email | push
-  subject     String?                          // email subject (null for sms/push)
-  body        String   @db.Text               // template body with {{variables}}
-  variables   String   @default("[]") @db.Text // JSON array of variable names: ["userName", "amount"]
-  language    String   @default("en")         // en | hi | bilingual
-  status      String   @default("draft")      // draft | active | archived
-  version     Int      @default(1)            // bumped on each edit
-  createdBy   String?                          // admin user ID
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
 
+model NotificationTemplate {
+  id        String   @id @default(cuid())
+  name      String // human-readable name (e.g. "Payment Reminder")
+  category  String   @default("general") // general | payment | onboarding | churn | promotional
+  channel   String // sms | email | push
+  subject   String? // email subject (null for sms/push)
+  body      String   @db.Text // template body with {{variables}}
+  variables String   @default("[]") @db.Text // JSON array of variable names: ["userName", "amount"]
+  language  String   @default("en") // en | hi | bilingual
+  status    String   @default("draft") // draft | active | archived
+  version   Int      @default(1) // bumped on each edit
+  createdBy String? // admin user ID
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // 🔒 TRAI TCCCPR / DLT (audit 2026-07-28, master report §B6).
   // A promotional SMS may only be sent on a template registered on a DLT
@@ -1095,313 +1130,326 @@ model NotificationTemplate {
   // deliberately not gated — gating those would break payment receipts.
   dltTemplateId  String?
   dltHeaderId    String?
-  approvalStatus String   @default("pending") // pending | approved | rejected
+  approvalStatus String  @default("pending") // pending | approved | rejected
+
   @@index([channel, status])
   @@index([category, status])
   @@index([status])
 }
+
 model NotificationLog {
-  id            String   @id @default(cuid())
+  id                String   @id @default(cuid())
   // Recipient
-  userId        String?                          // null = anonymous/bulk recipient
-  recipient     String                            // phone (SMS) or email (Email) or deviceToken (Push)
+  userId            String? // null = anonymous/bulk recipient
+  recipient         String // phone (SMS) or email (Email) or deviceToken (Push)
   // Template used (optional — direct sends don't use templates)
-  templateId    String?
-  templateName  String?                           // snapshot of template name at send time
+  templateId        String?
+  templateName      String? // snapshot of template name at send time
   // Content snapshot (what was actually sent, after variable substitution)
-  channel       String                            // sms | email | push
-  subject       String?
-  body          String   @db.Text
+  channel           String // sms | email | push
+  subject           String?
+  body              String   @db.Text
   // Delivery status
-  status        String   @default("pending")     // pending | sent | failed | skipped
-  provider      String?                           // msg91 | resend | fcm | dry-run
-  providerMessageId String?                       // ID returned by provider (for tracking)
-  errorMessage  String?                           // null if success, error text if failed
+  status            String   @default("pending") // pending | sent | failed | skipped
+  provider          String? // msg91 | resend | fcm | dry-run
+  providerMessageId String? // ID returned by provider (for tracking)
+  errorMessage      String? // null if success, error text if failed
   // Metadata
-  sentBy        String?                           // admin user ID
-  sentAt        DateTime @default(now())
+  sentBy            String? // admin user ID
+  sentAt            DateTime @default(now())
   // Category for filtering (mirrors template category)
-  category      String   @default("general")
+  category          String   @default("general")
 
   @@index([userId, sentAt])
   @@index([channel, status, sentAt])
   @@index([status, sentAt])
   @@index([sentAt])
 }
+
 model Campaign {
-  id              String   @id @default(cuid())
-  name            String
-  description     String?  @db.Text
-  status          String   @default("draft")   // draft | scheduled | running | paused | completed | cancelled
+  id          String  @id @default(cuid())
+  name        String
+  description String? @db.Text
+  status      String  @default("draft") // draft | scheduled | running | paused | completed | cancelled
 
   // Target audience
-  targetSegmentId String?                          // null if using manual userIds
-  targetUserIds   String   @default("[]") @db.Text // JSON array of user IDs (if no segment)
+  targetSegmentId String? // null if using manual userIds
+  targetUserIds   String  @default("[]") @db.Text // JSON array of user IDs (if no segment)
 
   // Schedule
-  startAt         DateTime?                        // when to start sending step 1
-  endAt           DateTime?                        // computed: startAt + sum(step delays)
+  startAt DateTime? // when to start sending step 1
+  endAt   DateTime? // computed: startAt + sum(step delays)
 
   // Stats (updated by background job after each step)
-  totalRecipients Int      @default(0)
-  totalSent       Int      @default(0)
-  totalFailed     Int      @default(0)
-  totalSkipped    Int      @default(0)
-  currentStep     Int      @default(0)             // which step is currently running (0 = not started)
+  totalRecipients Int @default(0)
+  totalSent       Int @default(0)
+  totalFailed     Int @default(0)
+  totalSkipped    Int @default(0)
+  currentStep     Int @default(0) // which step is currently running (0 = not started)
 
   // Metadata
-  createdBy       String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  startedAt       DateTime?
-  completedAt     DateTime?
+  createdBy   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  startedAt   DateTime?
+  completedAt DateTime?
 
-  steps           CampaignStep[]
+  steps CampaignStep[]
 
   @@index([status, startAt])
   @@index([createdBy])
 }
-model CampaignStep {
-  id              String   @id @default(cuid())
-  campaignId      String
-  campaign        Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
-  stepNumber      Int                                // 1-indexed (step 1, 2, 3...)
-  templateId      String                             // NotificationTemplate ID
-  templateName    String?                            // snapshot at send time
+model CampaignStep {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  stepNumber   Int // 1-indexed (step 1, 2, 3...)
+  templateId   String // NotificationTemplate ID
+  templateName String? // snapshot at send time
 
   // Delay AFTER campaign startAt (in minutes)
   // Step 1: delayMinutes=0 (send immediately on start)
   // Step 2: delayMinutes=4320 (3 days × 1440 min/day)
   // Step 3: delayMinutes=10080 (7 days)
-  delayMinutes    Int      @default(0)
+  delayMinutes Int @default(0)
 
   // Status of this step
-  status          String   @default("pending")      // pending | running | sent | failed | skipped
-  scheduledAt     DateTime?                          // computed: campaign.startAt + delayMinutes
-  sentAt          DateTime?
+  status      String    @default("pending") // pending | running | sent | failed | skipped
+  scheduledAt DateTime? // computed: campaign.startAt + delayMinutes
+  sentAt      DateTime?
 
   // Stats for this step
-  recipientCount  Int      @default(0)
-  sentCount       Int      @default(0)
-  failedCount     Int      @default(0)
-  skippedCount    Int      @default(0)
+  recipientCount Int @default(0)
+  sentCount      Int @default(0)
+  failedCount    Int @default(0)
+  skippedCount   Int @default(0)
 
-  errorMessage    String?
+  errorMessage String?
 
   @@index([campaignId, stepNumber])
   @@index([status, scheduledAt])
 }
+
 model Incident {
-  id          String   @id @default(cuid())
+  id          String @id @default(cuid())
   title       String
-  description String   @db.Text
-  severity    String   @default("minor")     // minor | major | critical | maintenance
-  status      String   @default("investigating") // investigating | identified | monitoring | resolved
-  service     String   @default("all")       // api | database | ai_providers | payments | all
+  description String @db.Text
+  severity    String @default("minor") // minor | major | critical | maintenance
+  status      String @default("investigating") // investigating | identified | monitoring | resolved
+  service     String @default("all") // api | database | ai_providers | payments | all
 
-  startedAt   DateTime @default(now())
-  resolvedAt  DateTime?
+  startedAt  DateTime  @default(now())
+  resolvedAt DateTime?
 
-  createdBy   String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  updates     IncidentUpdate[]
+  updates IncidentUpdate[]
 
   @@index([status, startedAt])
   @@index([service, status])
 }
-model IncidentUpdate {
-  id          String   @id @default(cuid())
-  incidentId  String
-  incident    Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
 
-  message     String   @db.Text
-  status      String                                   // snapshot of incident status at this update
-  createdBy   String?
-  createdAt   DateTime @default(now())
+model IncidentUpdate {
+  id         String   @id @default(cuid())
+  incidentId String
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  message   String   @db.Text
+  status    String // snapshot of incident status at this update
+  createdBy String?
+  createdAt DateTime @default(now())
 
   @@index([incidentId, createdAt])
 }
+
 model Anomaly {
-  id            String   @id @default(cuid())
-  metric        String                          // new_signups | revenue | ai_cost | failed_logins | etc.
-  metricLabel   String                          // human-readable label
-  direction     String                          // spike | drop
-  severity      String   @default("medium")     // low | medium | high | critical
-  status        String   @default("open")       // open | acknowledged | resolved
+  id          String @id @default(cuid())
+  metric      String // new_signups | revenue | ai_cost | failed_logins | etc.
+  metricLabel String // human-readable label
+  direction   String // spike | drop
+  severity    String @default("medium") // low | medium | high | critical
+  status      String @default("open") // open | acknowledged | resolved
 
   // Statistical data
-  currentValue  Float                            // the anomalous value
-  baselineValue Float                            // expected value (mean of baseline)
-  baselineStdDev Float                           // standard deviation of baseline
-  zScore        Float                            // (current - baseline) / stdDev
-  baselineDays  Int      @default(30)            // how many days used for baseline
+  currentValue   Float // the anomalous value
+  baselineValue  Float // expected value (mean of baseline)
+  baselineStdDev Float // standard deviation of baseline
+  zScore         Float // (current - baseline) / stdDev
+  baselineDays   Int   @default(30) // how many days used for baseline
 
   // Time window
-  detectedAt    DateTime @default(now())
-  windowStart   DateTime                         // start of the anomalous period
-  windowEnd     DateTime                         // end of the anomalous period
+  detectedAt  DateTime @default(now())
+  windowStart DateTime // start of the anomalous period
+  windowEnd   DateTime // end of the anomalous period
 
   // Admin response
   acknowledgedBy String?
   acknowledgedAt DateTime?
   resolvedBy     String?
   resolvedAt     DateTime?
-  adminNote      String?  @db.Text               // admin's note on resolution
+  adminNote      String?   @db.Text // admin's note on resolution
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([status, detectedAt])
   @@index([metric, detectedAt])
   @@index([detectedAt])
 }
+
 model FraudRule {
-  id              String   @id @default(cuid())
-  name            String
-  description     String?  @db.Text
+  id          String  @id @default(cuid())
+  name        String
+  description String? @db.Text
 
   // What to measure
-  metric          String                          // transaction_count | transaction_amount | ai_call_count | login_failure_count | new_user_with_activity
+  metric    String // transaction_count | transaction_amount | ai_call_count | login_failure_count | new_user_with_activity
   // Condition
-  operator        String                          // gt | gte | lt | lte | eq
-  threshold       Float
+  operator  String // gt | gte | lt | lte | eq
+  threshold Float
 
   // Time window in minutes (e.g. 60 = 1 hour, 1440 = 24 hours)
   // null = all-time (no window)
-  windowMinutes   Int?
+  windowMinutes Int?
 
   // Optional: only apply to users created within X minutes (for "new user" rules)
-  userAgeMinutes  Int?
+  userAgeMinutes Int?
 
   // Status
-  enabled         Boolean  @default(true)
-  severity        String   @default("medium")     // low | medium | high | critical
+  enabled  Boolean @default(true)
+  severity String  @default("medium") // low | medium | high | critical
 
   // Metadata
-  createdBy       String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  alerts          FraudAlert[]
+  alerts FraudAlert[]
 
   @@index([enabled, metric])
 }
+
 model FraudAlert {
-  id              String   @id @default(cuid())
-  ruleId          String
-  rule            FraudRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  id     String    @id @default(cuid())
+  ruleId String
+  rule   FraudRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
 
   // Who triggered it
-  userId          String
-  userName        String?
-  userEmail       String?
+  userId    String
+  userName  String?
+  userEmail String?
 
   // What was detected
-  metricValue     Float                            // the value that triggered the alert
-  threshold       Float                            // the rule's threshold (snapshot)
+  metricValue Float // the value that triggered the alert
+  threshold   Float // the rule's threshold (snapshot)
 
   // Status
-  status          String   @default("open")       // open | acknowledged | resolved | false_positive
-  adminNote       String?  @db.Text
+  status    String  @default("open") // open | acknowledged | resolved | false_positive
+  adminNote String? @db.Text
 
   // Metadata
-  detectedAt      DateTime @default(now())
-  acknowledgedBy  String?
-  acknowledgedAt  DateTime?
-  resolvedBy      String?
-  resolvedAt      DateTime?
+  detectedAt     DateTime  @default(now())
+  acknowledgedBy String?
+  acknowledgedAt DateTime?
+  resolvedBy     String?
+  resolvedAt     DateTime?
 
   @@index([status, detectedAt])
   @@index([ruleId, detectedAt])
   @@index([userId, detectedAt])
 }
+
 model ApiKey {
-  id            String    @id @default(cuid())
-  partnerId     String?                            // null = internal/admin key (kept for backward compat, Partner model removed
+  id        String  @id @default(cuid())
+  partnerId String? // null = internal/admin key (kept for backward compat, Partner model removed
   // 🔒 AUDIT FIX: Partner relation removed — model was deleted (lending pipeline)
 
-  name          String                             // human-readable label (e.g. "Bajaj Production Key")
-  keyHash       String   @unique                   // SHA-256 hash of the raw key (never store raw)
-  keyPrefix     String                             // first 12 chars of raw key (for display: bkh_live_abc1...)
-  scopes        String   @default("[]") @db.Text   // JSON array of scope strings
+  name      String // human-readable label (e.g. "Bajaj Production Key")
+  keyHash   String @unique // SHA-256 hash of the raw key (never store raw)
+  keyPrefix String // first 12 chars of raw key (for display: bkh_live_abc1...)
+  scopes    String @default("[]") @db.Text // JSON array of scope strings
 
-  status        String   @default("active")        // active | revoked | expired
-  expiresAt     DateTime?                          // null = never expires
+  status    String    @default("active") // active | revoked | expired
+  expiresAt DateTime? // null = never expires
 
   // Usage tracking
-  lastUsedAt    DateTime?
-  usageCount    Int      @default(0)
+  lastUsedAt DateTime?
+  usageCount Int       @default(0)
 
   // Metadata
-  createdBy     String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([partnerId, status])
   @@index([status])
   @@index([keyHash])
 }
+
 model WebhookEndpoint {
-  id            String   @id @default(cuid())
-  partnerId     String?  // 🔒 AUDIT FIX: Made nullable + removed Partner relation (model deleted)
+  id        String  @id @default(cuid())
+  partnerId String? // 🔒 AUDIT FIX: Made nullable + removed Partner relation (model deleted)
   // partner relation removed — Partner model was deleted (lending pipeline)
 
-  url           String                            // https://partner.com/webhooks/leads
-  secret        String?                           // HMAC signature secret (for verification)
-  events        String   @default("[]") @db.Text  // JSON array of event types
+  url    String // https://partner.com/webhooks/leads
+  secret String? // HMAC signature secret (for verification)
+  events String  @default("[]") @db.Text // JSON array of event types
 
-  status        String   @default("active")       // active | disabled
-  description   String?
+  status      String  @default("active") // active | disabled
+  description String?
 
   // Stats (updated by delivery job)
-  totalSent     Int      @default(0)
-  totalSuccess  Int      @default(0)
-  totalFailed   Int      @default(0)
-  lastSentAt    DateTime?
+  totalSent    Int       @default(0)
+  totalSuccess Int       @default(0)
+  totalFailed  Int       @default(0)
+  lastSentAt   DateTime?
 
   // Metadata
-  createdBy     String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  deliveries    WebhookDelivery[]
+  deliveries WebhookDelivery[]
 
   @@index([partnerId, status])
   @@index([status])
 }
-model WebhookDelivery {
-  id              String   @id @default(cuid())
-  endpointId      String
-  endpoint        WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
 
-  eventType       String                             // lead.created | lead.updated | etc.
-  payload         String   @db.Text                  // JSON body sent to webhook
+model WebhookDelivery {
+  id         String          @id @default(cuid())
+  endpointId String
+  endpoint   WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  eventType String // lead.created | lead.updated | etc.
+  payload   String @db.Text // JSON body sent to webhook
 
   // Delivery status
-  status          String   @default("pending")      // pending | success | failed | retrying
-  attemptCount    Int      @default(0)
-  maxAttempts     Int      @default(3)              // exponential backoff: 1m, 5m, 25m
+  status       String @default("pending") // pending | success | failed | retrying
+  attemptCount Int    @default(0)
+  maxAttempts  Int    @default(3) // exponential backoff: 1m, 5m, 25m
 
   // Response info
-  responseStatus  Int?                               // HTTP status code (200, 500, etc.)
-  responseBody    String?  @db.Text                  // First 1KB of response body (for debugging)
-  errorMessage    String?
+  responseStatus Int? // HTTP status code (200, 500, etc.)
+  responseBody   String? @db.Text // First 1KB of response body (for debugging)
+  errorMessage   String?
 
   // Timing
-  firstAttemptAt  DateTime?
-  lastAttemptAt   DateTime?
-  nextRetryAt     DateTime?                          // when to retry (if failed)
-  deliveredAt     DateTime?                          // when successfully delivered
+  firstAttemptAt DateTime?
+  lastAttemptAt  DateTime?
+  nextRetryAt    DateTime? // when to retry (if failed)
+  deliveredAt    DateTime? // when successfully delivered
 
-  createdAt       DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([endpointId, status, createdAt])
   @@index([status, nextRetryAt])
   @@index([createdAt])
 }
+
 model RevenueSchedule {
   // 🔒 2026-08-05: these money columns are Int, not Float. The shared database
   // stores money as integer PAISE — the main app's migration
@@ -1412,248 +1460,258 @@ model RevenueSchedule {
   //
   // Found only after the missing DELETE grant was fixed: revenue recompute got
   // as far as its INSERT for the first time and hit this immediately.
-  id              String   @id @default(cuid())
-  subscriptionId  String                             // FK to Subscription (not enforced — cross-relation)
-  userId          String                             // denormalized for fast queries
-  plan            String                             // pro | elite (snapshot)
-  amount          Int                                // revenue recognized this period (₹)
-  periodStart     DateTime                           // start of the month (e.g. Jan 1 00:00)
-  periodEnd       DateTime                           // end of the month (e.g. Jan 31 23:59)
-  status          String   @default("pending")       // pending | current | recognized
-  recognizedAt    DateTime?                          // when this period was recognized (set by cron)
+  id             String    @id @default(cuid())
+  subscriptionId String // FK to Subscription (not enforced — cross-relation)
+  userId         String // denormalized for fast queries
+  plan           String // pro | elite (snapshot)
+  amount         Int // revenue recognized this period (₹)
+  periodStart    DateTime // start of the month (e.g. Jan 1 00:00)
+  periodEnd      DateTime // end of the month (e.g. Jan 31 23:59)
+  status         String    @default("pending") // pending | current | recognized
+  recognizedAt   DateTime? // when this period was recognized (set by cron)
 
   // Metadata
-  createdAt       DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([status, periodStart])
   @@index([userId, periodStart])
   @@index([subscriptionId])
   @@index([periodStart])
 }
+
 model Experiment {
-  id              String   @id @default(cuid())
-  name            String
-  description     String?  @db.Text
-  status          String   @default("draft")       // draft | running | completed | cancelled
+  id          String  @id @default(cuid())
+  name        String
+  description String? @db.Text
+  status      String  @default("draft") // draft | running | completed | cancelled
 
   // What are we testing?
-  metric          String                            // conversion | revenue | retention
-  metricGoal      String  @default("increase")     // increase | decrease
-  targetEvent     String?                           // e.g. 'signup', 'payment', 'day7_retention'
+  metric      String // conversion | revenue | retention
+  metricGoal  String  @default("increase") // increase | decrease
+  targetEvent String? // e.g. 'signup', 'payment', 'day7_retention'
 
   // Traffic allocation
-  trafficPct      Int      @default(100)            // % of users included in experiment (0-100)
+  trafficPct Int @default(100) // % of users included in experiment (0-100)
 
   // Variants (stored as JSON: [{ key: 'control', name: 'Default', weight: 50 }, { key: 'treatment_a', name: 'New UI', weight: 50 }])
-  variants        String   @default("[]") @db.Text
+  variants String @default("[]") @db.Text
 
   // Schedule
-  startAt         DateTime?
-  endAt           DateTime?
+  startAt DateTime?
+  endAt   DateTime?
 
   // Results (filled when experiment completes)
-  winnerVariant   String?                           // key of winning variant
-  conclusion      String?  @db.Text                 // summary of findings
+  winnerVariant String? // key of winning variant
+  conclusion    String? @db.Text // summary of findings
 
   // Metadata
-  createdBy       String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  assignments     ExperimentAssignment[]
+  assignments ExperimentAssignment[]
 
   @@index([status, startAt])
 }
-model ExperimentAssignment {
-  id              String   @id @default(cuid())
-  experimentId    String
-  experiment      Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
 
-  userId          String
-  variantKey      String                             // 'control' | 'treatment_a' | etc.
-  assignedAt      DateTime @default(now())
+model ExperimentAssignment {
+  id           String     @id @default(cuid())
+  experimentId String
+  experiment   Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+
+  userId     String
+  variantKey String // 'control' | 'treatment_a' | etc.
+  assignedAt DateTime @default(now())
 
   // Conversion tracking (filled when user completes the goal)
   convertedAt     DateTime?
-  conversionValue Float    @default(0)              // e.g. revenue amount (for revenue metric)
+  conversionValue Float     @default(0) // e.g. revenue amount (for revenue metric)
 
-  @@unique([experimentId, userId])                   // one assignment per user per experiment
+  @@unique([experimentId, userId]) // one assignment per user per experiment
   @@index([experimentId, variantKey])
   @@index([userId, experimentId])
   @@index([convertedAt])
 }
+
 model Competitor {
-  id              String   @id @default(cuid())
-  name            String
-  website         String?
-  description     String?  @db.Text
+  id          String  @id @default(cuid())
+  name        String
+  website     String?
+  description String? @db.Text
 
   // Pricing snapshot (in INR)
-  freePrice       String?                          // e.g. "Free" or "₹0"
-  proPrice        String?                          // e.g. "₹499/mo"
-  elitePrice      String?                          // e.g. "₹999/mo"
+  freePrice  String? // e.g. "Free" or "₹0"
+  proPrice   String? // e.g. "₹499/mo"
+  elitePrice String? // e.g. "₹999/mo"
 
   // Feature comparison (JSON: { feature: true/false })
-  features        String   @default("{}") @db.Text
+  features String @default("{}") @db.Text
 
   // Market position
-  targetMarket    String?                          // e.g. "Small kirana stores"
-  usp             String?  @db.Text                // unique selling proposition
-  weaknesses      String?  @db.Text                // their weaknesses (our opportunities)
+  targetMarket String? // e.g. "Small kirana stores"
+  usp          String? @db.Text // unique selling proposition
+  weaknesses   String? @db.Text // their weaknesses (our opportunities)
 
   // Metadata
-  status          String   @default("active")      // active | inactive
-  createdBy       String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  status    String   @default("active") // active | inactive
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  updates         CompetitorUpdate[]
+  updates CompetitorUpdate[]
 
   @@index([status])
 }
+
 model CompetitorUpdate {
-  id              String   @id @default(cuid())
-  competitorId    String
-  competitor      Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  id           String     @id @default(cuid())
+  competitorId String
+  competitor   Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
 
   // What changed
-  field           String                           // e.g. "proPrice", "features", "usp"
-  oldValue        String?  @db.Text
-  newValue        String?  @db.Text
+  field    String // e.g. "proPrice", "features", "usp"
+  oldValue String? @db.Text
+  newValue String? @db.Text
 
-  note            String?  @db.Text                // admin's note on why this changed
-  updatedBy       String?
-  createdAt       DateTime @default(now())
+  note      String?  @db.Text // admin's note on why this changed
+  updatedBy String?
+  createdAt DateTime @default(now())
 
   @@index([competitorId, createdAt])
 }
-model BulkJob {
-  id              String   @id @default(cuid())
-  name            String
-  action          String                            // change_plan | message | ban | delete | export
-  targetType      String   @default("user")         // user | segment
-  targetCriteria  String   @default("{}") @db.Text  // JSON: { plan: 'free', segmentId: 'power_users', userIds: [...] }
-  actionParams    String   @default("{}") @db.Text  // JSON: { plan: 'pro', message: '...', duration: '7d' }
 
-  status          String   @default("scheduled")    // scheduled | running | completed | failed | cancelled
-  scheduledAt     DateTime                          // when to execute
-  startedAt       DateTime?
-  completedAt     DateTime?
+model BulkJob {
+  id             String @id @default(cuid())
+  name           String
+  action         String // change_plan | message | ban | delete | export
+  targetType     String @default("user") // user | segment
+  targetCriteria String @default("{}") @db.Text // JSON: { plan: 'free', segmentId: 'power_users', userIds: [...] }
+  actionParams   String @default("{}") @db.Text // JSON: { plan: 'pro', message: '...', duration: '7d' }
+
+  status      String    @default("scheduled") // scheduled | running | completed | failed | cancelled
+  scheduledAt DateTime // when to execute
+  startedAt   DateTime?
+  completedAt DateTime?
 
   // Stats (filled during execution)
-  totalTargets    Int      @default(0)
-  processedCount  Int      @default(0)
-  successCount    Int      @default(0)
-  failedCount     Int      @default(0)
-  errorMessage    String?  @db.Text
+  totalTargets   Int     @default(0)
+  processedCount Int     @default(0)
+  successCount   Int     @default(0)
+  failedCount    Int     @default(0)
+  errorMessage   String? @db.Text
 
-  createdBy       String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([status, scheduledAt])
   @@index([action, status])
 }
+
 model NpsSurveyConfig {
-  id              String   @id @default(cuid())
-  name            String
-  triggerType     String                            // days_after_signup | transaction_count | days_since_last_survey | plan_upgrade | manual
-  triggerValue    Int                               // X (days, count, etc.)
-  question        String   @default("How likely are you to recommend BahiKhata Pro to a friend or colleague?")
+  id           String @id @default(cuid())
+  name         String
+  triggerType  String // days_after_signup | transaction_count | days_since_last_survey | plan_upgrade | manual
+  triggerValue Int // X (days, count, etc.)
+  question     String @default("How likely are you to recommend BahiKhata Pro to a friend or colleague?")
 
   // Cooldown: don't show again for X days after user responds
-  cooldownDays    Int      @default(90)
+  cooldownDays Int @default(90)
 
   // Targeting
-  targetPlans     String   @default("all")          // all | free | pro | elite (comma-separated)
+  targetPlans String @default("all") // all | free | pro | elite (comma-separated)
 
   // Status
-  enabled         Boolean  @default(true)
-  priority        Int      @default(1)              // higher = shown first if multiple match
+  enabled  Boolean @default(true)
+  priority Int     @default(1) // higher = shown first if multiple match
 
   // Stats (updated when survey is shown)
-  timesShown      Int      @default(0)
-  timesResponded  Int      @default(0)
+  timesShown     Int @default(0)
+  timesResponded Int @default(0)
 
-  createdBy       String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([enabled, triggerType])
 }
+
 model DataExportRequest {
-  id              String   @id @default(cuid())
-  type            String                            // user_data | all_users | transactions | subscriptions | ai_usage | custom
-  format          String   @default("csv")          // csv | json
-  status          String   @default("pending")      // pending | processing | completed | failed
-  userId          String?                           // for user_data type (which user's data)
-  customQuery     String?  @db.Text                 // for custom type (SQL query)
-  fileName        String?                           // generated file name
-  fileSizeBytes   Int      @default(0)
-  rowCount        Int      @default(0)
-  errorMessage    String?  @db.Text
-  requestedBy     String?                           // admin who requested
-  processedBy     String?
-  createdAt       DateTime @default(now())
-  completedAt     DateTime?
-  expiresAt       DateTime?                          // download link expiry (default 24h)
+  id            String    @id @default(cuid())
+  type          String // user_data | all_users | transactions | subscriptions | ai_usage | custom
+  format        String    @default("csv") // csv | json
+  status        String    @default("pending") // pending | processing | completed | failed
+  userId        String? // for user_data type (which user's data)
+  customQuery   String?   @db.Text // for custom type (SQL query)
+  fileName      String? // generated file name
+  fileSizeBytes Int       @default(0)
+  rowCount      Int       @default(0)
+  errorMessage  String?   @db.Text
+  requestedBy   String? // admin who requested
+  processedBy   String?
+  createdAt     DateTime  @default(now())
+  completedAt   DateTime?
+  expiresAt     DateTime? // download link expiry (default 24h)
 
   @@index([status, createdAt])
   @@index([type, status])
 }
+
 model ChurnPrediction {
-  id              String   @id @default(cuid())
-  userId          String   @unique
-  userName        String?
-  userEmail       String?
-  userPlan        String?
+  id        String  @id @default(cuid())
+  userId    String  @unique
+  userName  String?
+  userEmail String?
+  userPlan  String?
 
   // Risk score (0-100, higher = more likely to churn)
-  riskScore       Int
-  riskLevel       String                          // low | medium | high | critical
+  riskScore Int
+  riskLevel String // low | medium | high | critical
 
   // Individual factor scores (0-100 each)
-  inactivityScore Int      @default(0)             // days since last login
-  engagementScore Int      @default(0)             // days since last transaction
-  aiUsageScore    Int      @default(0)             // AI usage decline
-  planScore       Int      @default(0)             // plan tier factor
-  ageScore        Int      @default(0)             // account age factor
-  supportScore    Int      @default(0)             // support ticket factor
+  inactivityScore Int @default(0) // days since last login
+  engagementScore Int @default(0) // days since last transaction
+  aiUsageScore    Int @default(0) // AI usage decline
+  planScore       Int @default(0) // plan tier factor
+  ageScore        Int @default(0) // account age factor
+  supportScore    Int @default(0) // support ticket factor
 
   // Recommendation
-  recommendedAction String?                        // e.g. "Send win-back campaign", "Offer discount"
+  recommendedAction String? // e.g. "Send win-back campaign", "Offer discount"
 
   // Metadata
-  computedAt      DateTime @default(now())
+  computedAt DateTime @default(now())
 
   @@index([riskLevel, riskScore])
   @@index([userPlan, riskLevel])
 }
+
 model SupplierReport {
-  id              String   @id @default(cuid())
-  name            String
-  type            String                            // product_trends | transaction_volume | payment_patterns | regional_insights | category_analysis
-  partnerId       String?                           // linked Partner (optional — null = general report)
-  status          String   @default("generated")    // generated | delivered | archived
+  id        String  @id @default(cuid())
+  name      String
+  type      String // product_trends | transaction_volume | payment_patterns | regional_insights | category_analysis
+  partnerId String? // linked Partner (optional — null = general report)
+  status    String  @default("generated") // generated | delivered | archived
 
   // Report content (JSON with aggregated data)
-  summary         String?  @db.Text                 // human-readable summary
-  data            String   @default("{}") @db.Text  // JSON: aggregated data
-  dataPoints      Int      @default(0)              // number of data points in report
-  userCount       Int      @default(0)              // number of users included in aggregation
+  summary    String? @db.Text // human-readable summary
+  data       String  @default("{}") @db.Text // JSON: aggregated data
+  dataPoints Int     @default(0) // number of data points in report
+  userCount  Int     @default(0) // number of users included in aggregation
 
   // Pricing
-  priceInr        Float    @default(0)              // price charged to partner (₹)
+  priceInr Float @default(0) // price charged to partner (₹)
 
   // Metadata
-  period          String?                           // e.g. "2026-06" or "Q2 2026"
-  generatedBy     String?
-  createdAt       DateTime @default(now())
-  deliveredAt     DateTime?
+  period      String? // e.g. "2026-06" or "Q2 2026"
+  generatedBy String?
+  createdAt   DateTime  @default(now())
+  deliveredAt DateTime?
 
   @@index([type, status])
   @@index([partnerId, status])
 }
+
 model InvoiceCounter {
   userId        String @id
   user          User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1665,52 +1723,54 @@ model InvoiceCounter {
   // sales seq → purchases numbered INV-XXXX, eating gaps in the sales series).
   purchaseSeq   Int    @default(0)
 }
+
 model Document {
-  id                String   @id @default(cuid())
-  userId            String // owner of this document
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  shopId            String? // multi-shop: null = all shops
-  name              String // user-provided filename or description
-  category          String   @default("other") // bill | invoice | gst-certificate | bank-statement | id-proof | other
-  fileType          String // mime type: image/jpeg, application/pdf, etc.
-  fileSize          Int    @default(0) // in bytes
+  id                 String    @id @default(cuid())
+  userId             String // owner of this document
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shopId             String? // multi-shop: null = all shops
+  name               String // user-provided filename or description
+  category           String    @default("other") // bill | invoice | gst-certificate | bank-statement | id-proof | other
+  fileType           String // mime type: image/jpeg, application/pdf, etc.
+  fileSize           Int       @default(0) // in bytes
   // Cloudinary storage
-  cloudinaryUrl     String // secure_url from Cloudinary
+  cloudinaryUrl      String // secure_url from Cloudinary
   cloudinaryPublicId String // public_id for deletion
   // Optional metadata
-  notes             String?
-  tags              String[] @default([]) // free-form tags for search
-  uploadedAt        DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  notes              String?
+  tags               String[]  @default([]) // free-form tags for search
+  uploadedAt         DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
   // Soft delete for audit trail
-  deletedAt         DateTime?
+  deletedAt          DateTime?
 
   @@index([userId, deletedAt])
   @@index([userId, category])
   @@index([userId, uploadedAt])
 }
+
 model ImpersonationToken {
-  id            String    @id @default(cuid())
+  id           String    @id @default(cuid())
   // SHA-256 hash of the raw 32-byte token. The raw token is NEVER stored —
   // only the hash. Lookup is by tokenHash (unique).
-  tokenHash     String    @unique
+  tokenHash    String    @unique
   // The admin who created this token (AdminUser.id from the admin app).
   // Stored as a plain string (no FK) because AdminUser lives in the admin
   // app's auth domain — the main app doesn't query AdminUser directly.
-  adminId       String
+  adminId      String
   // Denormalized admin email for audit display (so the main app can show
   // "Impersonating as {adminEmail}" without a cross-DB join).
-  adminEmail    String
+  adminEmail   String
   // The shopkeeper being impersonated (User.id). The main app's consumer
   // endpoint creates a NextAuth session bound to this userId.
-  targetUserId  String
+  targetUserId String
   // 5-minute expiry. The admin app sets this when creating the token; the
   // main app checks expiresAt > now() on redemption.
-  expiresAt     DateTime
+  expiresAt    DateTime
   // Single-use enforcement. NULL = unused (valid for redemption).
   // Non-NULL = already redeemed (token can't be replayed).
-  usedAt        DateTime?
-  createdAt     DateTime  @default(now())
+  usedAt       DateTime?
+  createdAt    DateTime  @default(now())
 
   @@index([targetUserId])
   @@index([adminId])
@@ -1741,8 +1801,8 @@ model ImpersonationToken {
 model CommunicationPreference {
   id         String    @id @default(cuid())
   userId     String
-  channel    String    // sms | email | push | whatsapp
-  category   String    // promotional (transactional/service are never gated)
+  channel    String // sms | email | push | whatsapp
+  category   String // promotional (transactional/service are never gated)
   optedIn    Boolean   @default(false)
   /// Where the opt-in came from — required to evidence double opt-in.
   source     String?
@@ -1754,7 +1814,6 @@ model CommunicationPreference {
   @@unique([userId, channel, category])
   @@index([userId])
 }
-
 
 /// Time-boxed emergency access (master report §C4).
 ///
