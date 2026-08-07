@@ -34,6 +34,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The main app's migrations own the money columns in the shared database.
+      # This app keeps its own schema copy and has NO migrations directory, so
+      # nothing here can detect drift on its own — which is how seven columns
+      # came to say Float while the database said integer, silently failing
+      # every revenue-recognition and daily-stats WRITE while reads looked fine.
+      #
+      # tests/money-columns-are-integers.test.ts compares the two. Without this
+      # checkout it has nothing to compare against and skips, and a check that
+      # skips is a check that passes for the wrong reason. REQUIRE_MAIN_APP
+      # makes a missing checkout fail loudly instead.
+      #
+      # bahikhata-pro is public, so no token is needed.
+      - name: Check out the main app (owner of the money schema)
+        uses: actions/checkout@v4
+        with:
+          repository: rahulkothari677/bahikhata-pro
+          path: main-app
+          sparse-checkout: prisma/migrations
+          sparse-checkout-cone-mode: false
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -56,6 +76,11 @@ jobs:
 
       - name: Test
         run: npm run test
+        env:
+          # Point the money-drift guard at the checkout above, and make its
+          # absence a failure rather than a silent skip.
+          MAIN_APP_PATH: ${{ github.workspace }}/main-app
+          REQUIRE_MAIN_APP: '1'
 
       - name: Build
         run: npm run build
