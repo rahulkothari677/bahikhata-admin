@@ -88,24 +88,93 @@ describe('every field the money extension converts is an integer column', () => 
 })
 
 describe('this schema agrees with the migration that owns the database', () => {
-  const MIGRATION = path.join(
-    ROOT,
-    '../pro/prisma/migrations/20260712000001_paise_migration/migration.sql',
-  )
-  const hasSibling = fs.existsSync(MIGRATION)
+  /*
+   * WHY THIS SECTION WAS REWRITTEN (2026-08-07).
+   *
+   * It had two faults, and between them this comparison had never run anywhere
+   * — not in CI, not on a developer's machine — since the day it was written.
+   *
+   * 1. `describe.skip` still EXECUTES its callback. Vitest runs the body to
+   *    discover the tests it will then mark skipped. The readFileSync sat
+   *    directly in that body, so it ran whether or not the guard said skip,
+   *    threw ENOENT, and failed the whole file. The guard did not guard.
+   *
+   * 2. It looked for a sibling named `pro`. The repository is called
+   *    `bahikhata-pro`, so even a developer with both checked out side by side
+   *    got hasSibling === false.
+   *
+   * The result: admin CI was red from 2026-08-05, which also meant the Build
+   * step never ran, and the one check standing between a paise migration and
+   * silent write failures in production was inert. That is the exact class of
+   * fault it exists to catch — seven columns drifted to Float once already and
+   * killed revenue-recognition writes while reads looked fine.
+   *
+   * Reading is now lazy (inside `it`), so skipping actually skips, and the
+   * sibling is resolved against several candidate paths. CI checks the main
+   * repo out explicitly (see .github/workflows/ci.yml), so this runs there for
+   * real rather than passing by being skipped — a gate that always says "pass"
+   * is not a gate.
+   */
+  /*
+   * MAIN_APP_PATH, when set, is the ONLY candidate — an explicit setting should
+   * override, not merely join a queue. Without that, the guesses below always
+   * win on a developer machine that happens to have the sibling checked out,
+   * and the skip path becomes untestable: both "present" and "absent" runs find
+   * the migration and pass, which looks like proof and is not.
+   */
+  const CANDIDATE_ROOTS = process.env.MAIN_APP_PATH
+    ? [process.env.MAIN_APP_PATH]
+    : [
+        path.join(ROOT, '../bahikhata-pro'), // the repository's actual name
+        path.join(ROOT, '../pro'),           // the old assumption, kept for anyone who used it
+      ]
 
-  const run = hasSibling ? describe : describe.skip
+  const MIGRATION_SUFFIX = 'prisma/migrations/20260712000001_paise_migration/migration.sql'
+
+  /** The first candidate that actually holds the migration, or null. */
+  function findMigration(): string | null {
+    for (const root of CANDIDATE_ROOTS) {
+      const p = path.join(root, MIGRATION_SUFFIX)
+      if (fs.existsSync(p)) return p
+    }
+    return null
+  }
+
+  const migrationPath = findMigration()
+
+  /*
+   * CI sets REQUIRE_MAIN_APP=1 after checking the main repo out. There, a
+   * missing migration is a failure rather than a skip — otherwise the day
+   * someone changes the checkout path, this quietly stops comparing anything
+   * and nobody finds out until production writes start failing again.
+   */
+  it('the main app checkout is present when CI says it must be', () => {
+    if (process.env.REQUIRE_MAIN_APP) {
+      expect(
+        migrationPath,
+        `REQUIRE_MAIN_APP is set but no paise migration was found. Looked in:\n` +
+          CANDIDATE_ROOTS.map((r) => `  ${path.join(r, MIGRATION_SUFFIX)}`).join('\n'),
+      ).not.toBeNull()
+    } else {
+      expect(true).toBe(true) // locally, absence is fine — see below
+    }
+  })
+
+  const run = migrationPath ? describe : describe.skip
   run('against the main app checkout', () => {
-    const sql = fs.readFileSync(MIGRATION, 'utf8')
-    const converted = [...sql.matchAll(/ALTER TABLE "(\w+)" ALTER COLUMN "(\w+)" TYPE (INTEGER|BIGINT)/gi)]
-      .map((m) => ({ table: m[1], col: m[2] }))
+    // Lazy: this must NOT run during collection, or `.skip` cannot save us.
+    const converted = () => {
+      const sql = fs.readFileSync(migrationPath as string, 'utf8')
+      return [...sql.matchAll(/ALTER TABLE "(\w+)" ALTER COLUMN "(\w+)" TYPE (INTEGER|BIGINT)/gi)]
+        .map((m) => ({ table: m[1], col: m[2] }))
+    }
 
     it('reads the migration', () => {
-      expect(converted.length).toBeGreaterThan(50)
+      expect(converted().length).toBeGreaterThan(50)
     })
 
     it('declares Int for every column the migration made an integer', () => {
-      const drift = converted
+      const drift = converted()
         .filter((c) => models[c.table] && models[c.table][c.col] !== undefined)
         .filter((c) => !/^(Int|BigInt)\??$/.test(models[c.table][c.col]))
         .map((c) => `${c.table}.${c.col} is ${models[c.table][c.col]} here but INTEGER in the database`)
