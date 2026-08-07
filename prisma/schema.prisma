@@ -176,6 +176,18 @@ model Product {
   shopId            String? // multi-shop: null = all shops (backward compatible)
   name              String
   sku               String?
+  /*
+   * Mirrored from the main app (INTEGRATION-CONTRACT Part B.2: both schemas
+   * MUST be identical for shared tables). The main app owns the migration —
+   * 20260807000001_add_barcode_to_product — this side is `prisma generate`
+   * only, never `db push`.
+   *
+   * Not decorative here. The DSAR export in
+   * api/admin/data-exports/generate does a bare findMany on Product, so Prisma
+   * selects exactly the columns THIS schema knows about. Without this line a
+   * user's own data export would silently omit their barcodes.
+   */
+  barcode           String?
   hsn               String? // HSN/SAC code for GST
   category          String?
   unit              String   @default("pcs") // pcs, kg, ltr, m, box
@@ -213,6 +225,7 @@ model Product {
   @@unique([userId, sku])
   // Performance: list products per user, search by name within user
   @@index([userId, name])
+  @@index([userId, barcode])
   @@index([userId, category])
   @@index([userId, shopId])
 }
