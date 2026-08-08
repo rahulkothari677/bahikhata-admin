@@ -540,6 +540,15 @@ model Setting {
    * through the same conversion — raw paise here would read 100x high.
    */
   priorFyTurnover      Int?
+  /*
+   * Mirrored from the main app (INTEGRATION-CONTRACT Part B.2). The main app
+   * owns migration 20260808000003_add_einvoice_applicable_to_setting; this side
+   * is `prisma generate` only, never `db push`.
+   *
+   * Three-valued: NULL means the shop has never been asked, which is distinct
+   * from false.
+   */
+  eInvoiceApplicable Boolean?
 }
 
 model Announcement {
