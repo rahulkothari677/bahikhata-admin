@@ -360,6 +360,15 @@ model Transaction {
   // re-conversion (double billing, double stock decrement). Null = not converted.
   convertedToTransactionId String?
   convertedAt              DateTime?
+  /**
+   * Mirrored from the main app (INTEGRATION-CONTRACT Part B.2). The main app
+   * owns migration 20260808000004_add_itc_blocked_reason; this side is
+   * `prisma generate` only, never `db push`.
+   * Section 17(5): why input credit on this purchase cannot be claimed. NULL
+   * means it can. A reason rather than a boolean, because it is the audit trail
+   * a CA reads at assessment.
+   */
+  itcBlockedReason         String?
 
   // 🔒 M6: Unique invoice number per user (GST compliance — no duplicates)
   @@unique([userId, invoiceNo])
@@ -540,15 +549,14 @@ model Setting {
    * through the same conversion — raw paise here would read 100x high.
    */
   priorFyTurnover      Int?
-  /*
+  /**
    * Mirrored from the main app (INTEGRATION-CONTRACT Part B.2). The main app
    * owns migration 20260808000003_add_einvoice_applicable_to_setting; this side
    * is `prisma generate` only, never `db push`.
-   *
    * Three-valued: NULL means the shop has never been asked, which is distinct
    * from false.
    */
-  eInvoiceApplicable Boolean?
+  eInvoiceApplicable   Boolean?
 }
 
 model Announcement {
