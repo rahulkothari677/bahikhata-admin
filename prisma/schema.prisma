@@ -471,6 +471,20 @@ model Payment {
   // 🔒 V17 Audit Phase 6: Bank reconciliation — matched bank transactions
   bankTransactions BankTransaction[]
 
+  /*
+   * GST rate on an advance receipt. NULL = no GST due on it.
+   *
+   * Mirrored from the main app (migration 20260809000001), which owns the
+   * migration — this side only runs `prisma generate`. Advances for goods are
+   * exempt under Notification 66/2017; advances for services are taxable on
+   * receipt and go to GSTR-1 Table 11A, then 11B when invoiced.
+   *
+   * Mirroring matters beyond type-parity: the DSAR export uses a bare findMany,
+   * so a column missing here would be silently absent from a user's own data
+   * export.
+   */
+  advanceGstRate Float?
+
   // ⚡ PERFORMANCE (Audit fix Phase 5): Indexes on foreign keys + hot query
   // patterns. Without these, every payment query does a full table scan.
   @@index([userId, date])
