@@ -201,6 +201,20 @@ model Product {
   // taxable value = price × 100/(100+rate) instead of adding GST on top.
   // Default false = old behaviour (price is taxable value, GST added on top).
   priceIncludesGst  Boolean  @default(false)
+  /**
+   * MIRRORED from the main app (migration 20260809000003). Admin owns no
+   * migrations — it runs `prisma generate` only — so this column exists here
+   * purely so the generated client knows about it.
+   *
+   * False = a SERVICE (blouse stitching, a haircut, a wedding shoot): nothing
+   * countable, so no stock guard, no low-stock alert, no valuation. Default
+   * true, so every pre-existing row is unchanged.
+   *
+   * It matters HERE because the DSAR export uses a bare findMany: a column
+   * absent from this schema is silently omitted from a user's own data export,
+   * which is exactly the failure mode INTEGRATION-CONTRACT exists to prevent.
+   */
+  tracksInventory   Boolean  @default(true)
   openingStock      Float    @default(0)
   // 🔒 AUDIT FIX H1: Authoritative stock count, maintained transactionally.
   // Was: stock computed at read time (openingStock + purchases - sales) — no
