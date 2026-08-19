@@ -153,6 +153,10 @@ model User {
   // Backs the "users with more than N transactions" admin filter, which used
   // to be applied in JavaScript after fetching a page.
   @@index([txnCount])
+  // mirrored from the main app (see note at end of file)
+  partyAliases    PartyAlias[]
+  billShares      BillShare[]
+  customFieldDefs CustomFieldDef[]
 }
 
 model Shop {
@@ -169,6 +173,8 @@ model Shop {
   updatedAt DateTime @updatedAt
 
   @@index([userId])
+  // mirrored from the main app (see note at end of file)
+  archivedAt DateTime?
 }
 
 model Product {
@@ -275,6 +281,9 @@ model Party {
   @@index([userId, name]) // list page orders by name
   // V17-Ext Tier 3: GSTIN lookup for GSTR-2B reconciliation (fast supplier matching)
   @@index([userId, gstin])
+  // mirrored from the main app (see note at end of file)
+  customFields Json?
+  aliases      PartyAlias[]
 }
 
 model Transaction {
@@ -392,6 +401,10 @@ model Transaction {
   @@index([userId, type, date])
   @@index([userId, partyId])
   @@index([originalTransactionId])
+  // mirrored from the main app (see note at end of file)
+  customFields       Json?
+  paymentAllocations PaymentAllocation[]
+  billShares         BillShare[]
 }
 
 model TransactionItem {
@@ -460,6 +473,8 @@ model TransactionItem {
   // index lookup. This is the #1 missing index in the schema.
   @@index([transactionId])
   @@index([productId])
+  // mirrored from the main app (see note at end of file)
+  customCols Json?
 }
 
 model Payment {
@@ -506,6 +521,8 @@ model Payment {
   // 🔒 V15 M-3: Partial index for the common "active payments for this party"
   // query — smaller + faster than a full index because it excludes deleted rows.
   @@index([userId, partyId, deletedAt])
+  // mirrored from the main app (see note at end of file)
+  allocations PaymentAllocation[]
 }
 
 model Setting {
@@ -596,6 +613,192 @@ model Setting {
    * from false.
    */
   eInvoiceApplicable   Boolean?
+
+  // ── mirrored from the main app, 15 Aug 2026 (INTEGRATION-CONTRACT B.3 step 3)
+  // The shop's OWN payment QR, as an uploaded image (Cloudinary URL).
+  //
+  // 🗑️➕ 2026-08-15. Rahul removed the shareable bill link because "sharing
+  // link or directly paying option sometimes cause fear in the mind of
+  // general public", and asked instead for "a section in the app where the
+  // user can add the image of their QR or add upi id for billing".
+  //
+  // Two ways to reach the same place, and shops genuinely split between them:
+  // many already have a printed PhonePe/Paytm/BharatPe QR stuck to the
+  // counter, and want the bill to carry THAT — the one their regulars
+  // recognise — rather than a code this app generated. Others have only a UPI
+  // id. When both exist the uploaded image wins, because it is the more
+  // deliberate choice.
+  //
+  // Stored as a URL for the same reason as logoUrl and signatureUrl: the row
+  // stays small and the bill re-fetches it. See /api/settings/payment-qr.
+  paymentQrUrl         String?
+  // 🐛 UI/UX Phase 2: Business card redesign fields
+  // cardDesign stores the user's chosen design ID from the design registry
+  // (src/lib/business-card-designs.ts). null = default design ("saffron-classic").
+  // cardSlug is a unique URL-safe slug for the public business card page
+  // (/card/[slug]). null = no public card. Auto-generated from shopName on first
+  // card view if not set.
+  cardDesign String?
+  cardSlug   String? @unique
+  // 🎨 2026-08-04: the card carries its own details, separate from the profile.
+  //
+  // WHY THE CARD DOES NOT JUST READ THE PROFILE. The profile is the shop's
+  // legal identity — the name and address that go on a GST invoice. The card is
+  // marketing. A shopkeeper registered as "SHREE SIDDHIVINAYAK TRADING CO." who
+  // wants "Siddhivinayak Stores" on the card must not have to falsify the
+  // invoice to get it, and a shop with a landline on the invoice may want a
+  // mobile on the card. Rahul asked for exactly this: a toggle for "pre-filled
+  // from profile" or "manual entry".
+  //
+  // cardMode = 'profile' (default) — every field below is IGNORED and the card
+  //   tracks the profile live, so fixing a typo in Settings fixes the card too.
+  // cardMode = 'manual' — a non-null field below WINS; a null one still falls
+  //   back to the profile, so switching to manual never blanks the card.
+  //
+  // The values are kept even in 'profile' mode: toggling back and forth must
+  // not destroy what the shopkeeper typed. Nothing here is ever cleared on
+  // mode change — only the shopkeeper editing a field changes a field.
+  // 📄 How bills are sent — 'smart' | 'image' | 'pdf'.
+  //
+  // 'smart' (the default) picks by bill length: a short bill goes as a picture,
+  // which opens straight in a WhatsApp chat, and a long one as a PDF, because
+  // WhatsApp downsamples images to ~1600px on the longest side and a tall bill
+  // ends up squeezed too narrow to read. See lib/document-delivery.
+  //
+  // A preference rather than a prompt: a shopkeeper billing forty customers a
+  // day should not answer forty format questions.
+  // 📄 Which invoice look this shop uses — see src/lib/invoice-themes.ts.
+  // One theme drives the WhatsApp picture, the link page and the PDF, so a
+  // shop's bill and its payment page cannot look like two businesses.
+  invoiceTheme     String  @default("classic")
+  // 📄 2026-08-15, Phase 2 of docs/INVOICE-ENGINE-PLAN.md — the STRUCTURE of
+  // the bill, chosen independently of its colour. See src/lib/invoice-templates.
+  // Deliberately a second column rather than a compound "style" value: eight
+  // themes times six templates is forty-eight looks, and storing the pair as
+  // one string would mean parsing it everywhere it is read.
+  // Defaults to "standard", which reproduces exactly what the renderer
+  // produced before templates existed, so no shop's invoice changes today.
+  invoiceTemplate  String  @default("standard")
+  // 📄 2026-08-15: the SHEET. A third axis beside template and theme, because
+  // paper is chosen for reasons that have nothing to do with looks — what the
+  // printer takes, what the counter has a pad of. A5 is half of A4 and is what
+  // most Indian bill books use. See src/lib/invoice-paper.ts.
+  invoicePaperSize String  @default("a4")
+  // 📄 Phase 7c — design is three separate choices, not one.
+  //
+  // invoiceTemplate holds the LAYOUT (where blocks sit), invoiceStyle the
+  // STYLE (how they are dressed), invoiceTheme the PALETTE. Rahul: "the
+  // design and layout is different" — and he was right, which is why they
+  // are three columns rather than one doing all three badly.
+  //
+  // invoicePreset is a SHORTCUT only: it writes the other three and is
+  // cleared the moment any one of them is changed by hand, because at that
+  // point "which preset am I on" honestly has no answer. Nothing renders
+  // from it.
+  invoiceStyle     String?
+  invoicePreset    String?
+  // ═══ Phase 3 of docs/INVOICE-ENGINE-PLAN.md — what is ON the bill ═══
+  //
+  // Everything below is text or an image the shopkeeper supplies once and
+  // every invoice then carries. Read from Rahul's myBillBook screenshots:
+  // numbering, terms, signature, bank details. Nothing here changes a figure.
+  // ── numbering ────────────────────────────────────────────────────────
+  // Rule 46(b) requires a consecutive serial number, unique within a
+  // financial year. A prefix is how a shop keeps that true across years and
+  // branches ("RG/26-27/"). Null means bare numbers, which is still valid.
+  invoicePrefix     String?
+  // The number the NEXT invoice takes. Stored rather than derived from
+  // max(existing)+1 because a shop migrating from a paper book starts at 431,
+  // and because a deleted last invoice must not silently reissue its number.
+  invoiceNextNumber Int     @default(1)
+  // ── words the shop supplies ──────────────────────────────────────────
+  invoiceTerms    String?
+  // "Thank you for your business." Behavioural research on invoice microcopy
+  // associates gratitude wording with materially faster payment, which is why
+  // it is a first-class field and not buried inside terms.
+  invoiceThankYou String?
+  // Days until payment is due. The bill prints a real DATE, never "Net 30" —
+  // a specific date outperforms the jargon, and most shopkeepers have never
+  // met the jargon. 0 or null means no due date is printed.
+  invoiceDueDays  Int?
+  // ── bank details, for a customer paying by transfer ──────────────────
+  // Flat columns rather than a BankAccount model: an invoice carries exactly
+  // one set, and a table would invite a "which one?" question on every bill
+  // for a problem no shop of this size has. Revisit when multi-shop lands.
+  bankName          String?
+  bankAccountName   String?
+  bankAccountNumber String?
+  bankIfsc          String?
+  bankBranch        String?
+  // ── signature ────────────────────────────────────────────────────────
+  // Cloudinary URL, from a drawn signature or an uploaded photo. Same path as
+  // logoUrl — see /api/settings/logo for why the URL is stored rather than
+  // the bytes.
+  signatureUrl          String?
+  // Print an empty ruled box instead, for a shop that signs by hand on paper.
+  showSignatureBox      Boolean @default(true)
+  // A second box for the CUSTOMER to sign — a delivery-acknowledgement, which
+  // is what a lot of B2B suppliers actually need the paper copy for.
+  showReceiverSignature Boolean @default(false)
+  // ── what else appears on the bill ────────────────────────────────────
+  // 📄 Phase 4. The list, the labels and the defaults live in ONE place:
+  // src/lib/invoice-visibility.ts. These columns exist only to store the
+  // answers, and a guard proves every registry key matches a column here.
+  //
+  // ALL DEFAULT FALSE, deliberately: a shop that never opens these settings
+  // gets exactly the bill it got yesterday. The two Phase 3 switches above
+  // keep their existing defaults for the same reason.
+  //
+  // Nothing here can hide a Rule 46 particular — see the registry's header.
+  showPartyBalance    Boolean @default(false)
+  showItemDescription Boolean @default(false)
+  showAlternateUnit   Boolean @default(false)
+  showInvoiceTime     Boolean @default(false)
+  docSendFormat String @default("smart")
+  // 🗑️ RETAINED, UNUSED as of 2026-08-15. The shareable bill link was removed
+  // (see src/lib/send-bill.ts). The column stays so no shop's stored row is
+  // rewritten by a feature being withdrawn, but the API no longer accepts it
+  // and nothing reads it. Payment is a scannable QR on the bill — see
+  // paymentQrUrl above.
+  docShareLink Boolean @default(false)
+  cardMode String @default("profile")
+  // Which mark the card prints: 'auto' | 'logo' | 'monogram'.
+  //
+  // The artwork has ONE slot for a mark, so this is either/or — the uploaded
+  // logo or the derived initials, never both.
+  //
+  // ⚠️ IT MUST NOT BE `logoUrl` THAT DECIDES. `Setting.logoUrl` is shared with
+  // the invoice PDF, where the logo prints in the brand band. A shopkeeper who
+  // wants letters on their visiting card but their logo on their invoices would
+  // otherwise have to delete the logo, which silently strips it from every
+  // invoice they issue. This is a card-only preference; the file stays put.
+  //
+  // 'auto' (default) — logo when one is uploaded, initials when not. That is
+  // what a shop expects without touching anything, and it means uploading a
+  // logo is enough to see it on the card.
+  cardMark           String   @default("auto")
+  // Typeface per element of the card — see src/lib/monogram-fonts.ts.
+  // null = that element keeps the app's default face.
+  //
+  // Four columns rather than one because Rahul asked for the choice to be
+  // per-element: "when they choose for shop name only shop name fonts should
+  // be changed. when they choose for tagline then it should change the
+  // tagline." A single column cannot express a copperplate monogram over a
+  // plain, readable address.
+  //
+  // cardFontId is the LOGO/monogram face and predates the others; it keeps its
+  // name so existing rows keep their chosen mark.
+  cardFontId         String?
+  cardShopFontId     String?
+  cardTaglineFontId  String?
+  cardContactFontId  String?
+  cardShopName       String?
+  cardOwnerName      String?
+  cardTagline        String?
+  cardPhone          String?
+  cardEmail          String?
+  cardAddress        String?
+  cardGstin          String?
 }
 
 model Announcement {
@@ -716,6 +919,8 @@ model FieldChangeLog {
 
   @@index([userId, entityType, entityId, createdAt])
   @@index([entityId, createdAt])
+  // mirrored from the main app (see note at end of file)
+  impersonatedBy String?
 }
 
 model GstReturn {
@@ -1899,4 +2104,199 @@ model BreakGlassSession {
   /// page load so the banner cannot be missed.
   @@index([expiresAt, revokedAt])
   @@index([adminId, startedAt])
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MIRRORED FROM THE MAIN APP — 15 August 2026
+//
+// Admin owns no migrations (INTEGRATION-CONTRACT B.3); these exist purely so
+// the generated client knows the columns. They had drifted: the main app added
+// them and step 3 of B.3 was missed.
+//
+// It is not cosmetic. The DSAR data export calls db.party.findMany and
+// db.transaction.findMany with NO select, so Prisma returns only the columns
+// THIS schema declares. Party.customFields and Transaction.customFields were
+// missing, so a user asking for their own data was silently handed an export
+// with their custom fields stripped out — no error, nothing to notice.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ==================== PAYMENT ALLOCATION (C5) ====================
+// 🔒 AUDIT C5: links a Payment to the specific bill(s) it settles.
+//
+// THE DEFECT THIS FIXES: a "Settle" payment reduced the PARTY balance but no
+// bill knew about it, so an invoice kept displaying its original amount as due
+// forever. Party outstanding and the sum of bill dues disagreed permanently,
+// from the first partial payment onward. Worse, the stale "Due" invited the
+// shopkeeper to collect that amount again — and nothing would have stopped it,
+// because settling a bill for exactly what it claims to owe looks correct.
+//
+// A bill's true due is now:
+//     totalAmount − paidAmount − Σ(allocations)
+//
+// WHY A SEPARATE TABLE rather than a paidAmount bump on the Transaction:
+// the allocation is a FACT about a specific payment settling a specific bill.
+// Folding it into paidAmount would lose which payment did it, making a payment
+// impossible to reverse cleanly and leaving disputes unanswerable ("you say I
+// paid — against what?").
+model PaymentAllocation {
+  id            String   @id @default(cuid())
+  userId        String // denormalised for tenant-scoped queries + indexes
+  paymentId     String
+  transactionId String
+  amount        Int // paise, like every other money column
+  createdAt     DateTime @default(now())
+
+  // Deleting a payment removes its allocations: the money never arrived, so
+  // the bills it was covering must go back to being due.
+  payment     Payment     @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  // Transactions are SOFT-deleted, never hard-deleted, so no cascade here —
+  // the allocation must survive to keep the audit trail answerable.
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+
+  // One row per (payment, bill). Re-allocating updates rather than duplicating,
+  // which also makes an offline replay idempotent.
+  @@unique([paymentId, transactionId])
+  // "What has been settled against this bill?" — the hot read behind every
+  // due calculation.
+  @@index([userId, transactionId])
+  @@index([paymentId])
+}
+
+/**
+ * A field the shop invented, and what it means.
+ * 📄 Phase 5 of docs/INVOICE-ENGINE-PLAN.md.
+ * THE DEFINITIONS LIVE HERE; THE VALUES DO NOT. Values are snapshotted into a
+ * JSON column on the record they belong to — Party.customFields,
+ * Transaction.customFields, TransactionItem.customCols. src/lib/custom-fields.ts
+ * carries the full reasoning; the short version is that drawing one bill is the
+ * hot path, and a values table would put a join on it for every render, thirty
+ * million rows deep, to print a grocery bill.
+ * WHY A CHEMIST NEEDS THIS. The Drugs and Cosmetics Act requires the batch
+ * number and expiry date of every medicine sold to appear on the record, and
+ * Drug Inspectors check billing against it. Without custom columns a pharmacy
+ * cannot use this app for its actual job.
+ * `key` is generated once from the label and NEVER changes: issued bills are
+ * keyed on it. `label` may be renamed freely, because every bill already
+ * carries the label it was printed with.
+ */
+model CustomFieldDef {
+  id            String  @id @default(cuid())
+  userId        String
+  user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// party | invoice | item
+  entity        String
+  /// Stable identifier, generated from the label at creation. Never changes.
+  key           String
+  /// What the shopkeeper reads. Renaming does not touch issued bills.
+  label         String
+  /// text | number | date | money
+  type          String  @default("text")
+  /// Print it on the bill, or keep it for the shop's own records only.
+  showOnInvoice Boolean @default(true)
+  required      Boolean @default(false)
+  order         Int     @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  /// Soft delete: an issued bill still carries values for a retired field,
+  /// and those must keep printing. Removing the definition only stops it
+  /// being offered on NEW bills.
+  deletedAt DateTime?
+
+  /// One shop cannot define the same key twice on the same entity.
+  @@unique([userId, entity, key])
+  @@index([userId, entity, deletedAt])
+}
+
+/**
+ * A shareable link to one bill.
+ * 📄 Phase 4 of docs/DOCUMENT-ENGINE-PLAN.md. A long bill cannot be sent as a
+ * readable picture and a PDF arrives as a grey card nobody opens, so the third
+ * option is a link: any length, payable, always current, and it reports whether
+ * the customer actually opened it.
+ * ⚠️ THIS ROW IS A CAPABILITY. Anyone holding the token can read the bill —
+ * there is no login, because the recipient is a customer who has no account.
+ * The security is therefore entirely in the token, and the design pays for that
+ * up front rather than retrofitting it:
+ * - `token` is 32 random URL-safe characters from a CSPRNG, never a
+ * sequential id and never derived from the transaction. Guessing one is
+ * not a realistic attack; enumerating incrementing ids would have been.
+ * - `expiresAt` and `revokedAt` mean a link is not forever. A shopkeeper who
+ * shares one by mistake has a way back.
+ * - The page is `noindex`, so a link pasted into a public group does not end
+ * up in a search engine.
+ * - Views are counted, which is the point for the shopkeeper chasing money —
+ * but no IP or device data is stored with them. Knowing the bill was opened
+ * is useful; building a profile of the customer who opened it is not ours
+ * to do, and under the DPDP Act collecting it would need a purpose we do
+ * not have.
+ * ─────────────────────────────────────────────────────────────────────────
+ * 🗑️ RETAINED, UNUSED as of 2026-08-15.
+ * The shareable link was removed at Rahul's instruction: a link asking a
+ * customer to pay reads as a scam to most people in India, however genuine
+ * it is. /b/[token], /api/bill-share and lib/bill-share are deleted, and a
+ * test asserts nothing queries this model.
+ * THE TABLE AND ITS ROWS STAY. Links a shopkeeper already minted are their
+ * own record, and this codebase does not delete a user's data to tidy up
+ * after a withdrawn feature. Old links 404 because the page is gone, not
+ * because anything was erased.
+ */
+model BillShare {
+  id            String      @id @default(cuid())
+  /// 32 URL-safe characters from crypto.randomBytes. Unique, unguessable.
+  token         String      @unique
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime  @default(now())
+  /// null = no expiry. The shop chooses.
+  expiresAt DateTime?
+  /// Set when the shop kills the link. Kept rather than deleted so the audit
+  /// trail still shows a link existed and was withdrawn.
+  revokedAt DateTime?
+
+  /// Sent → viewed → paid is what a shopkeeper chasing money wants to know.
+  viewCount     Int       @default(0)
+  firstViewedAt DateTime?
+  lastViewedAt  DateTime?
+
+  @@index([userId, createdAt])
+  @@index([transactionId])
+}
+
+/// What THIS shop calls this party — C2c.
+///
+/// The compounding half of the resolver. No amount of letter-comparing can
+/// discover that "chhota Ramesh" means Ramesh Kumar; only the shop knows, and
+/// only because they told us by tapping a choice. It is also the one part a
+/// competitor cannot copy, because it is that shop's own history.
+///
+/// WRITTEN FROM A CONFIRMATION THEY WERE ALREADY MAKING — never from a
+/// settings screen, which nobody fills in.
+model PartyAlias {
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  partyId String
+  party   Party  @relation(fields: [partyId], references: [id], onDelete: Cascade)
+
+  /// Stored NORMALISED (lower-cased, honorifics and spelling variants folded)
+  /// so the lookup is an exact match and cannot drift from resolve-name's
+  /// comparison rules.
+  alias String
+
+  /// What they actually typed or said, kept only to show them on the party
+  /// screen. "Chhota Ramesh" reads better than "chota ramesh".
+  saidAs String
+
+  createdAt DateTime @default(now())
+
+  /// ONE ALIAS MEANS ONE PARTY, per shop. Without this, teaching the app twice
+  /// would create the very ambiguity aliases exist to remove — and the second
+  /// lesson would silently disagree with the first.
+  @@unique([userId, alias])
+  @@index([userId, partyId])
 }
