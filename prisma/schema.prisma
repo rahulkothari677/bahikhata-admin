@@ -237,6 +237,17 @@ model Product {
   // nil-rated vs exempt vs non-GST outward supplies. Before this, exemptValue
   // was hardcoded to 0 because there was no way to mark a product as exempt.
   gstTreatment      String   @default("taxable") // taxable | nil | exempt | nonGst
+  /// When a PERSON last confirmed that treatment against the CURRENT exemption
+  /// notification (#94). Mirrored from the main app, migration
+  /// 20260829000002, which owns it — this side only runs prisma generate.
+  ///
+  /// Kept in step because the DSAR export uses a bare findMany: a column that
+  /// exists in the database and not here vanishes from a user's own-data
+  /// export with no error anywhere. That is how 48 columns drifted before.
+  ///
+  /// It matters for an export specifically because it is the evidence that a
+  /// human, and not our lookup table, decided how a product is taxed.
+  gstTreatmentConfirmedAt DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
