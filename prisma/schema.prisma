@@ -529,13 +529,20 @@ model Setting {
   /*
    * Composition scheme registration. NULL = the regular scheme.
    *
-   * Mirrored from the main app (migration 20260809000002), which owns the
-   * migration — this side only runs prisma generate. Kept in step because the
-   * DSAR export uses a bare findMany, so a column missing here would be
-   * silently absent from a user own data export.
+   * Mirrored from the main app (migrations 20260809000002 and
+   * 20260829000001), which owns the migration — this side only runs prisma
+   * generate. Kept in step because the DSAR export uses a bare findMany, so a
+   * column missing here would be silently absent from a user own data export.
+   *
+   * compositionTo is the date the shop LEFT the scheme. It is not optional
+   * decoration: crossing the turnover limit ends composition that same day, so
+   * this column is what separates the part of a quarter taxed at 1% from the
+   * part taxed at full GST. A DSAR export that omitted it would hand the user
+   * a tax history that cannot be reconciled.
    */
   compositionCategory String?
   compositionFrom     DateTime?
+  compositionTo       DateTime?
 
   id                   String    @id @default(cuid())
   userId               String    @unique // one setting per user
