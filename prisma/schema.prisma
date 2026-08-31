@@ -403,6 +403,14 @@ model Transaction {
    * a CA reads at assessment.
    */
   itcBlockedReason         String?
+  /// Inputs / Capital Goods / Input Services, for GSTR-9 Table 6. Mirrored
+  /// from the main app (migration 20260829000003), which owns it — this side
+  /// only runs prisma generate.
+  ///
+  /// Kept in step because the DSAR export uses a bare findMany: a column that
+  /// exists in the database and not here vanishes from a user's own-data
+  /// export with no error. That is how 48 columns drifted before.
+  itcCategory              String?
 
   // 🔒 M6: Unique invoice number per user (GST compliance — no duplicates)
   @@unique([userId, invoiceNo])
