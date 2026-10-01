@@ -21,16 +21,50 @@ import { readApiError } from '@/lib/read-api-error'
  * Deliberately NOT a "remember this device" or a longer window. The grant
  * stays at the server's 10 minutes; this only removes the dead end.
  */
+/*
+ * 🐛 Found in the browser on 2026-10-02, after every unit test passed.
+ *
+ * This first installed the fetch wrapper in a useEffect. React runs a
+ * CHILD's effects before its parent's — so the user detail page, a child of
+ * this provider, sent its request through the UNWRAPPED fetch, got the
+ * refusal, and the code box never opened. The tests exercised withStepUp()
+ * directly and could not see React's ordering; only loading the page could.
+ *
+ * So it is installed at the first RENDER of the provider, which happens
+ * before any child renders, let alone runs an effect. Once per page load,
+ * guarded on window so a hot reload cannot wrap the wrapper.
+ *
+ * `currentAsk` is set in an effect, and that is safe where the install was
+ * not: it is only CALLED once a server reply has come back, and replies arrive
+ * on a later task than the commit that runs effects. If one ever did beat it,
+ * the wrapper waits a tick rather than refusing the operator.
+ */
+type StepUpWindow = Window & { __stepUpRawFetch?: typeof fetch }
+let currentAsk: (() => Promise<boolean>) | null = null
+
+function ensureInstalled() {
+  if (typeof window === 'undefined') return
+  const w = window as StepUpWindow
+  if (w.__stepUpRawFetch) return
+  const original = window.fetch.bind(window)
+  w.__stepUpRawFetch = original
+  window.fetch = withStepUp(
+    original,
+    () =>
+      currentAsk
+        ? currentAsk()
+        : new Promise<void>((r) => setTimeout(r, 0)).then(() => (currentAsk ? currentAsk() : false)),
+    window.location.origin,
+  )
+}
+
 export function StepUpProvider({ children }: { children: React.ReactNode }) {
+  ensureInstalled()
   const [open, setOpen] = useState(false)
   const [code, setCode] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const resolver = useRef<((ok: boolean) => void) | null>(null)
-  // The UNWRAPPED fetch, for the verification call itself. The interceptor
-  // already skips the step-up path; using the original as well means a future
-  // change to that rule cannot make the box ask for itself.
-  const rawFetch = useRef<typeof fetch | null>(null)
 
   const ask = useCallback(
     () =>
@@ -44,11 +78,9 @@ export function StepUpProvider({ children }: { children: React.ReactNode }) {
   )
 
   useEffect(() => {
-    const original = window.fetch
-    rawFetch.current = original.bind(window)
-    window.fetch = withStepUp(original.bind(window), ask, window.location.origin)
+    currentAsk = ask
     return () => {
-      window.fetch = original
+      if (currentAsk === ask) currentAsk = null
     }
   }, [ask])
 
@@ -67,7 +99,11 @@ export function StepUpProvider({ children }: { children: React.ReactNode }) {
     setBusy(true)
     setError(null)
     try {
-      const r = await (rawFetch.current ?? fetch)(STEP_UP_PATH, {
+      // The UNWRAPPED fetch for the verification itself. The interceptor
+      // already skips this path; using the original as well means a future
+      // change to that rule cannot make the box ask for itself.
+      const raw = (window as StepUpWindow).__stepUpRawFetch ?? fetch
+      const r = await raw(STEP_UP_PATH, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ totpCode: code }),

@@ -229,3 +229,36 @@ describe('roles: one list, and no one-way doors', () => {
     }
   })
 })
+
+describe('the two bugs only the browser found', () => {
+  /*
+   * Every unit test above passed while both of these were live. They were
+   * found by loading the real pages on 2026-10-02 — which is the argument
+   * for doing that every time, and the reason these exist.
+   */
+  it('the fetch wrapper is installed at RENDER, not in an effect', () => {
+    // React runs a child's effects before its parent's. Installed in a
+    // useEffect, the user detail page's request went out UNWRAPPED and the
+    // code box never opened — the original bug, intact, behind a green suite.
+    const src = read('src/components/admin/step-up-provider.tsx')
+    const body = src.slice(src.indexOf('export function StepUpProvider'))
+    // /\r?\n/ — a Windows checkout ends lines with \r\n (CLAUDE.md, Cause 7).
+    const firstLine = body.split(/\r?\n/).slice(1).find((l) => l.trim().length > 0)?.trim()
+    expect({ installsFirst: firstLine === 'ensureInstalled()' }).toEqual({ installsFirst: true })
+    expect({ patchesInEffect: /useEffect\([\s\S]{0,300}window\.fetch\s*=/.test(src) })
+      .toEqual({ patchesInEffect: false })
+  })
+
+  it('the Admin Team page keeps no role list of its own', () => {
+    // A third hand-written list ("perms") had no entry for the real roles, so
+    // adding them crashed the page — and it described "admin" as "access to
+    // all admin pages", a role that could reach none. Every role word on the
+    // page must come from route-policy.
+    const src = read('src/app/(admin)/admin-users/page.tsx')
+    expect({ usesShared: src.includes('ROLE_DESCRIPTIONS'), ownList: /const perms\s*=/.test(src) })
+      .toEqual({ usesShared: true, ownList: false })
+    for (const r of ASSIGNABLE_ROLES) {
+      expect({ r, inRoleConfig: new RegExp(`\\b${r}: \\{ icon`).test(src) }).toEqual({ r, inRoleConfig: true })
+    }
+  })
+})

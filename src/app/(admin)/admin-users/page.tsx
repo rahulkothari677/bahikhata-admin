@@ -233,11 +233,18 @@ export default function AdminUsersPage() {
                 <div className="p-4 space-y-3">
                   {Object.entries(ROLE_CONFIG).map(([key, cfg]) => {
                     const Icon = cfg.icon
-                    const perms = {
-                      founder: ['Full access to everything', 'Can manage admin team', 'Can create/delete other admins', 'Cannot be deleted or modified by others'],
-                      admin: ['Access to all admin pages', 'Can create/edit/delete data', 'Cannot manage admin team', 'Cannot modify founder accounts'],
-                      viewer: ['Read-only access to all pages', 'Cannot create/edit/delete anything', 'Can view reports + analytics', 'Useful for auditors/investors'],
-                    }
+                    /*
+                     * 🐛 2026-10-02 — a THIRD hand-written list of roles, found
+                     * when the page crashed in the browser after the real roles
+                     * were added to ROLE_CONFIG: this one had no entry for them.
+                     * It also promised "Admin: access to all admin pages" for a
+                     * role the permission table has never granted anything.
+                     * Descriptions now come from route-policy, the file that
+                     * decides what each role can actually do.
+                     */
+                    const desc = key in ROLE_DESCRIPTIONS
+                      ? ROLE_DESCRIPTIONS[key as keyof typeof ROLE_DESCRIPTIONS]
+                      : 'Retired role with no access. Reassign this person to a current role.'
                     return (
                       <div key={key} className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg border border-border">
                         <Icon className={`w-5 h-5 mt-0.5 ${cfg.color}`} />
@@ -246,9 +253,7 @@ export default function AdminUsersPage() {
                             <p className="text-sm font-medium">{cfg.label}</p>
                             <Badge variant={cfg.badge}>{key}</Badge>
                           </div>
-                          <ul className="text-xs text-muted-foreground space-y-0.5">
-                            {(perms as any)[key].map((p: string, i: number) => <li key={i}>• {p}</li>)}
-                          </ul>
+                          <p className="text-xs text-muted-foreground">{desc}</p>
                         </div>
                       </div>
                     )
