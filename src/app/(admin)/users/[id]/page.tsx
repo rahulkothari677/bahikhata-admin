@@ -20,13 +20,30 @@ export default function UserDetailPage() {
   const [showImpersonate, setShowImpersonate] = useState(false)
   const [impersonateReason, setImpersonateReason] = useState('')
 
-  const { data, isLoading } = useQuery({
+  /*
+   * 🐛 2026-10-01 — EVERY FAILURE SAID "User not found".
+   *
+   * This returned the body whatever the status, and the page below rendered
+   * "User not found" whenever that body had no `user` in it. So a step-up
+   * refusal, a role refusal, a database timeout and a genuinely missing user
+   * all read identically. Rahul saw "User not found" for a user sitting in the
+   * list one click earlier, and was sent looking for a deleted account that
+   * did not exist.
+   *
+   * Now a non-2xx THROWS with the server's own words, and "not found" is said
+   * only when the server said 404.
+   */
+  const { data, isLoading, error } = useQuery({
     queryKey: ['admin-user', userId],
     queryFn: async () => {
       const r = await fetch(`/api/admin/users/${userId}`)
-      return r.json()
+      const body = await r.json().catch(() => ({}))
+      if (r.status === 404) return { user: null, notFound: true }
+      if (!r.ok) throw new Error(readApiError(body, r.status))
+      return body
     },
     enabled: !!userId,
+    retry: false,
   })
 
   // Initialize plan selector when data loads
@@ -41,8 +58,11 @@ export default function UserDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ plan }),
       })
-      if (!r.ok) throw new Error('Failed to update plan')
-      return r.json()
+      // The server's reason, not a generic one: "Failed to update plan" told
+      // Rahul nothing about WHY the upgrade to elite would not save.
+      const body = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(readApiError(body, r.status))
+      return body
     },
     onSuccess: (data) => {
       sonnerToast.success(`Plan changed to ${data.user.plan}`)
@@ -50,8 +70,8 @@ export default function UserDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['admin-users'] })
       setSaving(false)
     },
-    onError: () => {
-      sonnerToast.error('Failed to update plan')
+    onError: (err: Error) => {
+      sonnerToast.error(err.message || 'Failed to update plan')
       setSaving(false)
     },
   })
@@ -82,6 +102,20 @@ export default function UserDetailPage() {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-6 h-6 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 text-center space-y-3">
+        <p className="text-sm text-red-600">{(error as Error).message}</p>
+        <button
+          onClick={() => queryClient.invalidateQueries({ queryKey: ['admin-user', userId] })}
+          className="px-3 py-1.5 rounded-lg border border-border text-sm hover:bg-muted"
+        >
+          Try again
+        </button>
       </div>
     )
   }

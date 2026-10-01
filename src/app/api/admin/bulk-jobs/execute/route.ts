@@ -1,4 +1,5 @@
 import { withAdmin } from '@/lib/with-admin'
+import { applyPlanGrant, isGrantablePlan } from '@/lib/plan-grant'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { withNeonRetry } from '@/lib/resilience'
@@ -203,12 +204,23 @@ export const POST = withAdmin(
           try {
             switch (job.action) {
               case 'change_plan':
-                if (params.plan) {
-                  await db.user.update({
-                    where: { id: user.id },
-                    data: { plan: params.plan },
-                  })
+                /*
+                 * 🐛 2026-10-02 — the THIRD copy of the plan-grant bug.
+                 *
+                 * This set `user.plan` alone: no Subscription row, so the main
+                 * app kept every "upgraded" user on free; no tokenVersion bump,
+                 * so sessions kept the old plan; ANY string accepted as a plan;
+                 * and a job with no plan at all counted every user a success.
+                 * Found by the guard in tests/plan-grant-writes-subscription,
+                 * on its first run, the day the rule became one function.
+                 */
+                if (!isGrantablePlan(params.plan)) {
+                  failedCount++
+                  break
                 }
+                await db.$transaction((tx) =>
+                  applyPlanGrant(tx, { userIds: [user.id], plan: params.plan, source: 'adminbulk' }),
+                )
                 successCount++
                 break
 
@@ -244,10 +256,14 @@ export const POST = withAdmin(
                 break
 
               case 'delete':
-                // Delete = soft delete (mark cancelled + downgrade to free)
-                await db.user.update({
-                  where: { id: user.id },
-                  data: { cancelledAt: new Date(), plan: 'free' },
+                // Delete = soft delete (mark cancelled + downgrade to free).
+                // Nothing is removed. The downgrade goes through the one plan
+                // rule so an 'active' paid Subscription is not left behind to
+                // contradict the free user row; cancelledAt is set AFTER it,
+                // because a grant clears cancelledAt.
+                await db.$transaction(async (tx) => {
+                  await applyPlanGrant(tx, { userIds: [user.id], plan: 'free', source: 'adminbulk' })
+                  await tx.user.update({ where: { id: user.id }, data: { cancelledAt: new Date() } })
                 }).catch(ctx.degrade('user.update', {}))
                 successCount++
                 break

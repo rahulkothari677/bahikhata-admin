@@ -13,26 +13,57 @@ import {
   LoadingSkeleton, Badge,
 } from '@/components/admin/ui'
 import { formatRelativeTime, formatNumber } from '@/lib/utils'
+import { ASSIGNABLE_ROLES, ROLE_DESCRIPTIONS, isAssignableRole, type AssignableRole } from '@/lib/route-policy'
 
 type Tab = 'overview' | 'list'
 
+/*
+ * 🐛 2026-10-01: this listed founder/admin/viewer. "admin" is not a role the
+ * permission table knows, so an account given it had NO access — while the
+ * form described it as "full access". The real roles come from route-policy,
+ * the file that decides what each one may do. "admin" stays only so an
+ * existing row created under the old list still renders, labelled honestly.
+ */
 const ROLE_CONFIG: Record<string, { icon: any; color: string; badge: 'danger' | 'info' | 'neutral'; label: string }> = {
   founder: { icon: ShieldCheck, color: 'text-red-600', badge: 'danger', label: 'Founder' },
-  admin: { icon: Shield, color: 'text-blue-600', badge: 'info', label: 'Admin' },
+  support: { icon: Shield, color: 'text-blue-600', badge: 'info', label: 'Support' },
+  finance: { icon: Shield, color: 'text-blue-600', badge: 'info', label: 'Finance' },
+  analyst: { icon: Shield, color: 'text-blue-600', badge: 'info', label: 'Analyst' },
   viewer: { icon: Eye, color: 'text-slate-600', badge: 'neutral', label: 'Viewer' },
+  admin: { icon: Shield, color: 'text-slate-500', badge: 'neutral', label: 'Admin (old role — no access, reassign)' },
 }
+const roleLabel = (r: AssignableRole) => r.charAt(0).toUpperCase() + r.slice(1)
 
 export default function AdminUsersPage() {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<Tab>('overview')
   const [showEditor, setShowEditor] = useState(false)
-  const [accessDenied, setAccessDenied] = useState(false)
+  /*
+   * 🐛 2026-10-01 — "Only founders can manage the admin team", shown to a
+   * founder.
+   *
+   * ANY 403 set this, and this route answers 403 for two unrelated reasons:
+   * the operator's role cannot see it, or their authenticator code has gone
+   * stale (STEP_UP_REQUIRED). The second is fixed by typing six digits; the
+   * first by being promoted. Saying the first when the truth was the second
+   * sent Rahul looking for a demotion that had not happened.
+   *
+   * The step-up prompt now resolves the second before this page sees it. If
+   * the operator CANCELS that prompt the refusal still arrives, so it is told
+   * apart here rather than reported as a role problem.
+   */
+  const [accessDenied, setAccessDenied] = useState<null | 'role' | 'step-up'>(null)
+  const denyFrom = async (r: Response) => {
+    const body = await r.json().catch(() => ({}))
+    setAccessDenied(body?.error?.code === 'STEP_UP_REQUIRED' ? 'step-up' : 'role')
+    return { success: false }
+  }
 
   const { data: overview, isLoading: overviewLoading } = useQuery({
     queryKey: ['admin-admin-users-overview'],
     queryFn: async () => {
       const r = await fetch('/api/admin/admin-users?tab=overview')
-      if (r.status === 403) { setAccessDenied(true); return { success: false } }
+      if (r.status === 403) return denyFrom(r)
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       return r.json()
     },
@@ -43,7 +74,7 @@ export default function AdminUsersPage() {
     queryKey: ['admin-admin-users-list'],
     queryFn: async () => {
       const r = await fetch('/api/admin/admin-users?tab=list')
-      if (r.status === 403) { setAccessDenied(true); return { success: false } }
+      if (r.status === 403) return denyFrom(r)
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       return r.json()
     },
@@ -105,7 +136,20 @@ export default function AdminUsersPage() {
     onError: (err: Error) => toast.error('Delete failed', { description: err.message }),
   })
 
-  if (accessDenied) {
+  if (accessDenied === 'step-up') {
+    return (
+      <div className="p-6">
+        <PageHeader title="Admin Team" description="Manage admin users and their roles" />
+        <EmptyState
+          icon={Lock}
+          title="Authenticator code needed"
+          description="This page needs a fresh code from your authenticator app. Reload the page and enter it when asked."
+        />
+      </div>
+    )
+  }
+
+  if (accessDenied === 'role') {
     return (
       <div className="p-6">
         <PageHeader title="Admin Team" description="Manage admin users and their roles" />
@@ -179,7 +223,7 @@ export default function AdminUsersPage() {
             <>
               <KPIGrid>
                 <KPICard label="Founders" value={formatNumber(ov.founderCount || 0)} icon={ShieldCheck} iconColor="text-red-600" sublabel="Full access" />
-                <KPICard label="Admins" value={formatNumber(ov.adminCount || 0)} icon={Shield} iconColor="text-blue-600" sublabel="Standard access" />
+                <KPICard label="Staff" value={formatNumber(ov.adminCount || 0)} icon={Shield} iconColor="text-blue-600" sublabel="Support, finance, analyst" />
                 <KPICard label="Viewers" value={formatNumber(ov.viewerCount || 0)} icon={Eye} iconColor="text-slate-600" sublabel="Read-only access" />
                 <KPICard label="2FA Enabled" value={formatNumber(ov.twoFACount || 0)} icon={Lock} iconColor="text-emerald-600" sublabel={`${ov.totalCount || 0} total admins`} />
               </KPIGrid>
@@ -279,8 +323,14 @@ export default function AdminUsersPage() {
                             disabled={updateMutation.isPending}
                             className="px-2 py-1 bg-background border border-border rounded text-xs focus:outline-none focus:ring-2 focus:ring-primary"
                           >
-                            <option value="admin">Admin</option>
-                            <option value="viewer">Viewer</option>
+                            {/* An old "admin" row shows as itself until reassigned,
+                                rather than silently displaying as the first option. */}
+                            {!isAssignableRole(a.role) && (
+                              <option value={a.role} disabled>{ROLE_CONFIG[a.role]?.label ?? a.role}</option>
+                            )}
+                            {ASSIGNABLE_ROLES.map((r) => (
+                              <option key={r} value={r}>{roleLabel(r)}</option>
+                            ))}
                           </select>
                         )}
                       </td>
@@ -371,8 +421,9 @@ function AdminEditor({ onClose, onCreate, saving }: { onClose: () => void; onCre
           <div>
             <label className="text-xs font-medium text-muted-foreground block mb-1">Role *</label>
             <select value={role} onChange={(e) => setRole(e.target.value)} className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary">
-              <option value="admin">Admin (full access, cannot manage team)</option>
-              <option value="viewer">Viewer (read-only, for auditors/investors)</option>
+              {ASSIGNABLE_ROLES.map((r) => (
+                <option key={r} value={r}>{roleLabel(r)} — {ROLE_DESCRIPTIONS[r]}</option>
+              ))}
             </select>
             <p className="text-[10px] text-muted-foreground mt-0.5">Founders cannot be created via this form — only via database.</p>
           </div>

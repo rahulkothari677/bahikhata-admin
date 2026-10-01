@@ -3,6 +3,7 @@ import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
 import { withTimeout, withNeonRetry } from '@/lib/resilience'
 import { logAdminAction } from '@/lib/audit'
+import { ASSIGNABLE_ROLES, isAssignableRole } from '@/lib/route-policy'
 
 /**
  * GET /api/admin/admin-users
@@ -27,7 +28,7 @@ export const GET = withAdmin(
     if (tab === 'overview') {
       const [founderCount, adminCount, viewerCount, activeCount, inactiveCount, twoFACount] = await Promise.all([
         withTimeout(db.adminUser.count({ where: { role: 'founder' } }), 5000).catch(ctx.degrade('adminUser.count', 0)) as Promise<number>,
-        withTimeout(db.adminUser.count({ where: { role: 'admin' } }), 5000).catch(ctx.degrade('adminUser.count', 0)) as Promise<number>,
+        withTimeout(db.adminUser.count({ where: { role: { in: ['support', 'finance', 'analyst', 'admin'] } } }), 5000).catch(ctx.degrade('adminUser.count', 0)) as Promise<number>,
         withTimeout(db.adminUser.count({ where: { role: 'viewer' } }), 5000).catch(ctx.degrade('adminUser.count', 0)) as Promise<number>,
         withTimeout(db.adminUser.count({ where: { isActive: true } }), 5000).catch(ctx.degrade('adminUser.count', 0)) as Promise<number>,
         withTimeout(db.adminUser.count({ where: { isActive: false } }), 5000).catch(ctx.degrade('adminUser.count', 0)) as Promise<number>,
@@ -113,9 +114,14 @@ export const POST = withAdmin(
       return NextResponse.json({ error: 'email, name, and password are required' }, { status: 400 })
     }
 
-    // Only allow admin or viewer roles (cannot create founder via API)
-    if (newRole && !['admin', 'viewer'].includes(newRole)) {
-      return NextResponse.json({ error: 'Role must be "admin" or "viewer"' }, { status: 400 })
+    // 🐛 2026-10-01: this allowed "admin" — a role the permission table has
+    // never heard of, so such an account was refused everywhere. Validated
+    // against the one list now; founder is never assignable from the app.
+    if (newRole !== undefined && !isAssignableRole(newRole)) {
+      return NextResponse.json(
+        { error: `Role must be one of: ${ASSIGNABLE_ROLES.join(', ')}` },
+        { status: 400 },
+      )
     }
 
     // Check if email already exists

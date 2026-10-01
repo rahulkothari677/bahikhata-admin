@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
 import { logAdminAction } from '@/lib/audit'
 import { invalidateTokenVersionCache } from '@/lib/token-version-cache'
 import { withNeonRetry } from '@/lib/resilience'
+import { applyPlanGrant, isGrantablePlan } from '@/lib/plan-grant'
 
 /**
  * GET /api/admin/users/[id]
@@ -150,7 +151,7 @@ export const PATCH = withAdmin(
     const body = await req.json()
     const { plan, renewsAt } = body
 
-    if (!['free', 'pro', 'elite'].includes(plan)) {
+    if (!isGrantablePlan(plan)) {
       return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
     }
 
@@ -165,17 +166,28 @@ export const PATCH = withAdmin(
     // or instantly if we successfully invalidate the cache below).
     // Without this bump, the user would keep their old plan's features for
     // up to 7 days (JWT maxAge) after the admin changes their plan.
+    /*
+     * 🐛 2026-10-02 — THIS UPGRADED NOBODY.
+     *
+     * It set `user.plan` and nothing else. The main app returns 'free' for a
+     * pro/elite user with no active Subscription row, so an upgrade to elite
+     * from this page showed "Plan changed to elite" here while the shopkeeper's
+     * app carried on as free. Bulk had the same bug and was fixed in fa17955 —
+     * inside the bulk handler only, so this copy kept it. Both now call the
+     * one rule in lib/plan-grant.
+     */
     const updated = await withNeonRetry(() =>
-      db.user.update({
-        where: { id },
-        data: {
+      db.$transaction(async (tx) => {
+        await applyPlanGrant(tx, {
+          userIds: [id],
           plan,
-          renewsAt: renewsAt ? new Date(renewsAt) : plan === 'free' ? null : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-          cancelledAt: null,
-          // 🐛 D.4: increment tokenVersion to revoke existing JWTs
-          tokenVersion: { increment: 1 },
-        },
-        select: { id: true, email: true, plan: true, renewsAt: true, tokenVersion: true },
+          endDate: renewsAt ? new Date(renewsAt) : null,
+          source: 'admin',
+        })
+        return tx.user.findUniqueOrThrow({
+          where: { id },
+          select: { id: true, email: true, plan: true, renewsAt: true, tokenVersion: true },
+        })
       })
     )
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAdmin } from '@/lib/with-admin'
+import { ASSIGNABLE_ROLES, isAssignableRole } from '@/lib/route-policy'
 import { db } from '@/lib/db'
 import { logAdminAction } from '@/lib/audit'
 
@@ -8,7 +9,8 @@ import { logAdminAction } from '@/lib/audit'
  * Update admin user role or active status (founder only).
  *
  * Body:
- *   - role: 'admin' | 'viewer' (cannot change to/from founder via API)
+ *   - role: one of ASSIGNABLE_ROLES in route-policy (never founder, and never
+ *     a founder's own role)
  *   - isActive: boolean
  */
 export const PATCH = withAdmin(
@@ -37,6 +39,35 @@ export const PATCH = withAdmin(
     // Cannot change role to/from founder
     if (role === 'founder') {
       return NextResponse.json({ error: 'Cannot assign founder role via API' }, { status: 400 })
+    }
+
+    /*
+     * 🐛 2026-10-01 — A ONE-WAY DOOR. A founder could demote THEMSELVES.
+     *
+     * The check above stops a founder touching OTHER founders, and the one
+     * below stops self-deactivation — but nothing stopped a founder changing
+     * their own role. And because founder can never be granted from the app,
+     * that was permanent: no one, including the person who did it, could
+     * undo it without hand-editing the database. On a panel with one founder
+     * it locks the company out of its own admin team.
+     *
+     * "to/from founder" was the stated rule all along; it was only half
+     * enforced. A founder's role is now not changeable here at all.
+     */
+    if (role !== undefined && existing.role === 'founder') {
+      return NextResponse.json(
+        { error: "A founder's role cannot be changed from the app." },
+        { status: 400 },
+      )
+    }
+
+    // Any value at all used to be stored as a role, including ones the
+    // permission table does not know — which silently means "no access".
+    if (role !== undefined && !isAssignableRole(role)) {
+      return NextResponse.json(
+        { error: `Role must be one of: ${ASSIGNABLE_ROLES.join(', ')}` },
+        { status: 400 },
+      )
     }
 
     // Prevent self-deactivation (founder locking themselves out)

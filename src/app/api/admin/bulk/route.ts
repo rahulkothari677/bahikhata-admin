@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
 import { logAdminAction } from '@/lib/audit'
 import { invalidateTokenVersionCacheBulk } from '@/lib/token-version-cache'
 import { withNeonRetry } from '@/lib/resilience'
+import { applyPlanGrant, isGrantablePlan } from '@/lib/plan-grant'
 import { computeRetentionUntil } from '@/lib/soft-delete'
 
 /**
@@ -75,7 +76,7 @@ export const POST = withAdmin(
       }
 
       case 'change_plan': {
-        if (!['free', 'pro', 'elite'].includes(params.plan)) {
+        if (!isGrantablePlan(params.plan)) {
           return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
         }
 
@@ -101,46 +102,18 @@ export const POST = withAdmin(
          * row and the subscription disagreeing, which is the state this whole
          * fix exists to prevent.
          */
-        const now = new Date()
-        const planEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
-
+        // The grant itself — user row AND the subscription that proves it — is
+        // the one rule in lib/plan-grant, shared with the single-user upgrade.
+        // It lived here alone until 2026-10-02, which is how the other path
+        // kept the bug this comment block describes.
         const updated = await withNeonRetry(() =>
-          db.$transaction(async (tx) => {
-            const res = await tx.user.updateMany({
-              where: { id: { in: userIds } },
-              data: {
-                plan: params.plan,
-                renewsAt: params.plan === 'free' ? null : planEnd,
-                // 🐛 D.4: increment tokenVersion to revoke existing JWTs
-                tokenVersion: { increment: 1 },
-              },
-            })
-
-            // Any previous grant is superseded by this one, in both directions.
-            await tx.subscription.updateMany({
-              where: { userId: { in: userIds }, status: 'active' },
-              data: { status: 'expired' },
-            })
-
-            if (params.plan !== 'free') {
-              await tx.subscription.createMany({
-                data: userIds.map((uid: string) => ({
-                  // Subscription.id has no DB default — it must be supplied.
-                  id: `adminbulk_${uid}_${now.getTime()}`,
-                  userId: uid,
-                  plan: params.plan,
-                  status: 'active',
-                  amount: 0,            // granted by an admin, not paid for
-                  paymentMode: 'admin_grant',
-                  startDate: now,
-                  endDate: planEnd,
-                })),
-                skipDuplicates: true,
-              })
-            }
-
-            return res
-          })
+          db.$transaction(async (tx) => ({
+            count: await applyPlanGrant(tx, {
+              userIds,
+              plan: params.plan,
+              source: 'adminbulk',
+            }),
+          }))
         )
 
         // 🐛 D.4: Invalidate the main app's Redis cache for all affected users

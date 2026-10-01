@@ -45,6 +45,34 @@
 export type AdminRole = 'viewer' | 'support' | 'analyst' | 'finance' | 'founder'
 
 /**
+ * The roles a founder may GIVE someone, from the app. Founder is never one of
+ * them — it is minted once, by first-run setup, and otherwise only by hand in
+ * the database.
+ *
+ * 🐛 2026-10-01 — ONE LIST, because there were two. The Admin Team screen and
+ * the create route offered "admin" and "viewer"; this file, which decides what
+ * every role may actually DO, has never heard of "admin". So an account created
+ * as "Admin (full access)" was refused by every protected route — the exact
+ * opposite of its label — and support, analyst and finance staff could not be
+ * created at all.
+ */
+export const ASSIGNABLE_ROLES = ['support', 'analyst', 'finance', 'viewer'] as const
+export type AssignableRole = (typeof ASSIGNABLE_ROLES)[number]
+
+export function isAssignableRole(role: unknown): role is AssignableRole {
+  return typeof role === 'string' && (ASSIGNABLE_ROLES as readonly string[]).includes(role)
+}
+
+/** What each role is for, in the words the Admin Team screen shows. */
+export const ROLE_DESCRIPTIONS: Record<AdminRole, string> = {
+  founder: 'Everything, including the admin team',
+  support: 'Support tickets, user lookup and plan corrections',
+  finance: 'Billing, revenue and plan changes',
+  analyst: 'Dashboards and reports, no account changes',
+  viewer: 'Read-only, for auditors and investors',
+}
+
+/**
  * What class of data crosses the wire. Drives masking, audit depth and
  * retention — not merely documentation.
  *
