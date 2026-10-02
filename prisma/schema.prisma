@@ -483,6 +483,11 @@ model TransactionItem {
   // so credit notes can load the original intent (500ml, not 0.5ltr).
   enteredQuantity Float? // original quantity as entered by the user
   enteredUnit     String? // original unit as entered by the user (ml, gm, etc.)
+  // Mirrored from the main app (migration 20261002000001_line_entered_price):
+  // the price as typed and whether it included GST, so a refilled line
+  // (return, repeat sale, edit, estimate convert) reproduces what was billed.
+  enteredPrice     Int? // paise, as typed (MRP for an inclusive line)
+  priceIncludesGst Boolean?
 
   createdAt DateTime @default(now())
 
