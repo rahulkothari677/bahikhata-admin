@@ -550,6 +550,10 @@ model Payment {
 }
 
 model Setting {
+  // Mirrored from the main app (migration 20261002000002_gst_registered, #165):
+  // is the shop GST-registered at all? FALSE = not registered (no GST on its
+  // bills, Section 32(1) CGST Act). A composition category implies TRUE.
+  gstRegistered Boolean @default(false)
   /*
    * Composition scheme registration. NULL = the regular scheme.
    *
