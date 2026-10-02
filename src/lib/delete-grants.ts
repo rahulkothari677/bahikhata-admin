@@ -69,3 +69,27 @@ export const TABLES_NEEDING_DELETE = [
  * constant records that it is a choice rather than an oversight.
  */
 export const TABLES_DELIBERATELY_WITHOUT_DELETE = ['User'] as const
+
+/**
+ * Write privileges the panel needs BEYOND the purpose-scoped default.
+ *
+ * 🐛 2026-10-02. An elite upgrade failed on the live panel with a flat
+ * "Failed to update user", after working on a local copy whose role can do
+ * anything. The grant rule (lib/plan-grant) now writes a Subscription row —
+ * because the main app does not believe user.plan without one — and db.ts's
+ * own list of tables the admin role may INSERT/UPDATE never included
+ * Subscription. Same shape as the DELETE gap 20cab9b found: correct code,
+ * refused by a grant nobody could see.
+ *
+ * Checked live by GET /api/admin/database/grants; granted by
+ * scripts/grant-admin-plan-writes.sql.
+ */
+export const WRITE_GRANTS_NEEDED: Readonly<Record<string, readonly ('INSERT' | 'UPDATE')[]>> = {
+  // applyPlanGrant: expires the old grant (UPDATE) and creates the new one (INSERT).
+  Subscription: ['INSERT', 'UPDATE'],
+  // applyPlanGrant: plan, renewsAt, cancelledAt, tokenVersion.
+  User: ['UPDATE'],
+  // Every audit entry. logAdminAction swallows errors, so a missing INSERT
+  // here is an empty audit trail rather than a visible failure.
+  AdminAction: ['INSERT'],
+}

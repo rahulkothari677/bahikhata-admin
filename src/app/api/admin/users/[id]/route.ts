@@ -5,6 +5,7 @@ import { logAdminAction } from '@/lib/audit'
 import { invalidateTokenVersionCache } from '@/lib/token-version-cache'
 import { withNeonRetry } from '@/lib/resilience'
 import { applyPlanGrant, isGrantablePlan } from '@/lib/plan-grant'
+import { describeDbFailure } from '@/lib/db-failure'
 
 /**
  * GET /api/admin/users/[id]
@@ -217,7 +218,25 @@ export const PATCH = withAdmin(
     })
   } catch (error) {
     console.error('Admin user update error:', error)
-    return NextResponse.json({ error: 'Failed to update user' }, { status: 500 })
+    /*
+     * 🐛 2026-10-02 — this said "Failed to update user" and nothing else.
+     * Rahul's elite upgrade failed on the live panel with exactly that, after
+     * the same change had worked locally — so the cause was something only
+     * production has, and the one place it was written down was a log neither
+     * of us could see. The grant is a single transaction, so on any failure
+     * nothing was saved, and the message says so.
+     */
+    const failure = describeDbFailure(error)
+    return NextResponse.json(
+      {
+        error: {
+          code: `DB_${failure.kind.toUpperCase()}`,
+          message: failure.message,
+          requestId: ctx.requestId,
+        },
+      },
+      { status: failure.kind === 'busy' ? 503 : 500 },
+    )
   }
 },
 )

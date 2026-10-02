@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAdmin } from '@/lib/with-admin'
 import { db } from '@/lib/db'
-import { TABLES_NEEDING_DELETE, TABLES_DELIBERATELY_WITHOUT_DELETE } from '@/lib/delete-grants'
+import { TABLES_NEEDING_DELETE, TABLES_DELIBERATELY_WITHOUT_DELETE, WRITE_GRANTS_NEEDED } from '@/lib/delete-grants'
 
 /**
  * GET /api/admin/database/grants
@@ -45,22 +45,43 @@ export const GET = withAdmin('admin/database/grants', async (_req: NextRequest) 
     `
 
     const missing = rows.filter((r) => !r.can_delete).map((r) => r.table_name)
+
+    /*
+     * 📄 2026-10-02 — INSERT/UPDATE as well. An elite upgrade failed live
+     * while working locally; the leading cause is a write grant the
+     * purpose-scoped role was never given on Subscription. Same question as
+     * DELETE above, asked of the privileges the plan grant needs.
+     */
+    const pairs = Object.entries(WRITE_GRANTS_NEEDED).flatMap(([t, privs]) => privs.map((p) => ({ t, p })))
+    const writeRows = await db.$queryRaw<{ table_name: string; privilege: string; granted: boolean }[]>`
+      SELECT x.t AS table_name, x.p AS privilege,
+             has_table_privilege(quote_ident(x.t), x.p) AS granted
+      FROM unnest(${pairs.map((x) => x.t)}::text[], ${pairs.map((x) => x.p)}::text[]) AS x(t, p)
+    `
+    const missingWrite = writeRows.filter((r) => !r.granted).map((r) => `${r.table_name}:${r.privilege}`)
     const [{ current_user: role, current_database: database }] = await db.$queryRaw<
       { current_user: string; current_database: string }[]
     >`SELECT current_user, current_database()`
 
     return NextResponse.json({
       success: true,
-      ok: missing.length === 0,
+      ok: missing.length === 0 && missingWrite.length === 0,
       role,
       database,
       missingDelete: missing,
+      missingWrite,
+      writeChecked: writeRows,
       checked: rows,
       deliberatelyWithoutDelete: TABLES_DELIBERATELY_WITHOUT_DELETE,
       remedy:
-        missing.length === 0
-          ? null
-          : `Run scripts/grant-admin-delete.sql as the database owner. Without it these admin deletes fail with a 500 that says nothing: ${missing.join(', ')}.`,
+        [
+          missing.length
+            ? `Run scripts/grant-admin-delete.sql as the database owner. Without it these admin deletes fail: ${missing.join(', ')}.`
+            : null,
+          missingWrite.length
+            ? `Run scripts/grant-admin-plan-writes.sql as the database owner. Without it plan upgrades fail: ${missingWrite.join(', ')}.`
+            : null,
+        ].filter(Boolean).join(' ') || null,
     })
   } catch (error) {
     const e = (error ?? {}) as { code?: unknown; name?: unknown; message?: unknown }

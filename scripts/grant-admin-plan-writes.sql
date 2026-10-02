@@ -1,0 +1,33 @@
+-- Let the admin panel GRANT A PLAN for real.
+--
+-- WHY (2026-10-02)
+-- An elite upgrade from the admin panel failed live with "Failed to update
+-- user". The main app does not believe user.plan for pro/elite unless an
+-- ACTIVE Subscription row backs it, so the panel must write one
+-- (src/lib/plan-grant.ts). The admin's database login is purpose-scoped and was
+-- never allowed to INSERT or UPDATE Subscription, so the database refused.
+--
+-- Confirm before running: open /api/admin/database/grants while logged in to
+-- the admin panel. If "missingWrite" lists Subscription:INSERT or
+-- Subscription:UPDATE, this is the fix. If it is empty, do NOT run this — the
+-- cause is elsewhere.
+--
+-- HOW TO RUN
+--   1. Neon console → your project → SQL Editor.
+--   2. Run it as the OWNER role (the one that created the tables, normally
+--      neondb_owner) — not the panel's role; a role cannot grant itself.
+--   3. Reload /api/admin/database/grants. "missingWrite" should be [].
+--
+-- WHAT IT DOES NOT DO
+--   No DELETE, and nothing on any table the check did not name. Granting is
+--   additive and removes or changes no data.
+--
+--   User UPDATE is NOT granted by default: db.ts says the role already has it,
+--   but no plan change has been confirmed live, so that is a claim, not a fact.
+--   Un-comment the second line ONLY if the check lists User:UPDATE as missing.
+--
+-- The role name comes from /api/admin/database/grants ("role"). If that page
+-- shows a different name, use that name instead.
+
+GRANT INSERT, UPDATE ON TABLE "Subscription" TO bahikhata_admin_app;
+-- GRANT UPDATE ON TABLE "User" TO bahikhata_admin_app;
