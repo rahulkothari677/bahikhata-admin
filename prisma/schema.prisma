@@ -325,6 +325,12 @@ model Transaction {
   paidAmount      Int      @default(0) // amount actually paid
   paymentMode     String   @default("cash") // cash | upi | card | bank | credit
   isInterState    Boolean  @default(false)
+  // Mirrored from the main app (Phase 2c, #114; its migration
+  // 20261004000001_bill_place_of_supply owns the columns). Place of supply as
+  // saved on the bill (2-digit state code) and where the goods were sent.
+  placeOfSupply   String?
+  deliveryState   String?
+  deliveryAddress String?
   // V17-Ext Tier 3: Reverse Charge Mechanism (RCM). When true on a purchase,
   // the buyer (shopkeeper) pays GST directly to the government instead of the
   // supplier charging it. Common for: GTA (transport), legal services,
